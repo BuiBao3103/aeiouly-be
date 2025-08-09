@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     FROM_EMAIL: str = "noreply@aeiouly.local"
     SMTP_TLS: bool = True
     SMTP_SSL: bool = False
+
+    # Migrations
+    AUTO_MIGRATE_ON_STARTUP: bool = False
     
     # CORS
     BACKEND_CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:8080"]

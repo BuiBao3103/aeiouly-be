@@ -1,7 +1,6 @@
 from datetime import datetime, timedelta
 from typing import Optional
 from jose import jwt
-from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 from fastapi import Response
 from src.auth.models import User, PasswordResetToken, RefreshToken
@@ -28,13 +27,6 @@ from src.auth.config import (
 from src.auth.utils import generate_secure_token, generate_refresh_token, is_token_expired
 from src.email.service import EmailService
 from src.config import settings
-
-# Initialize password context with fallback
-try:
-    pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-except Exception:
-    # Fallback to sha256_crypt if bcrypt fails
-    pwd_context = CryptContext(schemes=["sha256_crypt"], deprecated="auto")
 
 class AuthService:
     def __init__(self):

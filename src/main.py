@@ -1,7 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from src.config import settings
-from src.database import create_tables
 from src.auth.router import router as auth_router
 from src.posts.router import router as posts_router
 
@@ -48,8 +47,14 @@ async def health_check():
 # Startup event
 @app.on_event("startup")
 async def startup_event():
-    # Create database tables
-    create_tables()
+    # Optional: auto run alembic migrations on startup
+    if settings.AUTO_MIGRATE_ON_STARTUP:
+        try:
+            import subprocess
+            subprocess.run(["alembic", "upgrade", "head"], check=True)
+            print("[Startup] Alembic migrations applied")
+        except Exception as e:
+            print(f"[Startup] Alembic migration failed: {e}")
 
 if __name__ == "__main__":
     import uvicorn
