@@ -5,6 +5,9 @@ from src.database import create_tables
 from src.auth.router import router as auth_router
 from src.posts.router import router as posts_router
 
+# Import all models to ensure they are registered with SQLAlchemy
+import src.models
+
 # Create FastAPI app
 app = FastAPI(
     title=settings.PROJECT_NAME,

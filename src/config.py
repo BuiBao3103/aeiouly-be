@@ -13,10 +13,19 @@ class Settings(BaseSettings):
     # Security
     SECRET_KEY: str = "your-secret-key-here"
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     
     # Database
     DATABASE_URL: str = "sqlite:///./app.db"
+    
+    # SMTP Configuration
+    SMTP_SERVER: str = "sandbox.smtp.mailtrap.io"
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: str = ""
+    SMTP_PASSWORD: str = ""
+    FROM_EMAIL: str = "noreply@aeiouly.local"
+    SMTP_TLS: bool = True
+    SMTP_SSL: bool = False
     
     # CORS
     BACKEND_CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:8080"]
@@ -41,4 +50,4 @@ class Settings(BaseSettings):
         env_file = ".env"
         case_sensitive = True
 
-settings = Settings() 
+settings = Settings()

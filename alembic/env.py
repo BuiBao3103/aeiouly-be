@@ -17,7 +17,8 @@ if config.config_file_name is not None:
 # add your model's MetaData object here
 # for 'autogenerate' support
 from src.database import Base
-from src.models import *  # Đảm bảo import tất cả models
+# Import all models to ensure they are registered with SQLAlchemy
+import src.models
 
 target_metadata = Base.metadata
 

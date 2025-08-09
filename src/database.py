@@ -25,4 +25,8 @@ def get_db():
 
 # Create all tables
 def create_tables():
+    # Import models here to avoid circular imports
+    from src.auth.models import User, PasswordResetToken, RefreshToken
+    from src.posts.models import Post
+    
     Base.metadata.create_all(bind=engine) 

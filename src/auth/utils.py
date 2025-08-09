@@ -1,62 +1,22 @@
-import re
+import secrets
 from typing import Optional
-from app.auth.config import (
-    MIN_PASSWORD_LENGTH,
-    PASSWORD_REGEX,
-    MIN_USERNAME_LENGTH,
-    MAX_USERNAME_LENGTH,
-    USERNAME_REGEX
-)
+from datetime import datetime, timedelta
+from src.auth.config import PASSWORD_RESET_TOKEN_LENGTH
 
-def validate_password(password: str) -> tuple[bool, Optional[str]]:
+def generate_secure_token(length: int = PASSWORD_RESET_TOKEN_LENGTH) -> str:
     """
-    Validate password strength
-    Returns: (is_valid, error_message)
+    Generate a secure random token
     """
-    if len(password) < MIN_PASSWORD_LENGTH:
-        return False, f"Password must be at least {MIN_PASSWORD_LENGTH} characters long"
-    
-    if not re.match(PASSWORD_REGEX, password):
-        return False, "Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character"
-    
-    return True, None
+    return secrets.token_urlsafe(length)
 
-def validate_username(username: str) -> tuple[bool, Optional[str]]:
+def generate_refresh_token() -> str:
     """
-    Validate username format
-    Returns: (is_valid, error_message)
+    Generate a secure refresh token
     """
-    if len(username) < MIN_USERNAME_LENGTH:
-        return False, f"Username must be at least {MIN_USERNAME_LENGTH} characters long"
-    
-    if len(username) > MAX_USERNAME_LENGTH:
-        return False, f"Username must be at most {MAX_USERNAME_LENGTH} characters long"
-    
-    if not re.match(USERNAME_REGEX, username):
-        return False, "Username can only contain letters, numbers, and underscores"
-    
-    return True, None
+    return secrets.token_urlsafe(32)
 
-def validate_email(email: str) -> tuple[bool, Optional[str]]:
+def is_token_expired(expires_at: datetime) -> bool:
     """
-    Basic email validation
-    Returns: (is_valid, error_message)
+    Check if a token is expired
     """
-    email_regex = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-    if not re.match(email_regex, email):
-        return False, "Invalid email format"
-    
-    return True, None
-
-def sanitize_username(username: str) -> str:
-    """
-    Sanitize username by removing special characters and converting to lowercase
-    """
-    return re.sub(r'[^a-zA-Z0-9_]', '', username.lower())
-
-def generate_username_from_email(email: str) -> str:
-    """
-    Generate a username from email address
-    """
-    base_username = email.split('@')[0]
-    return sanitize_username(base_username) 
+    return datetime.utcnow() > expires_at 

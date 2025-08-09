@@ -1,14 +1,16 @@
 from src.config import settings
 
 # Auth specific configurations
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+ACCESS_TOKEN_EXPIRE_MINUTES = 15  # Giảm thời gian access token
 REFRESH_TOKEN_EXPIRE_DAYS = 7
+ACCESS_TOKEN_COOKIE_NAME = "access_token"
+REFRESH_TOKEN_COOKIE_NAME = "refresh_token"
 
-# Password validation
-MIN_PASSWORD_LENGTH = 8
-PASSWORD_REGEX = r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]"
+# Cookie settings
+COOKIE_SECURE = True  # HTTPS only
+COOKIE_HTTPONLY = True  # Prevent XSS
+COOKIE_SAMESITE = "lax"  # CSRF protection
 
-# Username validation
-MIN_USERNAME_LENGTH = 3
-MAX_USERNAME_LENGTH = 50
-USERNAME_REGEX = r"^[a-zA-Z0-9_]+$" 
+# Password reset
+PASSWORD_RESET_TOKEN_EXPIRE_MINUTES = 30
+PASSWORD_RESET_TOKEN_LENGTH = 32 

@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="greeting">
+    Xin chào <strong>{{ username }}</strong>! 📢
+</div>
+
+<div class="message">
+    <p>Bạn có một thông báo mới từ <strong>{{ app_name }}</strong>:</p>
+</div>
+
+<div class="info-box">
+    <h3>🔔 {{ notification_type }}</h3>
+    <p style="margin-top: 10px;">{{ message }}</p>
+</div>
+
+{% if action_url %}
+<div style="text-align: center;">
+    <a href="{{ action_url }}" class="button">
+        👁️ Xem chi tiết
+    </a>
+</div>
+{% endif %}
+
+<div class="message">
+    <p>Nếu bạn có câu hỏi về thông báo này, vui lòng liên hệ với chúng tôi qua email <a href="mailto:{{ support_email }}">{{ support_email }}</a></p>
+</div>
+
+<div class="message">
+    <p>Bạn có thể quản lý thông báo trong <a href="https://aeiouly.com/settings/notifications">cài đặt tài khoản</a>.</p>
+</div>
+{% endblock %} 

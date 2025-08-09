@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="greeting">
+    Xin chào <strong>{{ username }}</strong>! 🎉
+</div>
+
+<div class="message">
+    <p>Cảm ơn bạn đã đăng ký tài khoản tại <strong>{{ app_name }}</strong>!</p>
+    <p>Chúng tôi rất vui mừng được chào đón bạn vào cộng đồng chia sẻ kiến thức của chúng tôi.</p>
+</div>
+
+<div style="text-align: center;">
+    <a href="{{ login_url }}" class="button">
+        🚀 Bắt đầu khám phá
+    </a>
+</div>
+
+<div class="info-box">
+    <h3>🎯 Những gì bạn có thể làm:</h3>
+    <ul style="margin-left: 20px; margin-top: 10px;">
+        <li>Đọc và chia sẻ bài viết thú vị</li>
+        <li>Tham gia thảo luận với cộng đồng</li>
+        <li>Đặt câu hỏi và nhận câu trả lời</li>
+        <li>Kết nối với những người có cùng sở thích</li>
+        <li>Học hỏi từ các chuyên gia trong lĩnh vực</li>
+    </ul>
+</div>
+
+<div class="message">
+    <h3>💡 Mẹo để bắt đầu:</h3>
+    <ol style="margin-left: 20px; margin-top: 10px;">
+        <li>Cập nhật thông tin cá nhân của bạn</li>
+        <li>Khám phá các chủ đề bạn quan tâm</li>
+        <li>Theo dõi những người dùng thú vị</li>
+        <li>Viết bài viết đầu tiên của bạn</li>
+    </ol>
+</div>
+
+<div class="message">
+    <p>Nếu bạn có bất kỳ câu hỏi nào, đừng ngần ngại liên hệ với chúng tôi qua email <a href="mailto:{{ support_email }}">{{ support_email }}</a></p>
+    <p>Chúc bạn có những trải nghiệm tuyệt vời tại {{ app_name }}!</p>
+</div>
+{% endblock %} 
