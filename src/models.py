@@ -5,7 +5,7 @@ from src.auth.models import User, PasswordResetToken, RefreshToken
 from src.posts.models import Post
 
 # Import email module to ensure templates are loaded
-import src.email.service
+import src.mailer.service
 
 # This ensures all models are registered with SQLAlchemy metadata
 __all__ = ["User", "PasswordResetToken", "RefreshToken", "Post"] 

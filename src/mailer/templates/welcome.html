@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="greeting">
+    Xin chào <strong>{{ username }}</strong>! 🎉
+</div>
+
+<div class="message">
+    <p>Chào mừng bạn đến với <strong>{{ app_name }}</strong> — nền tảng <strong>luyện tiếng Anh cùng AI Agent</strong>.</p>
+    <p>Từ hôm nay, bạn có thể luyện viết, dịch, và nhận phản hồi tức thì từ trợ lý AI được thiết kế riêng cho lộ trình học của bạn.</p>
+</div>
+
+<div style="text-align: center;">
+    <a href="{{ login_url }}" class="button">
+        🚀 Bắt đầu luyện tập cùng AI
+    </a>
+</div>
+
+<div class="info-box">
+    <h3>🎯 Bạn có thể làm gì với {{ app_name }}?</h3>
+    <ul style="margin-left: 20px; margin-top: 10px;">
+        <li>Luyện dịch từng câu với phản hồi chi tiết về ngữ pháp và từ vựng</li>
+        <li>Luyện viết đoạn văn theo chủ đề, cấp độ và độ dài mong muốn</li>
+        <li>Nhận chấm điểm tổng kết và gợi ý cải thiện</li>
+        <li>Theo dõi tiến độ học theo từng phiên luyện tập</li>
+    </ul>
+</div>
+
+<div class="message">
+    <h3>💡 Bắt đầu nhanh:</h3>
+    <ol style="margin-left: 20px; margin-top: 10px;">
+        <li>Đăng nhập và chọn mục Luyện viết với AI</li>
+        <li>Nhập chủ đề, cấp độ, độ dài mong muốn</li>
+        <li>Dịch từng câu theo gợi ý của AI và nhận phản hồi</li>
+        <li>Xem tổng kết và đề xuất bài học tiếp theo</li>
+    </ol>
+</div>
+
+<div class="message">
+    <p>Nếu cần hỗ trợ, hãy liên hệ <a href="mailto:{{ support_email }}">{{ support_email }}</a>. Chúc bạn học hiệu quả cùng {{ app_name }}!</p>
+</div>
+{% endblock %} 

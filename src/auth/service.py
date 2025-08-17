@@ -25,8 +25,11 @@ from src.auth.config import (
     PASSWORD_RESET_TOKEN_EXPIRE_MINUTES
 )
 from src.auth.utils import generate_secure_token, generate_refresh_token, is_token_expired
-from src.email.service import EmailService
+from src.mailer.service import EmailService
 from src.config import settings
+from passlib.context import CryptContext
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 class AuthService:
     def __init__(self):
