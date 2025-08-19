@@ -16,6 +16,7 @@ from src.auth.dependencies import (
     get_refresh_token_from_cookie
 )
 from src.database import get_db
+from src.config import settings
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -74,9 +75,8 @@ async def request_password_reset(
     auth_service = AuthService()
     
     # Get reset URL from request
-    base_url = str(request.base_url).rstrip('/')
-    reset_url = f"{base_url}/auth/password-reset"
-    
+    reset_url = f"{settings.CLIENT_SIDE_URL}/password-reset"
+
     success = await auth_service.request_password_reset(
         reset_data.email, 
         db, 
