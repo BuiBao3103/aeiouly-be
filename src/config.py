@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = "sqlite:///./app.db"
     
+    # Google AI API Configuration
+    GOOGLE_AI_API_KEY: str = ""
+    
     # SMTP Configuration
     SMTP_SERVER: str = "sandbox.smtp.mailtrap.io"
     SMTP_PORT: int = 587

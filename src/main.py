@@ -29,6 +29,15 @@ if settings.BACKEND_CORS_ORIGINS:
 app.include_router(auth_router, prefix=settings.API_V1_STR)
 app.include_router(posts_router, prefix=settings.API_V1_STR)
 
+# Try to include writing agent router if available
+try:
+    from src.writing_agent.router import router as writing_router
+    app.include_router(writing_router, prefix=settings.API_V1_STR)
+    print("[Init] Writing agent router loaded successfully")
+except Exception as e:
+    # Avoid crashing app if optional deps missing
+    print(f"[Init] Writing agent router not loaded: {e}")
+
 # Root endpoint
 @app.get("/")
 async def root():
