@@ -9,20 +9,8 @@ from src.auth.exceptions import (
     UserAlreadyExistsException,
     InvalidCredentialsException,
     UserNotFoundException,
-    PasswordResetTokenExpiredException,
-    PasswordResetTokenInvalidException,
     RefreshTokenExpiredException,
     RefreshTokenRevokedException
-)
-from src.auth.config import (
-    ACCESS_TOKEN_EXPIRE_MINUTES,
-    REFRESH_TOKEN_EXPIRE_DAYS,
-    ACCESS_TOKEN_COOKIE_NAME,
-    REFRESH_TOKEN_COOKIE_NAME,
-    COOKIE_SECURE,
-    COOKIE_HTTPONLY,
-    COOKIE_SAMESITE,
-    PASSWORD_RESET_TOKEN_EXPIRE_MINUTES
 )
 from src.auth.utils import generate_secure_token, generate_refresh_token, is_token_expired
 from src.mailer.service import EmailService
@@ -57,7 +45,7 @@ class AuthService:
         if expires_delta:
             expire = datetime.utcnow() + expires_delta
         else:
-            expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+            expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
         to_encode.update({"exp": expire})
         encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
         return encoded_jwt
@@ -69,26 +57,26 @@ class AuthService:
     def set_auth_cookies(self, response: Response, access_token: str, refresh_token: str):
         """Set authentication cookies"""
         response.set_cookie(
-            key=ACCESS_TOKEN_COOKIE_NAME,
+            key=settings.ACCESS_TOKEN_COOKIE_NAME,
             value=access_token,
-            max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-            secure=COOKIE_SECURE,
-            httponly=COOKIE_HTTPONLY,
-            samesite=COOKIE_SAMESITE
+            max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+            secure=settings.COOKIE_SECURE,
+            httponly=settings.COOKIE_HTTPONLY,
+            samesite=settings.COOKIE_SAMESITE
         )
         response.set_cookie(
-            key=REFRESH_TOKEN_COOKIE_NAME,
+            key=settings.REFRESH_TOKEN_COOKIE_NAME,
             value=refresh_token,
-            max_age=REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
-            secure=COOKIE_SECURE,
-            httponly=COOKIE_HTTPONLY,
-            samesite=COOKIE_SAMESITE
+            max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
+            secure=settings.COOKIE_SECURE,
+            httponly=settings.COOKIE_HTTPONLY,
+            samesite=settings.COOKIE_SAMESITE
         )
 
     def clear_auth_cookies(self, response: Response):
         """Clear authentication cookies"""
-        response.delete_cookie(ACCESS_TOKEN_COOKIE_NAME)
-        response.delete_cookie(REFRESH_TOKEN_COOKIE_NAME)
+        response.delete_cookie(settings.ACCESS_TOKEN_COOKIE_NAME)
+        response.delete_cookie(settings.REFRESH_TOKEN_COOKIE_NAME)
 
     async def register_user(self, user_data: UserCreate, db: Session) -> User:
         # Check if user already exists
@@ -129,7 +117,7 @@ class AuthService:
             raise InvalidCredentialsException()
         
         # Create tokens
-        access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
         access_token = AuthService.create_access_token(
             data={"sub": user.username}, expires_delta=access_token_expires
         )
@@ -140,7 +128,7 @@ class AuthService:
         db_refresh_token = RefreshToken(
             user_id=user.id,
             token=refresh_token,
-            expires_at=datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+            expires_at=datetime.utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
         )
         db.add(db_refresh_token)
         db.commit()
@@ -151,7 +139,7 @@ class AuthService:
         return Token(
             access_token=access_token,
             refresh_token=refresh_token,
-            expires_in=ACCESS_TOKEN_EXPIRE_MINUTES * 60
+            expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
         )
 
     async def refresh_access_token(
@@ -180,7 +168,7 @@ class AuthService:
             raise UserNotFoundException()
 
         # Create new access token
-        access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
         new_access_token = AuthService.create_access_token(
             data={"sub": user.username}, expires_delta=access_token_expires
         )
@@ -195,7 +183,7 @@ class AuthService:
         new_db_refresh_token = RefreshToken(
             user_id=user.id,
             token=new_refresh_token,
-            expires_at=datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+            expires_at=datetime.utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
         )
         db.add(new_db_refresh_token)
         db.commit()
@@ -206,7 +194,7 @@ class AuthService:
         return Token(
             access_token=new_access_token,
             refresh_token=new_refresh_token,
-            expires_in=ACCESS_TOKEN_EXPIRE_MINUTES * 60
+            expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
         )
 
     async def logout(self, refresh_token: str, db: Session, response: Response):
@@ -238,7 +226,7 @@ class AuthService:
 
         # Generate reset token
         reset_token = generate_secure_token()
-        expires_at = datetime.utcnow() + timedelta(minutes=PASSWORD_RESET_TOKEN_EXPIRE_MINUTES)
+        expires_at = datetime.utcnow() + timedelta(minutes=settings.PASSWORD_RESET_TOKEN_EXPIRE_MINUTES)
 
         # Store reset token
         db_reset_token = PasswordResetToken(

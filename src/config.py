@@ -15,6 +15,20 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     
+    # Auth specific configurations
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    ACCESS_TOKEN_COOKIE_NAME: str = "access_token"
+    REFRESH_TOKEN_COOKIE_NAME: str = "refresh_token"
+    
+    # Cookie settings
+    COOKIE_SECURE: bool = True  # HTTPS only
+    COOKIE_HTTPONLY: bool = True  # Prevent XSS
+    COOKIE_SAMESITE: str = "lax"  # CSRF protection
+    
+    # Password reset
+    PASSWORD_RESET_TOKEN_EXPIRE_MINUTES: int = 30
+    PASSWORD_RESET_TOKEN_LENGTH: int = 32
+    
     # Database
     DATABASE_URL: str = "sqlite:///./app.db"
     
@@ -30,6 +44,9 @@ class Settings(BaseSettings):
     SMTP_TLS: bool = True
     SMTP_SSL: bool = False
 
+    # Google AI API
+    GOOGLE_AI_API_KEY: str = ""
+
     # Migrations
     AUTO_MIGRATE_ON_STARTUP: bool = False
     
@@ -43,7 +60,10 @@ class Settings(BaseSettings):
     # Pagination
     DEFAULT_PAGE_SIZE: int = 10
     MAX_PAGE_SIZE: int = 100
-    
+
+    # Front-end URL
+    CLIENT_SIDE_URL: str = "http://localhost:3000"
+
     @validator("BACKEND_CORS_ORIGINS", pre=True)
     def assemble_cors_origins(cls, v: Union[str, List[str]]) -> Union[List[str], str]:
         if isinstance(v, str) and not v.startswith("["):

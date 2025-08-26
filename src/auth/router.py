@@ -7,7 +7,8 @@ from src.auth.schemas import (
     PasswordResetRequest, 
     PasswordResetConfirm,
     PasswordChange,
-    LoginRequest
+    LoginRequest,
+    AuthErrorResponse
 )
 from src.auth.service import AuthService
 from src.auth.dependencies import (
@@ -16,6 +17,8 @@ from src.auth.dependencies import (
     get_refresh_token_from_cookie
 )
 from src.database import get_db
+from src.config import settings
+from src.auth.dependencies import validate_token_optional
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -43,7 +46,9 @@ async def login(
         response
     )
 
-@router.post("/refresh", response_model=Token)
+@router.post("/refresh", response_model=Token, responses={
+    401: {"model": AuthErrorResponse}
+})
 async def refresh_token(
     response: Response,
     refresh_token: str = Depends(get_refresh_token_from_cookie),
@@ -53,7 +58,9 @@ async def refresh_token(
     auth_service = AuthService()
     return await auth_service.refresh_access_token(refresh_token, db, response)
 
-@router.post("/logout")
+@router.post("/logout", responses={
+    401: {"model": AuthErrorResponse}
+})
 async def logout(
     response: Response,
     refresh_token: str = Depends(get_refresh_token_from_cookie),
@@ -74,9 +81,8 @@ async def request_password_reset(
     auth_service = AuthService()
     
     # Get reset URL from request
-    base_url = str(request.base_url).rstrip('/')
-    reset_url = f"{base_url}/auth/password-reset"
-    
+    reset_url = f"{settings.CLIENT_SIDE_URL}/password-reset"
+
     success = await auth_service.request_password_reset(
         reset_data.email, 
         db, 
@@ -102,7 +108,9 @@ async def confirm_password_reset(
     
     return {"message": "Đặt lại mật khẩu thành công"}
 
-@router.post("/change-password")
+@router.post("/change-password", responses={
+    401: {"model": AuthErrorResponse}
+})
 async def change_password(
     password_data: PasswordChange,
     current_user = Depends(get_current_active_user),
@@ -119,12 +127,44 @@ async def change_password(
     
     return {"message": "Đổi mật khẩu thành công"}
 
-@router.get("/me", response_model=UserResponse)
+@router.get("/me", response_model=UserResponse, responses={
+    401: {"model": AuthErrorResponse}
+})
 async def get_current_user_info(current_user = Depends(get_current_active_user)):
     """Get current user information"""
     return current_user
 
-@router.get("/verify-token")
+@router.get("/verify-token", responses={
+    401: {"model": AuthErrorResponse}
+})
 async def verify_token(current_user = Depends(get_current_active_user)):
     """Verify if current token is valid"""
-    return {"valid": True, "user_id": current_user.id} 
+    return {"valid": True, "user_id": current_user.id}
+
+@router.get("/test-token", responses={
+    401: {"model": AuthErrorResponse}
+})
+async def test_token_validation(
+    request: Request,
+    token_validation = Depends(validate_token_optional)
+):
+    """
+    Test endpoint to demonstrate token validation with error codes
+    Returns different responses based on token validity
+    """
+    if token_validation:
+        return {
+            "valid": True,
+            "username": token_validation["username"],
+            "message": "Token hợp lệ"
+        }
+    else:
+        # This will be caught by the dependency and return structured error
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "message": "Token không hợp lệ hoặc đã hết hạn",
+                "code": "token_not_valid",
+                "action": "refresh_token"
+            }
+        ) 

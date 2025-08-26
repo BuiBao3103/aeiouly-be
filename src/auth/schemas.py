@@ -29,6 +29,14 @@ class Token(BaseModel):
     token_type: str = "bearer"
     expires_in: int
 
+class ErrorResponse(BaseModel):
+    message: str
+    code: str
+    action: str
+
+class AuthErrorResponse(BaseModel):
+    detail: ErrorResponse
+
 class PasswordResetRequest(BaseModel):
     email: EmailStr
 

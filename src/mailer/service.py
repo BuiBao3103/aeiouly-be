@@ -72,7 +72,7 @@ class EmailService:
             context = {
                 "username": username,
                 "app_name": "Aeiouly",
-                "login_url": "https://aeiouly.com/login",
+                "login_url": f"{settings.CLIENT_SIDE_URL}/login",
                 "support_email": "support@aeiouly.com"
             }
 
