@@ -32,6 +32,17 @@ class InsufficientPermissionsException(AuthException):
             detail="Không đủ quyền truy cập"
         )
 
+class TokenNotValidException(AuthException):
+    def __init__(self):
+        super().__init__(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "message": "Token không hợp lệ hoặc đã hết hạn",
+                "code": "token_not_valid",
+                "action": "refresh_token"
+            }
+        )
+
 class PasswordResetTokenExpiredException(AuthException):
     def __init__(self):
         super().__init__(
@@ -50,12 +61,20 @@ class RefreshTokenExpiredException(AuthException):
     def __init__(self):
         super().__init__(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Refresh token đã hết hạn"
+            detail={
+                "message": "Refresh token đã hết hạn",
+                "code": "refresh_token_expired",
+                "action": "login_required"
+            }
         )
 
 class RefreshTokenRevokedException(AuthException):
     def __init__(self):
         super().__init__(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Refresh token đã bị thu hồi"
+            detail={
+                "message": "Refresh token đã bị thu hồi",
+                "code": "refresh_token_revoked",
+                "action": "login_required"
+            }
         ) 

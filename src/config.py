@@ -15,6 +15,20 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     
+    # Auth specific configurations
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    ACCESS_TOKEN_COOKIE_NAME: str = "access_token"
+    REFRESH_TOKEN_COOKIE_NAME: str = "refresh_token"
+    
+    # Cookie settings
+    COOKIE_SECURE: bool = True  # HTTPS only
+    COOKIE_HTTPONLY: bool = True  # Prevent XSS
+    COOKIE_SAMESITE: str = "lax"  # CSRF protection
+    
+    # Password reset
+    PASSWORD_RESET_TOKEN_EXPIRE_MINUTES: int = 30
+    PASSWORD_RESET_TOKEN_LENGTH: int = 32
+    
     # Database
     DATABASE_URL: str = "sqlite:///./app.db"
     
@@ -26,6 +40,9 @@ class Settings(BaseSettings):
     FROM_EMAIL: str = "noreply@aeiouly.local"
     SMTP_TLS: bool = True
     SMTP_SSL: bool = False
+
+    # Google AI API
+    GOOGLE_AI_API_KEY: str = ""
 
     # Migrations
     AUTO_MIGRATE_ON_STARTUP: bool = False
