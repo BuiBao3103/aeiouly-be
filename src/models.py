@@ -2,10 +2,10 @@
 # This file should be imported after database.py is initialized
 
 from src.auth.models import User, PasswordResetToken, RefreshToken
-from src.posts.models import Post
+from src.posts.models import Post, PostLike
 
 # Import email module to ensure templates are loaded
 import src.mailer.service
 
 # This ensures all models are registered with SQLAlchemy metadata
-__all__ = ["User", "PasswordResetToken", "RefreshToken", "Post"] 
+__all__ = ["User", "PasswordResetToken", "RefreshToken", "Post", "PostLike"] 

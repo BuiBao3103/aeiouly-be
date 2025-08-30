@@ -1,9 +1,9 @@
 from typing import List, Optional
 from sqlalchemy.orm import Session
-from sqlalchemy import desc
-from src.posts.models import Post
+from sqlalchemy import desc, func
+from src.posts.models import Post, PostLike
 from src.posts.schemas import PostCreate, PostUpdate, PostResponse
-from src.auth.models import User
+from src.auth.models import User, UserRole
 from src.posts.exceptions import (
     PostNotFoundException,
     InsufficientPermissionsException,
@@ -14,7 +14,11 @@ from src.pagination import PaginationParams
 class PostService:
     @staticmethod
     async def create_post(post_data: PostCreate, current_user: User, db: Session) -> Post:
-        """Create a new post"""
+        """Create a new post - Only admin can create posts"""
+        # Kiểm tra quyền admin
+        if current_user.role != UserRole.ADMIN:
+            raise InsufficientPermissionsException("Only admin can create posts")
+            
         db_post = Post(
             title=post_data.title,
             content=post_data.content,
@@ -45,6 +49,36 @@ class PostService:
         if not post:
             raise PostNotFoundException()
         return post
+    
+    @staticmethod
+    async def get_post_by_id_with_like_info(
+        post_id: int, 
+        current_user: Optional[User], 
+        db: Session
+    ) -> dict:
+        """Get a specific post by ID with like information"""
+        post = await PostService.get_published_post_by_id(post_id, db)
+        
+        likes_count = await PostService.get_post_likes_count(post.id, db)
+        is_liked = False
+        if current_user:
+            is_liked = await PostService.is_post_liked_by_user(post.id, current_user.id, db)
+        
+        return {
+            "id": post.id,
+            "title": post.title,
+            "content": post.content,
+            "is_published": post.is_published,
+            "author": {
+                "id": post.author.id,
+                "username": post.author.username,
+                "full_name": post.author.full_name
+            },
+            "likes_count": likes_count,
+            "is_liked_by_user": is_liked,
+            "created_at": post.created_at,
+            "updated_at": post.updated_at
+        }
 
     @staticmethod
     async def get_published_post_by_id(post_id: int, db: Session) -> Post:
@@ -111,6 +145,42 @@ class PostService:
         return posts
 
     @staticmethod
+    async def get_posts_by_user_with_like_info(
+        user_id: int,
+        pagination: PaginationParams,
+        current_user: Optional[User],
+        db: Session
+    ) -> List[dict]:
+        """Get all posts by a specific user with like information"""
+        posts = await PostService.get_posts_by_user(user_id, pagination, db)
+        
+        posts_with_likes = []
+        for post in posts:
+            likes_count = await PostService.get_post_likes_count(post.id, db)
+            is_liked = False
+            if current_user:
+                is_liked = await PostService.is_post_liked_by_user(post.id, current_user.id, db)
+            
+            post_dict = {
+                "id": post.id,
+                "title": post.title,
+                "content": post.content,
+                "is_published": post.is_published,
+                "author": {
+                    "id": post.author.id,
+                    "username": post.author.username,
+                    "full_name": post.author.full_name
+                },
+                "likes_count": likes_count,
+                "is_liked_by_user": is_liked,
+                "created_at": post.created_at,
+                "updated_at": post.updated_at
+            }
+            posts_with_likes.append(post_dict)
+        
+        return posts_with_likes
+
+    @staticmethod
     async def get_total_posts_count(db: Session) -> int:
         """Get total count of published posts"""
         return db.query(Post).filter(Post.is_published == True).count()
@@ -121,4 +191,89 @@ class PostService:
         return db.query(Post).filter(
             Post.author_id == user_id,
             Post.is_published == True
-        ).count() 
+        ).count()
+
+    @staticmethod
+    async def like_post(post_id: int, current_user: User, db: Session) -> dict:
+        """Like a post"""
+        # Kiểm tra post có tồn tại không
+        post = await PostService.get_published_post_by_id(post_id, db)
+        
+        # Kiểm tra user đã like post này chưa
+        existing_like = db.query(PostLike).filter(
+            PostLike.user_id == current_user.id,
+            PostLike.post_id == post_id
+        ).first()
+        
+        if existing_like:
+            # Nếu đã like thì unlike
+            db.delete(existing_like)
+            db.commit()
+            is_liked = False
+        else:
+            # Nếu chưa like thì tạo like mới
+            new_like = PostLike(
+                user_id=current_user.id,
+                post_id=post_id
+            )
+            db.add(new_like)
+            db.commit()
+            is_liked = True
+        
+        # Đếm tổng số likes
+        likes_count = db.query(PostLike).filter(PostLike.post_id == post_id).count()
+        
+        return {
+            "post_id": post_id,
+            "is_liked": is_liked,
+            "likes_count": likes_count
+        }
+
+    @staticmethod
+    async def get_post_likes_count(post_id: int, db: Session) -> int:
+        """Get total likes count for a post"""
+        return db.query(PostLike).filter(PostLike.post_id == post_id).count()
+
+    @staticmethod
+    async def is_post_liked_by_user(post_id: int, user_id: int, db: Session) -> bool:
+        """Check if a post is liked by a specific user"""
+        like = db.query(PostLike).filter(
+            PostLike.post_id == post_id,
+            PostLike.user_id == user_id
+        ).first()
+        return like is not None
+
+    @staticmethod
+    async def get_posts_with_like_info(
+        pagination: PaginationParams, 
+        current_user: Optional[User], 
+        db: Session
+    ) -> List[dict]:
+        """Get posts with like information"""
+        posts = await PostService.get_posts(pagination, db)
+        
+        posts_with_likes = []
+        for post in posts:
+            likes_count = await PostService.get_post_likes_count(post.id, db)
+            is_liked = False
+            if current_user:
+                is_liked = await PostService.is_post_liked_by_user(post.id, current_user.id, db)
+            
+            post_dict = {
+                "id": post.id,
+                "title": post.title,
+                "content": post.content,
+                "is_published": post.is_published,
+                "author": {
+                    "id": post.author.id,
+                    "username": post.author.username,
+                    "full_name": post.author.full_name
+                },
+                "likes_count": likes_count,
+                "is_liked_by_user": is_liked,
+                "created_at": post.created_at,
+                "updated_at": post.updated_at
+            }
+            posts_with_likes.append(post_dict)
+        
+        return posts_with_likes 

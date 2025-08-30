@@ -96,4 +96,37 @@ async def validate_token_optional(request: Request) -> Optional[dict]:
             return {"username": username, "valid": True}
         return None
     except HTTPException:
+        return None
+
+async def get_current_user_optional(
+    request: Request,
+    db: Session = Depends(get_db)
+) -> Optional[User]:
+    """
+    Get current user optionally - returns User if authenticated, None if not
+    """
+    try:
+        # Try to get token from cookie first
+        token = request.cookies.get(settings.ACCESS_TOKEN_COOKIE_NAME)
+        
+        # Fallback to Authorization header
+        if not token:
+            auth_header = request.headers.get("Authorization")
+            if auth_header and auth_header.startswith("Bearer "):
+                token = auth_header.split(" ")[1]
+        
+        if not token:
+            return None
+            
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            return None
+            
+        user = db.query(User).filter(User.username == username).first()
+        if user is None or not user.is_active:
+            return None
+            
+        return user
+    except JWTError:
         return None 
