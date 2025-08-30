@@ -12,7 +12,6 @@ class AuthorResponse(BaseModel):
         from_attributes = True
 
 class PostBase(BaseModel):
-    title: str = Field(..., min_length=1, max_length=200)
     content: str = Field(..., min_length=1)
     is_published: bool = True
 
@@ -20,7 +19,6 @@ class PostCreate(PostBase):
     pass
 
 class PostUpdate(BaseModel):
-    title: Optional[str] = Field(None, min_length=1, max_length=200)
     content: Optional[str] = Field(None, min_length=1)
     is_published: Optional[bool] = None
 
@@ -30,7 +28,7 @@ class PostResponse(PostBase):
     likes_count: int
     is_liked_by_user: Optional[bool] = None  # Sẽ được set nếu user đã đăng nhập
     created_at: datetime
-    updated_at: datetime
+    updated_at: Optional[datetime] = None  # Allow None values
 
     class Config:
         from_attributes = True

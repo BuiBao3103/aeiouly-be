@@ -11,35 +11,53 @@ from src.posts.exceptions import (
 )
 from src.pagination import PaginationParams
 
+
 class PostService:
     @staticmethod
     async def create_post(post_data: PostCreate, current_user: User, db: Session) -> Post:
         """Create a new post - Only admin can create posts"""
+        print(f"Current user role: {current_user.role}")
         # Kiểm tra quyền admin
         if current_user.role != UserRole.ADMIN:
-            raise InsufficientPermissionsException("Only admin can create posts")
-            
+            raise InsufficientPermissionsException(
+                "Only admin can create posts")
+
         db_post = Post(
-            title=post_data.title,
             content=post_data.content,
             is_published=post_data.is_published,
-            author_id=current_user.id
+            author_id=current_user.id,
         )
-        
+
         db.add(db_post)
         db.commit()
         db.refresh(db_post)
-        return db_post
+
+        # Return post with like information
+        return {
+            "id": db_post.id,
+            "content": db_post.content,
+            "is_published": db_post.is_published,
+            "author": {
+                "id": db_post.author.id,
+                "username": db_post.author.username,
+                "full_name": db_post.author.full_name
+            },
+            "likes_count": 0,  # New post has no likes
+            "is_liked_by_user": False,  # Creator hasn't liked their own post
+            "created_at": db_post.created_at,
+            "updated_at": db_post.updated_at
+        }
 
     @staticmethod
     async def get_posts(pagination: PaginationParams, db: Session) -> List[Post]:
         """Get all published posts with pagination"""
         query = db.query(Post).filter(Post.is_published == True)
-        
+
         # Apply pagination
         offset = (pagination.page - 1) * pagination.size
-        posts = query.order_by(desc(Post.created_at)).offset(offset).limit(pagination.size).all()
-        
+        posts = query.order_by(desc(Post.created_at)).offset(
+            offset).limit(pagination.size).all()
+
         return posts
 
     @staticmethod
@@ -49,24 +67,23 @@ class PostService:
         if not post:
             raise PostNotFoundException()
         return post
-    
+
     @staticmethod
     async def get_post_by_id_with_like_info(
-        post_id: int, 
-        current_user: Optional[User], 
+        post_id: int,
+        current_user: Optional[User],
         db: Session
     ) -> dict:
         """Get a specific post by ID with like information"""
         post = await PostService.get_published_post_by_id(post_id, db)
-        
+
         likes_count = await PostService.get_post_likes_count(post.id, db)
         is_liked = False
         if current_user:
             is_liked = await PostService.is_post_liked_by_user(post.id, current_user.id, db)
-        
+
         return {
             "id": post.id,
-            "title": post.title,
             "content": post.content,
             "is_published": post.is_published,
             "author": {
@@ -100,16 +117,16 @@ class PostService:
     ) -> Post:
         """Update a post"""
         post = await PostService.get_post_by_id(post_id, db)
-        
+
         # Check if user is the author
         if post.author_id != current_user.id:
             raise InsufficientPermissionsException()
-        
+
         # Update fields
         update_data = post_data.dict(exclude_unset=True)
         for field, value in update_data.items():
             setattr(post, field, value)
-        
+
         db.commit()
         db.refresh(post)
         return post
@@ -118,11 +135,11 @@ class PostService:
     async def delete_post(post_id: int, current_user: User, db: Session):
         """Delete a post"""
         post = await PostService.get_post_by_id(post_id, db)
-        
+
         # Check if user is the author
         if post.author_id != current_user.id:
             raise InsufficientPermissionsException()
-        
+
         db.delete(post)
         db.commit()
 
@@ -137,11 +154,12 @@ class PostService:
             Post.author_id == user_id,
             Post.is_published == True
         )
-        
+
         # Apply pagination
         offset = (pagination.page - 1) * pagination.size
-        posts = query.order_by(desc(Post.created_at)).offset(offset).limit(pagination.size).all()
-        
+        posts = query.order_by(desc(Post.created_at)).offset(
+            offset).limit(pagination.size).all()
+
         return posts
 
     @staticmethod
@@ -153,17 +171,16 @@ class PostService:
     ) -> List[dict]:
         """Get all posts by a specific user with like information"""
         posts = await PostService.get_posts_by_user(user_id, pagination, db)
-        
+
         posts_with_likes = []
         for post in posts:
             likes_count = await PostService.get_post_likes_count(post.id, db)
             is_liked = False
             if current_user:
                 is_liked = await PostService.is_post_liked_by_user(post.id, current_user.id, db)
-            
+
             post_dict = {
                 "id": post.id,
-                "title": post.title,
                 "content": post.content,
                 "is_published": post.is_published,
                 "author": {
@@ -177,7 +194,7 @@ class PostService:
                 "updated_at": post.updated_at
             }
             posts_with_likes.append(post_dict)
-        
+
         return posts_with_likes
 
     @staticmethod
@@ -198,13 +215,13 @@ class PostService:
         """Like a post"""
         # Kiểm tra post có tồn tại không
         post = await PostService.get_published_post_by_id(post_id, db)
-        
+
         # Kiểm tra user đã like post này chưa
         existing_like = db.query(PostLike).filter(
             PostLike.user_id == current_user.id,
             PostLike.post_id == post_id
         ).first()
-        
+
         if existing_like:
             # Nếu đã like thì unlike
             db.delete(existing_like)
@@ -219,10 +236,11 @@ class PostService:
             db.add(new_like)
             db.commit()
             is_liked = True
-        
+
         # Đếm tổng số likes
-        likes_count = db.query(PostLike).filter(PostLike.post_id == post_id).count()
-        
+        likes_count = db.query(PostLike).filter(
+            PostLike.post_id == post_id).count()
+
         return {
             "post_id": post_id,
             "is_liked": is_liked,
@@ -245,23 +263,22 @@ class PostService:
 
     @staticmethod
     async def get_posts_with_like_info(
-        pagination: PaginationParams, 
-        current_user: Optional[User], 
+        pagination: PaginationParams,
+        current_user: Optional[User],
         db: Session
     ) -> List[dict]:
         """Get posts with like information"""
         posts = await PostService.get_posts(pagination, db)
-        
+
         posts_with_likes = []
         for post in posts:
             likes_count = await PostService.get_post_likes_count(post.id, db)
             is_liked = False
             if current_user:
                 is_liked = await PostService.is_post_liked_by_user(post.id, current_user.id, db)
-            
+
             post_dict = {
                 "id": post.id,
-                "title": post.title,
                 "content": post.content,
                 "is_published": post.is_published,
                 "author": {
@@ -275,5 +292,5 @@ class PostService:
                 "updated_at": post.updated_at
             }
             posts_with_likes.append(post_dict)
-        
-        return posts_with_likes 
+
+        return posts_with_likes
