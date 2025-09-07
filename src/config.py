@@ -29,8 +29,14 @@ class Settings(BaseSettings):
     PASSWORD_RESET_TOKEN_EXPIRE_MINUTES: int = 30
     PASSWORD_RESET_TOKEN_LENGTH: int = 32
     
-    # Database
-    DATABASE_URL: str = "sqlite:///./app.db"
+    # Database - prefer discrete Postgres settings; fallback to DATABASE_URL
+    DATABASE_URL: str = ""  # Optional explicit URL; leave empty to assemble from fields below
+    POSTGRES_HOST: str = "localhost"
+    POSTGRES_PORT: int = 5432
+    POSTGRES_DB: str = "aeiouly"
+    POSTGRES_USER: str = "postgres"
+    POSTGRES_PASSWORD: str = "postgres"
+    DATABASE_DIALECT: str = "postgresql+psycopg2"  # e.g., postgresql+psycopg2, sqlite
     
     # SMTP Configuration
     SMTP_SERVER: str = "sandbox.smtp.mailtrap.io"
@@ -74,3 +80,22 @@ class Settings(BaseSettings):
         case_sensitive = True
 
 settings = Settings()
+
+# Helper to assemble DB URL when not explicitly provided
+def get_database_url() -> str:
+    if settings.DATABASE_URL:
+        return settings.DATABASE_URL
+    # Safely URL-encode credentials to handle special characters like @ : /
+    try:
+        from urllib.parse import quote_plus
+    except Exception:  # pragma: no cover
+        quote_plus = lambda x: x  # fallback (should not happen)
+
+    user = quote_plus(settings.POSTGRES_USER or "")
+    password = quote_plus(settings.POSTGRES_PASSWORD or "")
+    host = settings.POSTGRES_HOST
+    port = settings.POSTGRES_PORT
+    db = settings.POSTGRES_DB
+    dialect = settings.DATABASE_DIALECT
+    cred = f"{user}:{password}@" if password else f"{user}@" if user else ""
+    return f"{dialect}://{cred}{host}:{port}/{db}"
