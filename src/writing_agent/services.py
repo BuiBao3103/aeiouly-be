@@ -5,7 +5,8 @@ from google.adk.sessions import DatabaseSessionService
 from google.genai import types
 from fastapi import HTTPException
 from .agent import writing_agent, initial_state
-from .tools import session_service
+from google.adk.sessions import DatabaseSessionService
+from src.config import settings
 import time
 
 # ANSI color codes for terminal output
@@ -38,7 +39,9 @@ class WritingAgentService:
     """Service class for writing agent operations"""
     
     def __init__(self):
-        self.session_service = session_service
+        # Initialize DatabaseSessionService
+        db_url = "sqlite:///./app.db"
+        self.session_service = DatabaseSessionService(db_url=db_url)
     
     async def get_runner_and_session(self, user_id: str, session_id: Optional[str] = None):
         """Get or create runner and session for user"""
