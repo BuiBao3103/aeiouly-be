@@ -168,3 +168,14 @@ async def test_token_validation(
                 "action": "refresh_token"
             }
         ) 
+@router.delete("/delete-account", responses={
+    401: {"model": AuthErrorResponse}
+})
+async def delete_account(
+    current_user = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """Delete current user account"""
+    auth_service = AuthService()
+    await auth_service.delete_account(current_user.id, db)
+    return {"message": "Xóa tài khoản thành công"}
