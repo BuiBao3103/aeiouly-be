@@ -1,6 +1,7 @@
 import secrets
 from typing import Optional
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from jose import JWTError, jwt
 from src.config import settings
 from src.auth.exceptions import TokenNotValidException
@@ -21,7 +22,12 @@ def is_token_expired(expires_at: datetime) -> bool:
     """
     Check if a token is expired
     """
-    return datetime.utcnow() > expires_at
+    # Ensure both datetimes have timezone info for comparison
+    now = datetime.now(ZoneInfo("UTC"))
+    if expires_at.tzinfo is None:
+        # If expires_at is naive, assume it's UTC
+        expires_at = expires_at.replace(tzinfo=ZoneInfo("UTC"))
+    return now > expires_at
 
 def validate_access_token(token: str) -> Optional[str]:
     """

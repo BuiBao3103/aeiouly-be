@@ -43,7 +43,7 @@ class EmailService:
                 "username": username,
                 "reset_url": f"{reset_url}?token={reset_token}",
                 "token": reset_token,
-                "expire_minutes": 30,
+                "expire_minutes": settings.PASSWORD_RESET_TOKEN_EXPIRE_MINUTES,
                 "app_name": "Aeiouly",
                 "support_email": "support@aeiouly.com"
             }

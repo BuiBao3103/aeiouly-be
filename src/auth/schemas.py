@@ -1,13 +1,14 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import EmailStr
 from typing import Optional
 from datetime import datetime
 from enum import Enum
+from src.models import CustomModel
 
 class UserRole(str, Enum):
     ADMIN = "admin"  # Match the values in models.py
     USER = "user"
 
-class UserBase(BaseModel):
+class UserBase(CustomModel):
     email: EmailStr
     username: str
     full_name: Optional[str] = None
@@ -25,31 +26,31 @@ class UserResponse(UserBase):
     class Config:
         from_attributes = True
 
-class LoginRequest(BaseModel):
+class LoginRequest(CustomModel):
     username: str
     password: str
 
-class Token(BaseModel):
+class Token(CustomModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
     expires_in: int
 
-class ErrorResponse(BaseModel):
+class ErrorResponse(CustomModel):
     message: str
     code: str
     action: str
 
-class AuthErrorResponse(BaseModel):
+class AuthErrorResponse(CustomModel):
     detail: ErrorResponse
 
-class PasswordResetRequest(BaseModel):
+class PasswordResetRequest(CustomModel):
     email: EmailStr
 
-class PasswordResetConfirm(BaseModel):
+class PasswordResetConfirm(CustomModel):
     token: str
     new_password: str
 
-class PasswordChange(BaseModel):
+class PasswordChange(CustomModel):
     current_password: str
     new_password: str 

@@ -1,7 +1,18 @@
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, MetaData
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from src.config import get_database_url
+
+# PostgreSQL naming conventions
+POSTGRES_INDEXES_NAMING_CONVENTION = {
+    "ix": "%(column_0_label)s_idx",
+    "uq": "%(table_name)s_%(column_0_name)s_key",
+    "ck": "%(table_name)s_%(constraint_name)s_check",
+    "fk": "%(table_name)s_%(column_0_name)s_fkey",
+    "pk": "%(table_name)s_pkey",
+}
+
+metadata = MetaData(naming_convention=POSTGRES_INDEXES_NAMING_CONVENTION)
 
 # Create database engine
 database_url = get_database_url()
@@ -10,8 +21,8 @@ engine = create_engine(database_url)
 # Create SessionLocal class
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-# Create Base class
-Base = declarative_base()
+# Create Base class with naming conventions
+Base = declarative_base(metadata=metadata)
 
 # Dependency to get database session
 def get_db():

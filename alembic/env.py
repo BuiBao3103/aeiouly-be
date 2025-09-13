@@ -19,7 +19,7 @@ if config.config_file_name is not None:
 # for 'autogenerate' support
 from src.database import Base
 # Import all models to ensure they are registered with SQLAlchemy
-import src.models
+import src.models  # This imports all SQLAlchemy models
 
 target_metadata = Base.metadata
 

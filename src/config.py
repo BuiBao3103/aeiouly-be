@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     COOKIE_SAMESITE: str = "lax"  # CSRF protection
     
     # Password reset
-    PASSWORD_RESET_TOKEN_EXPIRE_MINUTES: int = 30
+    PASSWORD_RESET_TOKEN_EXPIRE_MINUTES: int = 60  # 1 hour instead of 30 minutes
     PASSWORD_RESET_TOKEN_LENGTH: int = 32
     
     # Database - prefer discrete Postgres settings; fallback to DATABASE_URL
