@@ -31,3 +31,4 @@ class CustomModel(BaseModel):
 # This is needed for Alembic to detect all models
 from src.auth.models import UserRole, User, PasswordResetToken, RefreshToken
 from src.posts.models import Post, PostLike
+from src.dictionary.models import Dictionary

@@ -1,0 +1,199 @@
+from typing import List, Optional
+import re
+from sqlalchemy.orm import Session
+from sqlalchemy import func, or_, and_, case
+from src.dictionary.models import Dictionary
+from src.dictionary.schemas import DictionarySearchRequest, DictionarySearchResponse, DictionaryResponse
+
+
+class DictionaryService:
+    """Service for dictionary operations"""
+
+    def __init__(self):
+        pass
+
+    def _get_base_forms(self, word: str) -> List[str]:
+        """Get base forms of a word by removing common suffixes"""
+        base_forms = [word]
+        
+        # Common English suffixes
+        suffixes = [
+            'ed', 'ing', 's', 'es', 'er', 'est', 'ly', 'tion', 'sion', 
+            'ness', 'ment', 'able', 'ible', 'ful', 'less', 'ive', 'ous',
+            'ize', 'ise', 'ify', 'en', 'al', 'ic', 'ical', 'ous', 'eous',
+            'ious', 'ary', 'ory', 'ty', 'ity', 'cy', 'sy', 'fy', 'my'
+        ]
+        
+        # Try removing suffixes
+        for suffix in suffixes:
+            if word.endswith(suffix) and len(word) > len(suffix) + 2:
+                base_form = word[:-len(suffix)]
+                if base_form not in base_forms:
+                    base_forms.append(base_form)
+        
+        # Special cases for common patterns
+        if word.endswith('ied'):
+            base_forms.append(word[:-3] + 'y')
+        if word.endswith('ies'):
+            base_forms.append(word[:-3] + 'y')
+        if word.endswith('ied'):
+            base_forms.append(word[:-3] + 'y')
+        
+        return base_forms
+
+    def search_words(
+        self, 
+        db: Session, 
+        request: DictionarySearchRequest
+    ) -> DictionarySearchResponse:
+        """
+        Search for words in dictionary using PostgreSQL full-text search
+        """
+        query = request.query.strip().lower()
+        limit = request.limit or 10
+
+        # Build search query with multiple strategies
+        search_conditions = []
+        
+        # Strategy 1: Exact match
+        search_conditions.append(Dictionary.expression.ilike(f"%{query}%"))
+        
+        # Strategy 2: Remove common suffixes and search
+        base_forms = self._get_base_forms(query)
+        for base_form in base_forms:
+            search_conditions.append(Dictionary.expression.ilike(f"%{base_form}%"))
+        
+        # Strategy 3: Search for words that start with the base form
+        for base_form in base_forms:
+            search_conditions.append(Dictionary.expression.ilike(f"{base_form}%"))
+        
+        search_query = db.query(Dictionary).filter(
+            or_(*search_conditions)
+        ).order_by(
+            # Prioritize exact matches first
+            case(
+                (Dictionary.expression.ilike(f"%{query}%"), 1),
+                else_=2
+            ),
+            Dictionary.expression.asc()
+        ).limit(limit)
+
+        # Get results
+        results = search_query.all()
+        
+        # Convert to response format
+        dictionary_results = [
+            DictionaryResponse(
+                id=result.id,
+                expression=result.expression,
+                definitions=result.definitions
+            )
+            for result in results
+        ]
+
+        # Get total count for the same query (without limit)
+        total_query = db.query(Dictionary).filter(
+            or_(*search_conditions)
+        )
+        total = total_query.count()
+
+        return DictionarySearchResponse(
+            results=dictionary_results,
+            total=total,
+            query=request.query,
+            limit=limit
+        )
+
+    def get_word_by_id(self, db: Session, word_id: int) -> Optional[DictionaryResponse]:
+        """
+        Get a specific word by ID
+        """
+        result = db.query(Dictionary).filter(Dictionary.id == word_id).first()
+        
+        if not result:
+            return None
+            
+        return DictionaryResponse(
+            id=result.id,
+            expression=result.expression,
+            definitions=result.definitions
+        )
+
+    def get_word_by_expression(self, db: Session, expression: str) -> Optional[DictionaryResponse]:
+        """
+        Get a specific word by exact expression match
+        """
+        result = db.query(Dictionary).filter(
+            Dictionary.expression.ilike(expression.strip())
+        ).first()
+        
+        if not result:
+            return None
+            
+        return DictionaryResponse(
+            id=result.id,
+            expression=result.expression,
+            definitions=result.definitions
+        )
+
+    def find_single_word_with_suffixes(self, db: Session, word: str) -> Optional[DictionaryResponse]:
+        """
+        Find a single word with suffix support (stemming)
+        Returns the first match found
+        """
+        word = word.strip().lower()
+        
+        # Build search conditions with suffix support
+        search_conditions = []
+        
+        # Strategy 1: Exact match
+        search_conditions.append(Dictionary.expression.ilike(word))
+        
+        # Strategy 2: Remove suffixes and search
+        base_forms = self._get_base_forms(word)
+        for base_form in base_forms:
+            search_conditions.append(Dictionary.expression.ilike(base_form))
+        
+        # Strategy 3: Search for words that start with the base form
+        for base_form in base_forms:
+            search_conditions.append(Dictionary.expression.ilike(f"{base_form}%"))
+        
+        # Find the first match with priority order
+        result = db.query(Dictionary).filter(
+            or_(*search_conditions)
+        ).order_by(
+            # Prioritize exact matches first
+            case(
+                (Dictionary.expression.ilike(word), 1),
+                else_=2
+            ),
+            Dictionary.expression.asc()
+        ).first()
+        
+        if not result:
+            return None
+            
+        return DictionaryResponse(
+            id=result.id,
+            expression=result.expression,
+            definitions=result.definitions
+        )
+
+    def get_random_words(self, db: Session, limit: int = 10) -> List[DictionaryResponse]:
+        """
+        Get random words from dictionary
+        """
+        results = db.query(Dictionary).order_by(func.random()).limit(limit).all()
+        
+        return [
+            DictionaryResponse(
+                id=result.id,
+                expression=result.expression,
+                definitions=result.definitions
+            )
+            for result in results
+        ]
+
+
+# Create service instance
+dictionary_service = DictionaryService()

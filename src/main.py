@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.config import settings
 from src.auth.router import router as auth_router
 from src.posts.router import router as posts_router
+from src.dictionary.router import router as dictionary_router
 
 # Import all models to ensure they are registered with SQLAlchemy
 import src.models
@@ -28,6 +29,7 @@ if settings.BACKEND_CORS_ORIGINS:
 # Include routers
 app.include_router(auth_router, prefix=settings.API_V1_STR)
 app.include_router(posts_router, prefix=settings.API_V1_STR)
+app.include_router(dictionary_router)
 
 # Root endpoint
 @app.get("/")

@@ -32,13 +32,20 @@ cp .env.example .env
 alembic upgrade head
 ```
 
-### 5. Run the application
+### 5. Import dictionary data (optional)
+
+```bash
+# Import English-Vietnamese dictionary data
+python scripts/import_dictionary.py data/dictionary.csv
+```
+
+### 6. Run the application
 
 ```bash
 uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### 6. Access API documentation
+### 7. Access API documentation
 
 - Swagger UI: <http://localhost:8000/docs>
 - ReDoc: <http://localhost:8000/redoc>
