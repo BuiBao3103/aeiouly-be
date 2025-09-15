@@ -294,7 +294,7 @@ class AuthService:
             raise UserNotFoundException()
 
         if not AuthService.verify_password(current_password, user.hashed_password):
-            raise InvalidCredentialsException()
+            raise InvalidCredentialsException("Mật khẩu hiện tại không chính xác")
 
         # Update password
         user.hashed_password = AuthService.get_password_hash(new_password)
