@@ -26,10 +26,11 @@ class InvalidCredentialsException(AuthException):
         )
 
 class InsufficientPermissionsException(AuthException):
-    def __init__(self):
+    def __init__(self, custom_message: str = None):
+        detail = custom_message if custom_message else "Không đủ quyền truy cập"
         super().__init__(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Không đủ quyền truy cập"
+            detail=detail
         )
 
 class TokenNotValidException(AuthException):

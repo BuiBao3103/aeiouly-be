@@ -7,17 +7,31 @@ from src.auth.dependencies import get_current_active_user, get_current_user_opti
 from src.auth.models import User
 from src.pagination import PaginationParams, paginate
 from src.database import get_db
+from src.posts.exceptions import PostException
 
 router = APIRouter(prefix="/posts", tags=["Posts"])
 
-@router.post("/", response_model=PostResponse)
+@router.post("/", response_model=PostResponse, status_code=status.HTTP_201_CREATED)
 async def create_post(
     post_data: PostCreate,
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    """Create a new post"""
-    return await PostService.create_post(post_data, current_user, db)
+    """
+    Tạo bài viết mới
+    
+    - **content**: Nội dung bài viết (1-10000 ký tự)
+    - **is_published**: Trạng thái xuất bản (mặc định: true)
+    
+    Chỉ admin mới có thể tạo bài viết.
+    """
+    try:
+        return await PostService.create_post(post_data, current_user, db)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Lỗi khi tạo bài viết: {str(e)}"
+        )
 
 @router.get("/", response_model=PostListResponse)
 async def get_posts(
@@ -25,16 +39,27 @@ async def get_posts(
     current_user: Optional[User] = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
-    """Get all posts with pagination and like information"""
-    posts_with_likes = await PostService.get_posts_with_like_info(pagination, current_user, db)
-    total = await PostService.get_total_posts_count(db)
+    """
+    Lấy danh sách bài viết có phân trang
     
-    return paginate(
-        posts_with_likes,
-        total,
-        pagination.page,
-        pagination.size
-    )
+    - **page**: Số trang (mặc định: 1)
+    - **size**: Số bài viết mỗi trang (mặc định: 10, tối đa: 100)
+    """
+    try:
+        posts_with_likes = await PostService.get_posts_with_like_info(pagination, current_user, db)
+        total = await PostService.get_total_posts_count(db)
+        
+        return paginate(
+            posts_with_likes,
+            total,
+            pagination.page,
+            pagination.size
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Lỗi khi lấy danh sách bài viết: {str(e)}"
+        )
 
 @router.get("/{post_id}", response_model=PostResponse)
 async def get_post(
@@ -42,8 +67,18 @@ async def get_post(
     current_user: Optional[User] = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
-    """Get a specific post by ID with like information"""
-    return await PostService.get_post_by_id_with_like_info(post_id, current_user, db)
+    """
+    Lấy thông tin chi tiết bài viết theo ID
+    
+    - **post_id**: ID của bài viết
+    """
+    try:
+        return await PostService.get_post_by_id_with_like_info(post_id, current_user, db)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Lỗi khi lấy bài viết: {str(e)}"
+        )
 
 @router.put("/{post_id}", response_model=PostResponse)
 async def update_post(
@@ -52,28 +87,79 @@ async def update_post(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    """Update a post"""
-    return await PostService.update_post(post_id, post_data, current_user, db)
+    """
+    Cập nhật bài viết
+    
+    - **post_id**: ID của bài viết
+    - **content**: Nội dung mới (tùy chọn)
+    - **is_published**: Trạng thái xuất bản mới (tùy chọn)
+    
+    Chỉ tác giả hoặc admin mới có thể cập nhật.
+    """
+    try:
+        return await PostService.update_post(post_id, post_data, current_user, db)
+    except (PostException, HTTPException) as e:
+        # Re-raise known HTTP errors (e.g., 404 Not Found, 403 Forbidden)
+        raise e
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Lỗi khi cập nhật bài viết: {str(e)}"
+        )
 
-@router.delete("/{post_id}")
+@router.delete("/{post_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_post(
     post_id: int,
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    """Delete a post"""
-    await PostService.delete_post(post_id, current_user, db)
-    return {"message": "Xóa bài viết thành công"}
+    """
+    Xóa bài viết
+    
+    - **post_id**: ID của bài viết
+    
+    Chỉ tác giả hoặc admin mới có thể xóa.
+    """
+    try:
+        await PostService.delete_post(post_id, current_user, db)
+    except (PostException, HTTPException) as e:
+        # Re-raise known HTTP errors (e.g., 404 Not Found, 403 Forbidden)
+        raise e
+    except Exception as e:
+        # Unexpected errors -> 500
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Lỗi khi xóa bài viết: {str(e)}"
+        )
 
-@router.get("/user/{user_id}", response_model=List[PostResponse])
+@router.get("/user/{user_id}", response_model=PostListResponse)
 async def get_user_posts(
     user_id: int,
     pagination: PaginationParams = Depends(),
     current_user: Optional[User] = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
-    """Get all posts by a specific user with like information"""
-    return await PostService.get_posts_by_user_with_like_info(user_id, pagination, current_user, db)
+    """
+    Lấy danh sách bài viết của một user cụ thể
+    
+    - **user_id**: ID của user
+    - **page**: Số trang (mặc định: 1)
+    - **size**: Số bài viết mỗi trang (mặc định: 10, tối đa: 100)
+    """
+    try:
+        posts_with_likes = await PostService.get_posts_by_user_with_like_info(user_id, pagination, current_user, db)
+        total = await PostService.get_user_posts_count(user_id, db)
+        return paginate(
+            posts_with_likes,
+            total,
+            pagination.page,
+            pagination.size
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Lỗi khi lấy bài viết của user: {str(e)}"
+        )
 
 @router.post("/{post_id}/like", response_model=PostLikeResponse)
 async def toggle_post_like(
@@ -81,6 +167,18 @@ async def toggle_post_like(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    """Like or unlike a post"""
-    result = await PostService.like_post(post_id, current_user, db)
-    return result 
+    """
+    Like hoặc unlike một bài viết
+    
+    - **post_id**: ID của bài viết
+    
+    Nếu đã like thì sẽ unlike và ngược lại.
+    """
+    try:
+        result = await PostService.like_post(post_id, current_user, db)
+        return result
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Lỗi khi like/unlike bài viết: {str(e)}"
+        ) 

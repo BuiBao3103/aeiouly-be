@@ -1,46 +1,60 @@
-from pydantic import BaseModel, Field
+from pydantic import Field, validator
 from typing import Optional
 from datetime import datetime
+from src.models import CustomModel
 
 # Import UserResponse để sử dụng làm nested object
-class AuthorResponse(BaseModel):
-    id: int
-    username: str
-    full_name: Optional[str] = None
-    
-    class Config:
-        from_attributes = True
+class AuthorResponse(CustomModel):
+    id: int = Field(..., description="ID của tác giả")
+    username: str = Field(..., min_length=3, max_length=50, description="Tên đăng nhập")
+    full_name: Optional[str] = Field(None, max_length=100, description="Họ và tên đầy đủ")
 
-class PostBase(BaseModel):
-    content: str = Field(..., min_length=1)
-    is_published: bool = True
+class PostBase(CustomModel):
+    content: str = Field(..., min_length=1, max_length=10000, description="Nội dung bài viết")
+    is_published: bool = Field(True, description="Trạng thái xuất bản")
+
+    @validator('content')
+    def validate_content(cls, v):
+        if not v or not v.strip():
+            raise ValueError('Nội dung bài viết không được để trống')
+        return v.strip()
 
 class PostCreate(PostBase):
+    """Schema cho việc tạo bài viết mới"""
     pass
 
-class PostUpdate(BaseModel):
-    content: Optional[str] = Field(None, min_length=1)
-    is_published: Optional[bool] = None
+class PostUpdate(CustomModel):
+    """Schema cho việc cập nhật bài viết"""
+    content: Optional[str] = Field(None, min_length=1, max_length=10000, description="Nội dung bài viết")
+    is_published: Optional[bool] = Field(None, description="Trạng thái xuất bản")
 
-class PostResponse(PostBase):
-    id: int
-    author: AuthorResponse  # Nested author object thay vì flat fields
-    likes_count: int
-    is_liked_by_user: Optional[bool] = None  # Sẽ được set nếu user đã đăng nhập
-    created_at: datetime
-    updated_at: Optional[datetime] = None  # Allow None values
+    @validator('content')
+    def validate_content(cls, v):
+        if v is not None and (not v or not v.strip()):
+            raise ValueError('Nội dung bài viết không được để trống')
+        return v.strip() if v else v
 
-    class Config:
-        from_attributes = True
+class PostResponse(CustomModel):
+    """Schema cho response bài viết"""
+    id: int = Field(..., description="ID của bài viết")
+    content: str = Field(..., description="Nội dung bài viết")
+    is_published: bool = Field(..., description="Trạng thái xuất bản")
+    author: AuthorResponse = Field(..., description="Thông tin tác giả")
+    likes_count: int = Field(..., ge=0, description="Số lượng lượt thích")
+    is_liked_by_user: Optional[bool] = Field(None, description="User đã like bài viết này chưa")
+    created_at: datetime = Field(..., description="Thời gian tạo")
+    updated_at: Optional[datetime] = Field(None, description="Thời gian cập nhật cuối")
 
-class PostListResponse(BaseModel):
-    items: list[PostResponse]
-    total: int
-    page: int
-    size: int
-    pages: int
+class PostListResponse(CustomModel):
+    """Schema cho danh sách bài viết có phân trang"""
+    items: list[PostResponse] = Field(..., description="Danh sách bài viết")
+    total: int = Field(..., ge=0, description="Tổng số bài viết")
+    page: int = Field(..., ge=1, description="Trang hiện tại")
+    size: int = Field(..., ge=1, le=100, description="Số bài viết mỗi trang")
+    pages: int = Field(..., ge=0, description="Tổng số trang")
 
-class PostLikeResponse(BaseModel):
-    post_id: int
-    is_liked: bool
-    likes_count: int 
+class PostLikeResponse(CustomModel):
+    """Schema cho response like/unlike bài viết"""
+    post_id: int = Field(..., description="ID của bài viết")
+    is_liked: bool = Field(..., description="Trạng thái like")
+    likes_count: int = Field(..., ge=0, description="Số lượng lượt thích") 

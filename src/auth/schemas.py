@@ -12,13 +12,13 @@ class UserBase(CustomModel):
     email: EmailStr
     username: str
     full_name: Optional[str] = None
-    role: UserRole = UserRole.USER  # Default role is 'user'
 
 class UserCreate(UserBase):
     password: str
 
 class UserResponse(UserBase):
     id: int
+    role: UserRole
     is_active: bool
     created_at: datetime
     updated_at: Optional[datetime] = None
