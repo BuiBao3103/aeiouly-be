@@ -324,15 +324,23 @@ class AuthService:
     @staticmethod
     async def delete_account(user_id: int, db: Session) -> bool:
         """Delete user account"""
-        user = db.query(User).filter(User.id == user_id).first()
-        if not user:
-            raise UserNotFoundException()
-        
-        # Revoke all refresh tokens for this user
-        db.query(RefreshToken).filter(RefreshToken.user_id == user.id).update({
-            RefreshToken.is_revoked: True
-        })
-        
-        db.delete(user)
-        db.commit()
-        return True
+        try:
+            user = db.query(User).filter(User.id == user_id).first()
+            if not user:
+                raise UserNotFoundException()
+            
+            db.query(RefreshToken).filter(RefreshToken.user_id == user.id).update({
+                RefreshToken.is_revoked: True
+            })
+            
+            db.delete(user)
+            db.commit()
+            return True
+            
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Error deleting user {user_id}: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="An error occurred while deleting the account"
+            )
