@@ -177,6 +177,7 @@ async def test_token_validation(
     }
 )
 async def delete_account(
+    response: Response,
     current_user = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
@@ -186,12 +187,12 @@ async def delete_account(
     """
     try:
         auth_service = AuthService()
-        success = await auth_service.delete_account(current_user.id, db)
+        success = await auth_service.delete_account(response,current_user.id, db)
         
         if not success:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to delete account"
+                detail="Đã xảy ra lỗi khi xóa tài khoản. Vui lòng thử lại sau."
             )
             
         return {"message": "Tài khoản đã được xóa thành công"}
