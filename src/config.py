@@ -67,6 +67,13 @@ class Settings(BaseSettings):
     # Front-end URL
     CLIENT_SIDE_URL: str = "http://localhost:3000"
 
+    # AWS S3
+    AWS_ACCESS_KEY_ID: str = ""
+    AWS_SECRET_ACCESS_KEY: str = ""
+    AWS_S3_REGION: str = "ap-southeast-1"
+    AWS_S3_BUCKET: str = ""
+    AWS_S3_PUBLIC_URL: str = ""  # Optional CDN/base URL; if empty, build from region/bucket
+
     @validator("BACKEND_CORS_ORIGINS", pre=True)
     def assemble_cors_origins(cls, v: Union[str, List[str]]) -> Union[List[str], str]:
         if isinstance(v, str) and not v.startswith("["):

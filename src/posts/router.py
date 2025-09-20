@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from typing import List, Optional
 from sqlalchemy.orm import Session
 from src.posts.schemas import PostCreate, PostUpdate, PostResponse, PostLikeResponse, PostListResponse
@@ -182,3 +182,20 @@ async def toggle_post_like(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Lỗi khi like/unlike bài viết: {str(e)}"
         ) 
+
+@router.post("/{post_id}/image", response_model=PostResponse)
+async def upload_post_image(
+    post_id: int,
+    image: UploadFile = File(...),
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Upload hình ảnh cho bài viết. Chỉ tác giả hoặc admin được phép.
+    """
+    try:
+        return await PostService.upload_post_image(post_id, image, current_user, db)
+    except (PostException, HTTPException) as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lỗi khi upload hình ảnh: {str(e)}")

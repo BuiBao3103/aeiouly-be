@@ -10,6 +10,7 @@ class Post(Base):
     content = Column(Text, nullable=False)
     is_published = Column(Boolean, default=True)
     author_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    image_url = Column(String(512), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
 

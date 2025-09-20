@@ -39,6 +39,7 @@ class PostResponse(CustomModel):
     id: int = Field(..., description="ID của bài viết")
     content: str = Field(..., description="Nội dung bài viết")
     is_published: bool = Field(..., description="Trạng thái xuất bản")
+    image_url: Optional[str] = Field(None, description="URL hình ảnh đính kèm")
     author: AuthorResponse = Field(..., description="Thông tin tác giả")
     likes_count: int = Field(..., ge=0, description="Số lượng lượt thích")
     is_liked_by_user: Optional[bool] = Field(None, description="User đã like bài viết này chưa")

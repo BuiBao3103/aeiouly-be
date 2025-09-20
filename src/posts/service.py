@@ -10,6 +10,8 @@ from src.posts.exceptions import (
     PostValidationException
 )
 from src.pagination import PaginationParams
+from src.storage import S3StorageService
+from fastapi import UploadFile, HTTPException
 
 
 class PostService:
@@ -49,6 +51,7 @@ class PostService:
                 id=db_post.id,
                 content=db_post.content,
                 is_published=db_post.is_published,
+                image_url=db_post.image_url,
                 author={
                     "id": db_post.author.id,
                     "username": db_post.author.username,
@@ -62,6 +65,67 @@ class PostService:
         except Exception as e:
             db.rollback()
             raise PostValidationException(f"Lỗi khi tạo bài viết: {str(e)}")
+
+    @staticmethod
+    async def upload_post_image(
+        post_id: int, 
+        image: UploadFile, 
+        current_user: User, 
+        db: Session
+    ) -> PostResponse:
+        """
+        Upload hình ảnh cho bài viết. Chỉ tác giả hoặc admin được phép.
+        """
+        # Validate content-type
+        if not image.content_type or not image.content_type.startswith("image/"):
+            raise HTTPException(status_code=400, detail="File phải là hình ảnh")
+
+        # Check post exists
+        post = await PostService.get_post_by_id(post_id, db)
+        if not post:
+            raise PostNotFoundException(f"Không tìm thấy bài viết với ID {post_id}")
+
+        # Check permission
+        if post.author_id != current_user.id and current_user.role != UserRole.ADMIN:
+            raise InsufficientPermissionsException("Chỉ tác giả hoặc admin mới có thể upload hình ảnh")
+
+        try:
+            # Delete old image if exists
+            storage_service = S3StorageService()
+            if post.image_url:
+                storage_service.delete_file(post.image_url)
+
+            # Upload new image to S3
+            url = storage_service.upload_fileobj(image.file, image.content_type, key_prefix="posts/")
+
+            # Update post with new image URL
+            post.image_url = url
+            db.commit()
+            db.refresh(post)
+
+            # Get like info
+            likes_count = await PostService.get_post_likes_count(post.id, db)
+            is_liked = await PostService.is_post_liked_by_user(post.id, current_user.id, db)
+
+            # Build response
+            return PostResponse(
+                id=post.id,
+                content=post.content,
+                is_published=post.is_published,
+                image_url=post.image_url,
+                author={
+                    "id": post.author.id,
+                    "username": post.author.username,
+                    "full_name": post.author.full_name
+                },
+                likes_count=likes_count,
+                is_liked_by_user=is_liked,
+                created_at=post.created_at,
+                updated_at=post.updated_at
+            )
+        except Exception as e:
+            db.rollback()
+            raise PostValidationException(f"Lỗi khi upload hình ảnh: {str(e)}")
 
     @staticmethod
     async def get_posts(pagination: PaginationParams, db: Session) -> List[Post]:
@@ -101,6 +165,7 @@ class PostService:
             id=post.id,
             content=post.content,
             is_published=post.is_published,
+            image_url=post.image_url,
             author={
                 "id": post.author.id,
                 "username": post.author.username,
@@ -159,6 +224,7 @@ class PostService:
             id=post.id,
             content=post.content,
             is_published=post.is_published,
+            image_url=post.image_url,
             author={
                 "id": post.author.id,
                 "username": post.author.username,
@@ -222,6 +288,7 @@ class PostService:
                 id=post.id,
                 content=post.content,
                 is_published=post.is_published,
+                image_url=post.image_url,
                 author={
                     "id": post.author.id,
                     "username": post.author.username,
@@ -320,6 +387,7 @@ class PostService:
                 id=post.id,
                 content=post.content,
                 is_published=post.is_published,
+                image_url=post.image_url,
                 author={
                     "id": post.author.id,
                     "username": post.author.username,
