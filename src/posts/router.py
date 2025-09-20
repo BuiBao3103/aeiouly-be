@@ -74,6 +74,8 @@ async def get_post(
     """
     try:
         return await PostService.get_post_by_id_with_like_info(post_id, current_user, db)
+    except (PostException, HTTPException) as e:
+        raise e
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
