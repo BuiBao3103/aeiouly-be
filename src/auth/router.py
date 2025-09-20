@@ -168,14 +168,37 @@ async def test_token_validation(
                 "action": "refresh_token"
             }
         ) 
-@router.delete("/delete-account", responses={
-    401: {"model": AuthErrorResponse}
-})
+@router.delete("/delete-account", 
+    response_model=dict[str, str],
+    responses={
+        200: {"description": "Tài khoản đã được xóa thành công"},
+        404: {"model": AuthErrorResponse, "description": "Không tìm thấy tài khoản"},
+        500: {"model": AuthErrorResponse, "description": "Đã xảy ra lỗi khi xóa tài khoản"}
+    }
+)
 async def delete_account(
+    response: Response,
     current_user = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    """Delete current user account"""
-    auth_service = AuthService()
-    await auth_service.delete_account(current_user.id, db)
-    return {"message": "Xóa tài khoản thành công"}
+    """
+    Delete the currently authenticated user's account.
+    This will permanently remove all user data from the system.
+    """
+    try:
+        auth_service = AuthService()
+        success = await auth_service.delete_account(response,current_user.id, db)
+        
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Đã xảy ra lỗi khi xóa tài khoản. Vui lòng thử lại sau."
+            )
+            
+        return {"message": "Tài khoản đã được xóa thành công"}
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Đã xảy ra lỗi khi xóa tài khoản. Vui lòng thử lại sau."
+        )

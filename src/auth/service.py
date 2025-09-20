@@ -322,17 +322,25 @@ class AuthService:
         return user 
     
     @staticmethod
-    async def delete_account(user_id: int, db: Session) -> bool:
+    async def delete_account(self,response: Response,user_id: int, db: Session) -> bool:
         """Delete user account"""
-        user = db.query(User).filter(User.id == user_id).first()
-        if not user:
-            raise UserNotFoundException()
-        
-        # Revoke all refresh tokens for this user
-        db.query(RefreshToken).filter(RefreshToken.user_id == user.id).update({
-            RefreshToken.is_revoked: True
-        })
-        
-        db.delete(user)
-        db.commit()
-        return True
+        try:
+            
+            db.query(RefreshToken).filter(RefreshToken.user_id == user_id).delete()
+            
+            # Then delete the user
+            user = db.query(User).filter(User.id == user_id).first()
+            if not user:
+                raise UserNotFoundException()
+
+            db.delete(user)
+            db.commit()
+            self.clear_auth_cookies(response)
+            return True
+            
+        except Exception as e:
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Đã xảy ra lỗi khi xóa tài khoản. Vui lòng thử lại sau."
+            )
