@@ -104,5 +104,10 @@ def get_database_url() -> str:
     port = settings.POSTGRES_PORT
     db = settings.POSTGRES_DB
     dialect = settings.DATABASE_DIALECT
-    cred = f"{user}:{password}@" if password else f"{user}@" if user else ""
+    if password:
+        cred = f"{user}:{password}@"
+    elif user:
+        cred = f"{user}@"
+    else:
+        cred = ""
     return f"{dialect}://{cred}{host}:{port}/{db}"

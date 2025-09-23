@@ -5,6 +5,10 @@ from src.database import get_db
 from src.auth.models import User, UserRole
 from src.auth.dependencies import get_current_active_user
 from src.posts.exceptions import PostNotFoundException, InsufficientPermissionsException
+from src.posts.service import PostService
+
+def get_post_service() -> PostService:
+    return PostService()
 
 def get_post_or_404(
     post_id: int,
@@ -50,9 +54,11 @@ def get_post_owner_or_403(
         return post
     
     # Tác giả có thể chỉnh sửa bài viết của mình
-    if post.author_id != current_user.id:
-        raise InsufficientPermissionsException("Bạn chỉ có thể chỉnh sửa bài viết của chính mình")
-    return post
+    if post.author_id == current_user.id:
+        return post
+    
+    # Không có quyền
+    raise InsufficientPermissionsException("Bạn chỉ có thể chỉnh sửa bài viết của chính mình")
 
 def get_published_post_or_404(
     post_id: int,
@@ -102,7 +108,8 @@ def get_post_with_permission_check(
         return post
     
     # User khác chỉ xem được bài viết đã xuất bản
-    if not post.is_published:
-        raise PostNotFoundException()
+    if post.is_published:
+        return post
     
-    return post 
+    # Không có quyền xem bài viết chưa xuất bản
+    raise PostNotFoundException() 

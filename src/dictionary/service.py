@@ -10,6 +10,7 @@ class DictionaryService:
     """Service for dictionary operations"""
 
     def __init__(self):
+        # Initialize service instance
         pass
 
     def _get_base_forms(self, word: str) -> List[str]:
@@ -41,7 +42,7 @@ class DictionaryService:
         
         return base_forms
 
-    def search_words(
+    async def search_words(
         self, 
         db: Session, 
         request: DictionarySearchRequest
@@ -104,7 +105,7 @@ class DictionaryService:
             limit=limit
         )
 
-    def get_word_by_id(self, db: Session, word_id: int) -> Optional[DictionaryResponse]:
+    async def get_word_by_id(self, db: Session, word_id: int) -> Optional[DictionaryResponse]:
         """
         Get a specific word by ID
         """
@@ -119,7 +120,7 @@ class DictionaryService:
             definitions=result.definitions
         )
 
-    def get_word_by_expression(self, db: Session, expression: str) -> Optional[DictionaryResponse]:
+    async def get_word_by_expression(self, db: Session, expression: str) -> Optional[DictionaryResponse]:
         """
         Get a specific word by exact expression match
         """
@@ -136,7 +137,7 @@ class DictionaryService:
             definitions=result.definitions
         )
 
-    def find_single_word_with_suffixes(self, db: Session, word: str) -> Optional[DictionaryResponse]:
+    async def find_single_word_with_suffixes(self, db: Session, word: str) -> Optional[DictionaryResponse]:
         """
         Find a single word with suffix support (stemming)
         Returns the first match found
@@ -179,7 +180,7 @@ class DictionaryService:
             definitions=result.definitions
         )
 
-    def get_random_words(self, db: Session, limit: int = 10) -> List[DictionaryResponse]:
+    async def get_random_words(self, db: Session, limit: int = 10) -> List[DictionaryResponse]:
         """
         Get random words from dictionary
         """
@@ -195,5 +196,3 @@ class DictionaryService:
         ]
 
 
-# Create service instance
-dictionary_service = DictionaryService()

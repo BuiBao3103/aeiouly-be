@@ -3,6 +3,10 @@ from typing import Optional
 from datetime import datetime
 from src.models import CustomModel
 
+# Constants for field descriptions
+CONTENT_DESCRIPTION = "Nội dung bài viết"
+PUBLISH_STATUS_DESCRIPTION = "Trạng thái xuất bản"
+
 # Import UserResponse để sử dụng làm nested object
 class AuthorResponse(CustomModel):
     id: int = Field(..., description="ID của tác giả")
@@ -10,8 +14,8 @@ class AuthorResponse(CustomModel):
     full_name: Optional[str] = Field(None, max_length=100, description="Họ và tên đầy đủ")
 
 class PostBase(CustomModel):
-    content: str = Field(..., min_length=1, max_length=10000, description="Nội dung bài viết")
-    is_published: bool = Field(True, description="Trạng thái xuất bản")
+    content: str = Field(..., min_length=1, max_length=10000, description=CONTENT_DESCRIPTION)
+    is_published: bool = Field(True, description=PUBLISH_STATUS_DESCRIPTION)
 
     @validator('content')
     def validate_content(cls, v):
@@ -25,8 +29,8 @@ class PostCreate(PostBase):
 
 class PostUpdate(CustomModel):
     """Schema cho việc cập nhật bài viết"""
-    content: Optional[str] = Field(None, min_length=1, max_length=10000, description="Nội dung bài viết")
-    is_published: Optional[bool] = Field(None, description="Trạng thái xuất bản")
+    content: Optional[str] = Field(None, min_length=1, max_length=10000, description=CONTENT_DESCRIPTION)
+    is_published: Optional[bool] = Field(None, description=PUBLISH_STATUS_DESCRIPTION)
 
     @validator('content')
     def validate_content(cls, v):
@@ -37,8 +41,8 @@ class PostUpdate(CustomModel):
 class PostResponse(CustomModel):
     """Schema cho response bài viết"""
     id: int = Field(..., description="ID của bài viết")
-    content: str = Field(..., description="Nội dung bài viết")
-    is_published: bool = Field(..., description="Trạng thái xuất bản")
+    content: str = Field(..., description=CONTENT_DESCRIPTION)
+    is_published: bool = Field(..., description=PUBLISH_STATUS_DESCRIPTION)
     image_url: Optional[str] = Field(None, description="URL hình ảnh đính kèm")
     author: AuthorResponse = Field(..., description="Thông tin tác giả")
     likes_count: int = Field(..., ge=0, description="Số lượng lượt thích")

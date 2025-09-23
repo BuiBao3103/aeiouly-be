@@ -5,10 +5,10 @@ class PostException(HTTPException):
     pass
 
 class PostNotFoundException(PostException):
-    def __init__(self):
+    def __init__(self, detail: str = "Không tìm thấy bài viết"):
         super().__init__(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Không tìm thấy bài viết"
+            detail=detail
         )
 
 class PostAlreadyExistsException(PostException):

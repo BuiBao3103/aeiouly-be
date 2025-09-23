@@ -3,6 +3,7 @@ from typing import List, Optional
 from sqlalchemy.orm import Session
 from src.posts.schemas import PostCreate, PostUpdate, PostResponse, PostLikeResponse, PostListResponse
 from src.posts.service import PostService
+from src.posts.dependencies import get_post_service
 from src.auth.dependencies import get_current_active_user, get_current_user_optional
 from src.auth.models import User
 from src.pagination import PaginationParams, paginate
@@ -15,6 +16,7 @@ router = APIRouter(prefix="/posts", tags=["Posts"])
 async def create_post(
     post_data: PostCreate,
     current_user: User = Depends(get_current_active_user),
+    service: PostService = Depends(get_post_service),
     db: Session = Depends(get_db)
 ):
     """
@@ -26,7 +28,9 @@ async def create_post(
     Chỉ admin mới có thể tạo bài viết.
     """
     try:
-        return await PostService.create_post(post_data, current_user, db)
+        return await service.create_post(post_data, current_user, db)
+    except (PostException, HTTPException) as e:
+        raise e
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -37,6 +41,7 @@ async def create_post(
 async def get_posts(
     pagination: PaginationParams = Depends(), 
     current_user: Optional[User] = Depends(get_current_user_optional),
+    service: PostService = Depends(get_post_service),
     db: Session = Depends(get_db)
 ):
     """
@@ -46,8 +51,8 @@ async def get_posts(
     - **size**: Số bài viết mỗi trang (mặc định: 10, tối đa: 100)
     """
     try:
-        posts_with_likes = await PostService.get_posts_with_like_info(pagination, current_user, db)
-        total = await PostService.get_total_posts_count(db)
+        posts_with_likes = await service.get_posts_with_like_info(pagination, current_user, db)
+        total = await service.get_total_posts_count(db)
         
         return paginate(
             posts_with_likes,
@@ -65,6 +70,7 @@ async def get_posts(
 async def get_post(
     post_id: int, 
     current_user: Optional[User] = Depends(get_current_user_optional),
+    service: PostService = Depends(get_post_service),
     db: Session = Depends(get_db)
 ):
     """
@@ -73,7 +79,7 @@ async def get_post(
     - **post_id**: ID của bài viết
     """
     try:
-        return await PostService.get_post_by_id_with_like_info(post_id, current_user, db)
+        return await service.get_post_by_id_with_like_info(post_id, current_user, db)
     except (PostException, HTTPException) as e:
         raise e
     except Exception as e:
@@ -87,6 +93,7 @@ async def update_post(
     post_id: int,
     post_data: PostUpdate,
     current_user: User = Depends(get_current_active_user),
+    service: PostService = Depends(get_post_service),
     db: Session = Depends(get_db)
 ):
     """
@@ -99,7 +106,7 @@ async def update_post(
     Chỉ tác giả hoặc admin mới có thể cập nhật.
     """
     try:
-        return await PostService.update_post(post_id, post_data, current_user, db)
+        return await service.update_post(post_id, post_data, current_user, db)
     except (PostException, HTTPException) as e:
         # Re-raise known HTTP errors (e.g., 404 Not Found, 403 Forbidden)
         raise e
@@ -113,6 +120,7 @@ async def update_post(
 async def delete_post(
     post_id: int,
     current_user: User = Depends(get_current_active_user),
+    service: PostService = Depends(get_post_service),
     db: Session = Depends(get_db)
 ):
     """
@@ -123,7 +131,7 @@ async def delete_post(
     Chỉ tác giả hoặc admin mới có thể xóa.
     """
     try:
-        await PostService.delete_post(post_id, current_user, db)
+        await service.delete_post(post_id, current_user, db)
     except (PostException, HTTPException) as e:
         # Re-raise known HTTP errors (e.g., 404 Not Found, 403 Forbidden)
         raise e
@@ -139,6 +147,7 @@ async def get_user_posts(
     user_id: int,
     pagination: PaginationParams = Depends(),
     current_user: Optional[User] = Depends(get_current_user_optional),
+    service: PostService = Depends(get_post_service),
     db: Session = Depends(get_db)
 ):
     """
@@ -149,8 +158,8 @@ async def get_user_posts(
     - **size**: Số bài viết mỗi trang (mặc định: 10, tối đa: 100)
     """
     try:
-        posts_with_likes = await PostService.get_posts_by_user_with_like_info(user_id, pagination, current_user, db)
-        total = await PostService.get_user_posts_count(user_id, db)
+        posts_with_likes = await service.get_posts_by_user_with_like_info(user_id, pagination, current_user, db)
+        total = await service.get_user_posts_count(user_id, db)
         return paginate(
             posts_with_likes,
             total,
@@ -167,6 +176,7 @@ async def get_user_posts(
 async def toggle_post_like(
     post_id: int,
     current_user: User = Depends(get_current_active_user),
+    service: PostService = Depends(get_post_service),
     db: Session = Depends(get_db)
 ):
     """
@@ -177,8 +187,15 @@ async def toggle_post_like(
     Nếu đã like thì sẽ unlike và ngược lại.
     """
     try:
-        result = await PostService.like_post(post_id, current_user, db)
-        return result
+        result = await service.like_post(post_id, current_user, db)
+        return PostLikeResponse(
+            post_id=post_id,
+            is_liked=result.is_liked_by_user,
+            likes_count=result.likes_count
+        )
+    except (PostException, HTTPException) as e:
+        # Re-raise known HTTP errors (e.g., 404 Not Found)
+        raise e
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -190,13 +207,14 @@ async def upload_post_image(
     post_id: int,
     image: UploadFile = File(...),
     current_user: User = Depends(get_current_active_user),
+    service: PostService = Depends(get_post_service),
     db: Session = Depends(get_db)
 ):
     """
     Upload hình ảnh cho bài viết. Chỉ tác giả hoặc admin được phép.
     """
     try:
-        return await PostService.upload_post_image(post_id, image, current_user, db)
+        return await service.upload_post_image(post_id, image, current_user, db)
     except (PostException, HTTPException) as e:
         raise e
     except Exception as e:

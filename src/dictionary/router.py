@@ -2,12 +2,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Path
 from sqlalchemy.orm import Session
 from typing import Optional
 from src.database import get_db
-from src.dictionary.service import dictionary_service
+from src.dictionary.service import DictionaryService
 from src.dictionary.schemas import (
     DictionarySearchRequest, 
     DictionarySearchResponse, 
     DictionaryResponse
 )
+from src.dictionary.dependencies import get_dictionary_service
 
 router = APIRouter(prefix="/api/v1/dictionary", tags=["Dictionary"])
 
@@ -16,6 +17,7 @@ router = APIRouter(prefix="/api/v1/dictionary", tags=["Dictionary"])
 async def search_words(
     query: str = Query(..., min_length=1, max_length=100, description="Từ khóa tìm kiếm"),
     limit: Optional[int] = Query(10, ge=1, le=50, description="Số lượng kết quả tối đa"),
+    service: DictionaryService = Depends(get_dictionary_service),
     db: Session = Depends(get_db)
 ):
     """
@@ -26,7 +28,7 @@ async def search_words(
     """
     request = DictionarySearchRequest(query=query, limit=limit)
     try:
-        return dictionary_service.search_words(db, request)
+        return await service.search_words(db, request)
     except Exception as e:
         raise HTTPException(
             status_code=500,
@@ -37,12 +39,13 @@ async def search_words(
 @router.get("/word/{word_id}", response_model=DictionaryResponse)
 async def get_word_by_id(
     word_id: int = Path(..., description="ID của từ vựng"),
+    service: DictionaryService = Depends(get_dictionary_service),
     db: Session = Depends(get_db)
 ):
     """
     Lấy thông tin từ vựng theo ID
     """
-    result = dictionary_service.get_word_by_id(db, word_id)
+    result = await service.get_word_by_id(db, word_id)
     if not result:
         raise HTTPException(
             status_code=404,
@@ -54,12 +57,13 @@ async def get_word_by_id(
 @router.get("/word", response_model=DictionaryResponse)
 async def get_word_by_expression(
     expression: str = Query(..., description="Từ vựng cần tìm"),
+    service: DictionaryService = Depends(get_dictionary_service),
     db: Session = Depends(get_db)
 ):
     """
     Lấy thông tin từ vựng theo từ chính xác
     """
-    result = dictionary_service.get_word_by_expression(db, expression)
+    result = await service.get_word_by_expression(db, expression)
     if not result:
         raise HTTPException(
             status_code=404,
@@ -71,6 +75,7 @@ async def get_word_by_expression(
 @router.get("/find", response_model=DictionaryResponse)
 async def find_single_word_with_suffixes(
     word: str = Query(..., min_length=1, max_length=50, description="Từ vựng cần tìm (hỗ trợ suffixes)"),
+    service: DictionaryService = Depends(get_dictionary_service),
     db: Session = Depends(get_db)
 ):
     """
@@ -84,7 +89,7 @@ async def find_single_word_with_suffixes(
     
     - **word**: Từ vựng cần tìm (1-50 ký tự)
     """
-    result = dictionary_service.find_single_word_with_suffixes(db, word)
+    result = await service.find_single_word_with_suffixes(db, word)
     if not result:
         raise HTTPException(
             status_code=404,
@@ -96,13 +101,14 @@ async def find_single_word_with_suffixes(
 @router.get("/random", response_model=list[DictionaryResponse])
 async def get_random_words(
     limit: int = Query(10, ge=1, le=50, description="Số lượng từ ngẫu nhiên"),
+    service: DictionaryService = Depends(get_dictionary_service),
     db: Session = Depends(get_db)
 ):
     """
     Lấy danh sách từ vựng ngẫu nhiên
     """
     try:
-        return dictionary_service.get_random_words(db, limit)
+        return await service.get_random_words(db, limit)
     except Exception as e:
         raise HTTPException(
             status_code=500,

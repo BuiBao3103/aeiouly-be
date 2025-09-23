@@ -11,8 +11,13 @@ from src.auth.utils import is_token_expired, validate_access_token
 from src.database import get_db
 from src.config import settings
 from typing import Optional
+from src.auth.service import AuthService
 
-async def get_token_from_cookie_or_header(request: Request) -> str:
+def get_auth_service() -> AuthService:
+    """Get AuthService instance"""
+    return AuthService()
+
+def get_token_from_cookie_or_header(request: Request) -> str:
     """
     Get token from cookie (preferred) or Authorization header (fallback)
     """
@@ -44,16 +49,27 @@ async def get_current_user(
 ) -> User:
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-        username: str = payload.get("sub")
-        if username is None:
-            raise TokenNotValidException()
+        # Support both token styles: "sub" as user_id (current) and "username" claim
+        subject = payload.get("sub")
+        username_claim = payload.get("username")
     except JWTError:
         raise TokenNotValidException()
-    
-    user = db.query(User).filter(User.username == username).first()
+
+    user: Optional[User] = None
+    if username_claim:
+        user = db.query(User).filter(User.username == username_claim).first()
+    elif subject is not None:
+        # Try interpret sub as user id
+        try:
+            user_id = int(subject)
+            user = db.query(User).filter(User.id == user_id).first()
+        except (TypeError, ValueError):
+            # Fallback: treat as username
+            user = db.query(User).filter(User.username == str(subject)).first()
+
     if user is None:
         raise TokenNotValidException()
-    
+
     return user
 
 async def get_current_active_user(current_user: User = Depends(get_current_user)) -> User:
@@ -90,7 +106,7 @@ async def validate_token_optional(request: Request) -> Optional[dict]:
     Useful for endpoints that can work with or without authentication
     """
     try:
-        token = await get_token_from_cookie_or_header(request)
+        token = get_token_from_cookie_or_header(request)
         username = validate_access_token(token)
         if username:
             return {"username": username, "valid": True}
@@ -119,14 +135,22 @@ async def get_current_user_optional(
             return None
             
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-        username: str = payload.get("sub")
-        if username is None:
-            return None
-            
-        user = db.query(User).filter(User.username == username).first()
+        subject = payload.get("sub")
+        username_claim = payload.get("username")
+
+        user: Optional[User] = None
+        if username_claim:
+            user = db.query(User).filter(User.username == username_claim).first()
+        elif subject is not None:
+            try:
+                user_id = int(subject)
+                user = db.query(User).filter(User.id == user_id).first()
+            except (TypeError, ValueError):
+                user = db.query(User).filter(User.username == str(subject)).first()
+
         if user is None or not user.is_active:
             return None
             
         return user
     except JWTError:
-        return None 
+        return None

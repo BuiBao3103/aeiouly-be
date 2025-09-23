@@ -5,17 +5,17 @@ class AuthException(HTTPException):
     pass
 
 class UserNotFoundException(AuthException):
-    def __init__(self):
+    def __init__(self, detail: str = "Không tìm thấy người dùng"):
         super().__init__(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Không tìm thấy người dùng"
+            detail=detail
         )
 
 class UserAlreadyExistsException(AuthException):
-    def __init__(self):
+    def __init__(self, detail: str = "Người dùng đã tồn tại"):
         super().__init__(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Người dùng đã tồn tại"
+            detail=detail
         )
 
 class InvalidCredentialsException(AuthException):
@@ -45,37 +45,29 @@ class TokenNotValidException(AuthException):
         )
 
 class PasswordResetTokenExpiredException(AuthException):
-    def __init__(self):
+    def __init__(self, detail: str = "Token reset password đã hết hạn"):
         super().__init__(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Token reset password đã hết hạn"
+            detail=detail
         )
 
 class PasswordResetTokenInvalidException(AuthException):
-    def __init__(self):
+    def __init__(self, detail: str = "Token reset password không hợp lệ"):
         super().__init__(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Token reset password không hợp lệ"
+            detail=detail
         )
 
 class RefreshTokenExpiredException(AuthException):
-    def __init__(self):
+    def __init__(self, detail: str = "Refresh token đã hết hạn"):
         super().__init__(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={
-                "message": "Refresh token đã hết hạn",
-                "code": "refresh_token_expired",
-                "action": "login_required"
-            }
+            detail=detail
         )
 
 class RefreshTokenRevokedException(AuthException):
-    def __init__(self):
+    def __init__(self, detail: str = "Refresh token đã bị thu hồi"):
         super().__init__(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={
-                "message": "Refresh token đã bị thu hồi",
-                "code": "refresh_token_revoked",
-                "action": "login_required"
-            }
+            detail=detail
         ) 

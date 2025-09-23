@@ -54,4 +54,8 @@ def get_token_error_response(token: str) -> dict:
             "code": "token_not_valid",
             "action": "refresh_token"
         }
-    return None 
+    return {
+        "message": "Token hợp lệ",
+        "code": "token_valid",
+        "action": "none"
+    } 
