@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { colors } from '../theme'
 
 export default function NotificationsTest() {
   const [logs, setLogs] = useState<string[]>([])
@@ -48,16 +49,16 @@ export default function NotificationsTest() {
   }, [])
 
   return (
-    <div style={{ padding: 16 }}>
+    <div style={{ padding: 16, color: colors.textPrimary }}>
       <h2>Notifications WebSocket Test</h2>
       <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
         <button onClick={connect} disabled={connected}>Connect</button>
         <button onClick={disconnect} disabled={!connected}>Disconnect</button>
         <button onClick={sendPing} disabled={!connected}>Send ping</button>
       </div>
-      <div style={{ border: '1px solid #ccc', padding: 8, height: 260, overflow: 'auto', background: '#fafafa' }}>
+      <div style={{ border: `1px solid ${colors.border}`, padding: 8, height: 260, overflow: 'auto', background: colors.surfaceMuted }}>
         {logs.map((l, i) => (
-          <div style={{ color: 'black' }} key={i}>{l}</div>
+          <div style={{ color: colors.textPrimary }} key={i}>{l}</div>
         ))}
       </div>
       <p style={{ marginTop: 8 }}>Use POST /notifications/broadcast (admin) to push messages here.</p>

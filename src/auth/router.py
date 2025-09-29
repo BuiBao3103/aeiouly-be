@@ -172,6 +172,13 @@ async def delete_account(
     service: AuthService = Depends(AuthService),
     db: Session = Depends(get_db)
 ):
-    """Delete user account"""
-    # This method doesn't exist in the new service, we'll skip it for now
-    return {"message": "Delete account feature not implemented yet"}
+    """Soft delete: set is_active=False, revoke refresh tokens, clear cookies"""
+    ok = await service.deactivate_user(current_user, db)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Không thể vô hiệu hóa tài khoản")
+
+    # Clear cookies
+    from src.config import settings
+    response.delete_cookie(settings.ACCESS_TOKEN_COOKIE_NAME)
+    response.delete_cookie(settings.REFRESH_TOKEN_COOKIE_NAME)
+    return {"message": "Tài khoản đã được vô hiệu hóa"}

@@ -47,29 +47,29 @@ async def get_current_user(
     token: str = Depends(get_token_from_cookie_or_header),
     db: Session = Depends(get_db)
 ) -> User:
+    user = resolve_user_from_token(token, db)
+    if user is None:
+        raise TokenNotValidException()
+    return user
+
+def resolve_user_from_token(token: str, db: Session) -> Optional[User]:
+    """Decode JWT and resolve to a User or return None if invalid."""
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-        # Support both token styles: "sub" as user_id (current) and "username" claim
         subject = payload.get("sub")
         username_claim = payload.get("username")
     except JWTError:
-        raise TokenNotValidException()
+        return None
 
     user: Optional[User] = None
     if username_claim:
         user = db.query(User).filter(User.username == username_claim).first()
     elif subject is not None:
-        # Try interpret sub as user id
         try:
             user_id = int(subject)
             user = db.query(User).filter(User.id == user_id).first()
         except (TypeError, ValueError):
-            # Fallback: treat as username
             user = db.query(User).filter(User.username == str(subject)).first()
-
-    if user is None:
-        raise TokenNotValidException()
-
     return user
 
 async def get_current_active_user(current_user: User = Depends(get_current_user)) -> User:

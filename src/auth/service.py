@@ -274,3 +274,15 @@ class AuthService:
     async def get_user_by_email(self, email: str, db: Session) -> Optional[User]:
         """Get user by email"""
         return db.query(User).filter(User.email == email).first()
+
+    async def deactivate_user(self, user: User, db: Session) -> bool:
+        """Soft delete account: set is_active=False and revoke all refresh tokens"""
+        try:
+            user.is_active = False
+            db.commit()
+            db.query(RefreshToken).filter(RefreshToken.user_id == user.id).delete()
+            db.commit()
+            return True
+        except Exception:
+            db.rollback()
+            return False

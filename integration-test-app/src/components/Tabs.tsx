@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { colors } from '../theme'
 
 export type TabItem = {
   key: string
@@ -23,8 +24,8 @@ export default function Tabs({ items, activeKey, onChange }: TabsProps) {
           display: 'flex',
           gap: 8,
           padding: '8px 16px',
-          background: '#ffffff',
-          borderBottom: '1px solid #e5e7eb',
+          background: colors.background,
+          borderBottom: `1px solid ${colors.border}`,
         }}
       >
         {items.map((it) => {
@@ -36,9 +37,9 @@ export default function Tabs({ items, activeKey, onChange }: TabsProps) {
               style={{
                 padding: '8px 12px',
                 borderRadius: 6,
-                border: isActive ? '1px solid #93c5fd' : '1px solid #e5e7eb',
-                background: isActive ? '#eff6ff' : '#ffffff',
-                color: isActive ? '#1d4ed8' : '#111827',
+                border: isActive ? `1px solid ${colors.primarySoftBorder}` : `1px solid ${colors.border}`,
+                background: isActive ? colors.primarySoftBg : colors.surface,
+                color: isActive ? colors.primary : colors.textPrimary,
                 fontWeight: isActive ? 600 : 500,
                 cursor: 'pointer',
               }}
@@ -48,7 +49,7 @@ export default function Tabs({ items, activeKey, onChange }: TabsProps) {
           )
         })}
       </div>
-      <div style={{ padding: 16 }}>
+      <div style={{ padding: 16, color: colors.textPrimary }}>
         {items.find((it) => it.key === activeKey)?.content}
       </div>
     </div>

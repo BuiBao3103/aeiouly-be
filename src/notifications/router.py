@@ -1,7 +1,7 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException
 from fastapi import status
 from typing import List, Set
-from src.auth.dependencies import get_current_active_user
+from src.auth.dependencies import get_current_active_user, resolve_user_from_token
 from sqlalchemy.orm import Session
 from src.database import get_db
 
@@ -36,7 +36,25 @@ manager = ConnectionManager()
 
 
 @router.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
+async def websocket_endpoint(websocket: WebSocket, db: Session = Depends(get_db)):
+    # Authenticate via cookie, query, or subprotocol before accepting
+    from src.config import settings
+    token = websocket.cookies.get(settings.ACCESS_TOKEN_COOKIE_NAME)
+    if not token:
+        token = websocket.query_params.get("token")
+    if not token:
+        subproto = websocket.headers.get("sec-websocket-protocol")
+        if subproto:
+            parts = [p.strip() for p in subproto.split(",") if p.strip()]
+            if parts:
+                cand = parts[-1]
+                token = cand[7:].strip() if cand.lower().startswith("bearer ") else cand
+
+    user = resolve_user_from_token(token, db) if token else None
+    if not user or not getattr(user, "is_active", False):
+        await websocket.close(code=1008)
+        return
+
     await manager.connect(websocket)
     try:
         while True:
