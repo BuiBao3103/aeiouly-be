@@ -4,6 +4,8 @@ from src.config import settings
 from src.auth.router import router as auth_router
 from src.posts.router import router as posts_router
 from src.dictionary.router import router as dictionary_router
+from src.notifications.router import router as notifications_router
+from fastapi import Request
 
 # Import all models to ensure they are registered with SQLAlchemy
 import src.models
@@ -30,6 +32,7 @@ if settings.BACKEND_CORS_ORIGINS:
 app.include_router(auth_router, prefix=settings.API_V1_STR)
 app.include_router(posts_router, prefix=settings.API_V1_STR)
 app.include_router(dictionary_router)
+app.include_router(notifications_router)
 
 # Root endpoint
 @app.get("/")
@@ -57,6 +60,29 @@ async def startup_event():
             print("[Startup] Alembic migrations applied")
         except Exception as e:
             print(f"[Startup] Alembic migration failed: {e}")
+
+# Notify via WebSocket when an API call fails (4xx/5xx)
+@app.middleware("http")
+async def notify_on_api_error(request: Request, call_next):
+    try:
+        response = await call_next(request)
+    except Exception as e:
+        try:
+            # Import here to avoid circular import issues at module load time
+            from src.notifications.router import manager  # type: ignore
+            await manager.broadcast_text(f"[500] {request.method} {request.url.path}: {str(e)}")
+        except Exception:
+            pass
+        raise
+
+    try:
+        if response.status_code >= 400:
+            from src.notifications.router import manager  # type: ignore
+            await manager.broadcast_text(f"[{response.status_code}] {request.method} {request.url.path}")
+    except Exception:
+        pass
+
+    return response
 
 if __name__ == "__main__":
     import uvicorn
