@@ -2,8 +2,9 @@ from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, Foreign
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from src.database import Base
+from src.orm_mixins import SoftDeleteMixin, TimestampMixin
 
-class Post(Base):
+class Post(Base, SoftDeleteMixin, TimestampMixin):
     __tablename__ = "posts"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -11,20 +12,19 @@ class Post(Base):
     is_published = Column(Boolean, default=True)
     author_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     image_url = Column(String(512), nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
+    # moved to TimestampMixin
 
     # Relationship
     author = relationship("User", back_populates="posts")
     likes = relationship("PostLike", back_populates="post", cascade="all, delete-orphan")
 
-class PostLike(Base):
+class PostLike(Base, SoftDeleteMixin, TimestampMixin):
     __tablename__ = "post_likes"
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     post_id = Column(Integer, ForeignKey("posts.id"), nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    # moved to TimestampMixin
 
     # Relationships
     user = relationship("User", back_populates="liked_posts")

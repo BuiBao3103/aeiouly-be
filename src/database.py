@@ -1,6 +1,7 @@
 from sqlalchemy import create_engine, MetaData
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, Session, with_loader_criteria
+from sqlalchemy import event
 from src.config import get_database_url
 
 # PostgreSQL naming conventions
@@ -18,6 +19,18 @@ metadata = MetaData(naming_convention=POSTGRES_INDEXES_NAMING_CONVENTION)
 database_url = get_database_url()
 engine = create_engine(database_url)
 
+# Ensure database sessions use UTC timezone (PostgreSQL)
+def _set_timezone_utc(dbapi_connection, connection_record):
+    try:
+        cursor = dbapi_connection.cursor()
+        cursor.execute("SET TIME ZONE 'UTC'")
+        cursor.close()
+    except Exception:
+        # Ignore if DB does not support this (e.g., SQLite)
+        pass
+
+event.listen(engine, "connect", _set_timezone_utc)
+
 # Create SessionLocal class
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -26,8 +39,14 @@ Base = declarative_base(metadata=metadata)
 
 # Dependency to get database session
 def get_db():
-    db = SessionLocal()
+    db: Session = SessionLocal()
     try:
-        yield db
+        # Apply global soft-delete filters: only load rows where deleted_at is NULL
+        from src.orm_mixins import SoftDeleteMixin
+        yield db.execution_options(
+            loader_criteria=[
+                with_loader_criteria(SoftDeleteMixin, lambda cls: cls.deleted_at.is_(None), include_aliases=True)
+            ]
+        )
     finally:
-        db.close() 
+        db.close()

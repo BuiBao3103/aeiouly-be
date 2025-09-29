@@ -287,7 +287,9 @@ class PostService:
             raise InsufficientPermissionsException("Chỉ tác giả hoặc admin mới có thể xóa bài viết")
 
         try:
-            db.delete(post)
+            # Soft delete
+            from sqlalchemy.sql import func as sql_func
+            post.deleted_at = sql_func.now()
             db.commit()
             return True
         except Exception as e:
@@ -307,7 +309,8 @@ class PostService:
 
         if existing_like:
             # Unlike
-            db.delete(existing_like)
+            from sqlalchemy.sql import func as sql_func
+            existing_like.deleted_at = sql_func.now()
             db.commit()
             is_liked = False
         else:
