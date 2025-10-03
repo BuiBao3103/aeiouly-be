@@ -41,12 +41,7 @@ Base = declarative_base(metadata=metadata)
 def get_db():
     db: Session = SessionLocal()
     try:
-        # Apply global soft-delete filters: only load rows where deleted_at is NULL
-        from src.orm_mixins import SoftDeleteMixin
-        yield db.execution_options(
-            loader_criteria=[
-                with_loader_criteria(SoftDeleteMixin, lambda cls: cls.deleted_at.is_(None), include_aliases=True)
-            ]
-        )
+        # Keep dependency simple and robust to avoid contextmanager errors
+        yield db
     finally:
         db.close()

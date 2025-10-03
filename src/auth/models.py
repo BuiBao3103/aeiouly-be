@@ -19,6 +19,7 @@ class User(Base, SoftDeleteMixin, TimestampMixin):
     hashed_password = Column(String(255), nullable=False)
     role = Column(Enum(UserRole), default=UserRole.USER, nullable=False)
     is_active = Column(Boolean, default=True)
+    is_online = Column(Boolean, default=False, nullable=False)
     # moved to TimestampMixin
 
     # Relationships
