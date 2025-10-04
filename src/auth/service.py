@@ -23,8 +23,12 @@ from src.auth.utils import generate_secure_token, generate_refresh_token, is_tok
 from src.mailer.service import EmailService
 from src.config import settings
 from passlib.context import CryptContext
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from src.analytics.streak_service import LoginStreakService
+
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
 
 class AuthService:
     def __init__(self):
@@ -49,10 +53,12 @@ class AuthService:
         if expires_delta:
             expire = datetime.now(ZoneInfo("UTC")) + expires_delta
         else:
-            expire = datetime.now(ZoneInfo("UTC")) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-        
+            expire = datetime.now(
+                ZoneInfo("UTC")) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+
         to_encode.update({"exp": expire})
-        encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+        encoded_jwt = jwt.encode(
+            to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
         return encoded_jwt
 
     def create_refresh_token(self) -> str:
@@ -62,12 +68,14 @@ class AuthService:
     async def register_user(self, user_data: UserCreate, db: Session) -> User:
         """Register a new user"""
         # Check if user already exists
-        existing_user = db.query(User).filter(User.username == user_data.username).first()
+        existing_user = db.query(User).filter(
+            User.username == user_data.username).first()
         if existing_user:
             raise UserAlreadyExistsException("Tên đăng nhập đã tồn tại")
 
         # Check if email already exists
-        existing_email = db.query(User).filter(User.email == user_data.email).first()
+        existing_email = db.query(User).filter(
+            User.email == user_data.email).first()
         if existing_email:
             raise UserAlreadyExistsException("Email đã được sử dụng")
 
@@ -107,12 +115,22 @@ class AuthService:
         """Login user and return tokens"""
         user = await self.authenticate_user(username, password, db)
         if not user:
-            raise InvalidCredentialsException("Tên đăng nhập hoặc mật khẩu không đúng")
+            raise InvalidCredentialsException(
+                "Tên đăng nhập hoặc mật khẩu không đúng")
+
+        # Record login streak
+        try:
+            streak_service = LoginStreakService()
+            await streak_service.record_login(user.id, db)
+        except Exception as e:
+            print(f"Error recording login streak: {e}")
+            # Don't fail login if streak recording fails
 
         # Create access token
-        access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token_expires = timedelta(
+            minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
         access_token = self.create_access_token(
-            data={"sub": str(user.id), "username": user.username}, 
+            data={"sub": str(user.id), "username": user.username},
             expires_delta=access_token_expires
         )
 
@@ -123,7 +141,8 @@ class AuthService:
         db_refresh_token = RefreshToken(
             token=refresh_token,
             user_id=user.id,
-            expires_at=datetime.now(ZoneInfo("UTC")) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+            expires_at=datetime.now(
+                ZoneInfo("UTC")) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
         )
         db.add(db_refresh_token)
         db.commit()
@@ -138,7 +157,8 @@ class AuthService:
     async def refresh_access_token(self, refresh_token: str, db: Session) -> Token:
         """Refresh access token using refresh token"""
         # Find refresh token in database
-        db_refresh_token = db.query(RefreshToken).filter(RefreshToken.token == refresh_token).first()
+        db_refresh_token = db.query(RefreshToken).filter(
+            RefreshToken.token == refresh_token).first()
         if not db_refresh_token:
             raise RefreshTokenRevokedException("Refresh token không hợp lệ")
 
@@ -150,14 +170,16 @@ class AuthService:
             raise RefreshTokenExpiredException("Refresh token đã hết hạn")
 
         # Get user
-        user = db.query(User).filter(User.id == db_refresh_token.user_id).first()
+        user = db.query(User).filter(
+            User.id == db_refresh_token.user_id).first()
         if not user:
             raise UserNotFoundException("Không tìm thấy người dùng")
 
         # Create new access token
-        access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token_expires = timedelta(
+            minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
         access_token = self.create_access_token(
-            data={"sub": str(user.id), "username": user.username}, 
+            data={"sub": str(user.id), "username": user.username},
             expires_delta=access_token_expires
         )
 
@@ -166,7 +188,8 @@ class AuthService:
 
         # Update refresh token in database
         db_refresh_token.token = new_refresh_token
-        db_refresh_token.expires_at = datetime.now(ZoneInfo("UTC")) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+        db_refresh_token.expires_at = datetime.now(
+            ZoneInfo("UTC")) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
         db.commit()
 
         return Token(
@@ -178,7 +201,8 @@ class AuthService:
 
     async def logout(self, refresh_token: str, db: Session) -> bool:
         """Logout user by revoking refresh token"""
-        db_refresh_token = db.query(RefreshToken).filter(RefreshToken.token == refresh_token).first()
+        db_refresh_token = db.query(RefreshToken).filter(
+            RefreshToken.token == refresh_token).first()
         if db_refresh_token:
             db.delete(db_refresh_token)
             db.commit()
@@ -193,13 +217,15 @@ class AuthService:
             return False
 
         # Generate reset token
-        reset_token = generate_secure_token(settings.PASSWORD_RESET_TOKEN_LENGTH)
-        
+        reset_token = generate_secure_token(
+            settings.PASSWORD_RESET_TOKEN_LENGTH)
+
         # Store reset token in database
         reset_token_obj = PasswordResetToken(
             token=reset_token,
             email=user.email,
-            expires_at=datetime.now(ZoneInfo("UTC")) + timedelta(minutes=settings.PASSWORD_RESET_TOKEN_EXPIRE_MINUTES)
+            expires_at=datetime.now(ZoneInfo(
+                "UTC")) + timedelta(minutes=settings.PASSWORD_RESET_TOKEN_EXPIRE_MINUTES)
         )
         db.add(reset_token_obj)
         db.commit()
@@ -213,19 +239,23 @@ class AuthService:
     async def reset_password(self, reset_data: PasswordResetConfirm, db: Session) -> bool:
         """Reset user password using reset token"""
         # Find reset token
-        reset_token_obj = db.query(PasswordResetToken).filter(PasswordResetToken.token == reset_data.token).first()
+        reset_token_obj = db.query(PasswordResetToken).filter(
+            PasswordResetToken.token == reset_data.token).first()
         if not reset_token_obj:
-            raise PasswordResetTokenInvalidException("Token reset password không hợp lệ")
+            raise PasswordResetTokenInvalidException(
+                "Token reset password không hợp lệ")
 
         # Check if token is expired
         if is_token_expired(reset_token_obj.expires_at):
             # Remove expired token
             db.delete(reset_token_obj)
             db.commit()
-            raise PasswordResetTokenExpiredException("Token reset password đã hết hạn")
+            raise PasswordResetTokenExpiredException(
+                "Token reset password đã hết hạn")
 
         # Get user
-        user = db.query(User).filter(User.email == reset_token_obj.email).first()
+        user = db.query(User).filter(
+            User.email == reset_token_obj.email).first()
         if not user:
             raise UserNotFoundException("Không tìm thấy người dùng")
 
@@ -247,11 +277,13 @@ class AuthService:
 
         # Basic validation: new password length
         if not new_password or len(new_password) < 6:
-            raise InvalidCredentialsException("Mật khẩu mới không hợp lệ (tối thiểu 6 ký tự)")
+            raise InvalidCredentialsException(
+                "Mật khẩu mới không hợp lệ (tối thiểu 6 ký tự)")
 
         # Avoid same password
         if self.verify_password(new_password, user.hashed_password):
-            raise InvalidCredentialsException("Mật khẩu mới phải khác mật khẩu hiện tại")
+            raise InvalidCredentialsException(
+                "Mật khẩu mới phải khác mật khẩu hiện tại")
 
         # Update password
         user.hashed_password = self.get_password_hash(new_password)
@@ -280,7 +312,8 @@ class AuthService:
         try:
             user.is_active = False
             db.commit()
-            db.query(RefreshToken).filter(RefreshToken.user_id == user.id).delete()
+            db.query(RefreshToken).filter(
+                RefreshToken.user_id == user.id).delete()
             db.commit()
             return True
         except Exception:

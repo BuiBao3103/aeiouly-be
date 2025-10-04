@@ -12,8 +12,15 @@ type MeResponse = {
 export default function AuthStatus() {
   const [me, setMe] = useState<MeResponse | null>(null)
   const [loading, setLoading] = useState(false)
+  const [lastFetch, setLastFetch] = useState<number>(0)
 
-  const fetchMe = async () => {
+  const fetchMe = async (force = false) => {
+    const now = Date.now()
+    // Only fetch if forced or if it's been more than 30 seconds since last fetch
+    if (!force && now - lastFetch < 30000) {
+      return
+    }
+    
     try {
       setLoading(true)
       const res = await fetch('http://localhost:8000/api/v1/auth/me', {
@@ -26,6 +33,7 @@ export default function AuthStatus() {
       }
       const data = await res.json()
       setMe(data)
+      setLastFetch(now)
     } catch {
       setMe(null)
     } finally {
@@ -33,10 +41,27 @@ export default function AuthStatus() {
     }
   }
 
+  // Fetch on mount and when window regains focus
   useEffect(() => {
-    fetchMe()
-    const t = setInterval(fetchMe, 15000)
-    return () => clearInterval(t)
+    fetchMe(true)
+    
+    const handleFocus = () => {
+      fetchMe(true)
+    }
+    
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        fetchMe(true)
+      }
+    }
+    
+    window.addEventListener('focus', handleFocus)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    
+    return () => {
+      window.removeEventListener('focus', handleFocus)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
   }, [])
 
   return (
@@ -54,7 +79,7 @@ export default function AuthStatus() {
         zIndex: 1100,
       }}
     >
-      {loading ? '...' : me ? `Signed in: ${me.username}` : 'Guest'}
+      {loading ? '...' : me ? `👤 ${me.username}` : '👤 Guest'}
     </div>
   )
 }

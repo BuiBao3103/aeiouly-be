@@ -1,80 +1,15 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException
 from fastapi import status
-from typing import List, Set, Dict
 from src.auth.dependencies import get_current_active_user, resolve_user_from_token
 from sqlalchemy.orm import Session
 from src.database import get_db
 from src.auth.models import User
+from src.notifications.connection_manager import ConnectionManager
+from src.notifications.schemas import BroadcastRequest, ConnectionStatus
+from src.notifications.dependencies import get_connection_manager
 
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
-
-
-class ConnectionManager:
-    def __init__(self):
-        self.active_connections: Set[WebSocket] = set()
-        self.user_connections: Dict[int, Set[WebSocket]] = {}
-        self.websocket_to_user: Dict[WebSocket, int] = {}
-
-    async def connect(self, websocket: WebSocket, user_id: int, db: Session) -> None:
-        await websocket.accept()
-        self.active_connections.add(websocket)
-
-        user_set = self.user_connections.get(user_id)
-        if user_set is None:
-            user_set = set()
-            self.user_connections[user_id] = user_set
-
-        was_empty = len(user_set) == 0
-        user_set.add(websocket)
-        self.websocket_to_user[websocket] = user_id
-
-        if was_empty:
-            # First connection for this user → set online
-            db_user = db.query(User).filter(User.id == user_id).first()
-            if db_user and not db_user.is_online:
-                db_user.is_online = True
-                db.commit()
-
-    def disconnect(self, websocket: WebSocket, db: Session) -> None:
-        if websocket in self.active_connections:
-            self.active_connections.remove(websocket)
-
-        user_id = self.websocket_to_user.pop(websocket, None)
-        if user_id is None:
-            return
-
-        user_set = self.user_connections.get(user_id)
-        if user_set is None:
-            return
-        if websocket in user_set:
-            user_set.remove(websocket)
-
-        if len(user_set) == 0:
-            # Last tab closed → set offline
-            self.user_connections.pop(user_id, None)
-            db_user = db.query(User).filter(User.id == user_id).first()
-            if db_user and db_user.is_online:
-                db_user.is_online = False
-                db.commit()
-
-    async def broadcast_text(self, message: str):
-        to_remove: List[WebSocket] = []
-        for connection in list(self.active_connections):
-            try:
-                await connection.send_text(message)
-            except Exception:
-                to_remove.append(connection)
-        for ws in to_remove:
-            try:
-                self.disconnect(ws, db=None)  # best-effort cleanup without DB status update
-            except TypeError:
-                # disconnect requires db; remove from sets only
-                if ws in self.active_connections:
-                    self.active_connections.remove(ws)
-
-
-manager = ConnectionManager()
 
 
 @router.websocket("/ws")
@@ -82,46 +17,95 @@ async def websocket_endpoint(websocket: WebSocket, db: Session = Depends(get_db)
     # Authenticate via cookie, query, or subprotocol before accepting
     from src.config import settings
     token = websocket.cookies.get(settings.ACCESS_TOKEN_COOKIE_NAME)
+    
     if not token:
-        token = websocket.query_params.get("token")
+        # Try to get token from query parameters
+        query_params = websocket.query_params
+        token = query_params.get("token")
+    
     if not token:
-        subproto = websocket.headers.get("sec-websocket-protocol")
-        if subproto:
-            parts = [p.strip() for p in subproto.split(",") if p.strip()]
-            if parts:
-                cand = parts[-1]
-                token = cand[7:].strip() if cand.lower().startswith("bearer ") else cand
-
-    user = resolve_user_from_token(token, db) if token else None
-    if not user or not getattr(user, "is_active", False):
-        await websocket.close(code=1008)
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Authentication required")
         return
-
-    await manager.connect(websocket, user_id=user.id, db=db)
+    
+    try:
+        # Resolve user from token
+        user = resolve_user_from_token(token, db)
+        if not user:
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Invalid token")
+            return
+    except Exception as e:
+        print(f"WebSocket authentication error: {e}")
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Authentication failed")
+        return
+    
+    # Get connection manager
+    manager = get_connection_manager()
+    
+    # Connect user
+    await manager.connect(websocket, user.id, db)
+    
     try:
         while True:
-            # Echo incoming messages back; keeps connection alive
+            # Keep connection alive and handle incoming messages
             data = await websocket.receive_text()
-            await websocket.send_text(f"echo: {data}")
+            
+            # Handle ping/pong for connection health
+            if data == "ping":
+                await websocket.send_text("pong")
+            elif data == "pong":
+                # Client responded to our ping
+                pass
+            else:
+                # Echo back other messages
+                await websocket.send_text(f"Echo: {data}")
+                
     except WebSocketDisconnect:
-        manager.disconnect(websocket, db)
+        # User disconnected
+        await manager.disconnect(websocket, db)
+    except Exception as e:
+        print(f"WebSocket error: {e}")
+        await manager.disconnect(websocket, db)
 
 
-@router.post("/broadcast", status_code=status.HTTP_202_ACCEPTED)
+@router.post("/broadcast", response_model=dict)
 async def broadcast_notification(
-    message: str,
-    current_user = Depends(get_current_active_user),
-    db: Session = Depends(get_db),
+    request: BroadcastRequest,
+    current_user: User = Depends(get_current_active_user),
+    manager: ConnectionManager = Depends(get_connection_manager)
 ):
-    # Only admins can broadcast
-    try:
-        from src.auth.models import UserRole
-        if getattr(current_user, "role", None) != UserRole.ADMIN:
-            raise HTTPException(status_code=403, detail="Chỉ admin mới có thể broadcast")
-    except Exception:
-        raise HTTPException(status_code=403, detail="Chỉ admin mới có thể broadcast")
+    """Broadcast a notification to all connected users (Admin only)"""
+    # Check if user is admin
+    if current_user.role.value != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only administrators can broadcast notifications"
+        )
+    
+    # Broadcast the message
+    await manager.broadcast(request.message)
+    
+    return {
+        "message": "Notification broadcasted successfully",
+        "broadcasted_message": request.message,
+        "total_connections": len(manager.active_connections)
+    }
 
-    await manager.broadcast_text(message)
-    return {"sent": True, "message": message}
 
-
+@router.get("/status", response_model=ConnectionStatus)
+async def get_connection_status(
+    current_user: User = Depends(get_current_active_user),
+    manager: ConnectionManager = Depends(get_connection_manager)
+):
+    """Get current WebSocket connection status (Admin only)"""
+    # Check if user is admin
+    if current_user.role.value != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only administrators can view connection status"
+        )
+    
+    return ConnectionStatus(
+        connected=True,
+        total_connections=len(manager.active_connections),
+        user_connections=len(manager.user_connections)
+    )

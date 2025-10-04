@@ -20,12 +20,13 @@ class User(Base, SoftDeleteMixin, TimestampMixin):
     role = Column(Enum(UserRole), default=UserRole.USER, nullable=False)
     is_active = Column(Boolean, default=True)
     is_online = Column(Boolean, default=False, nullable=False)
-    # moved to TimestampMixin
-
+    
     # Relationships
     posts = relationship("Post", back_populates="author")
     refresh_tokens = relationship("RefreshToken", back_populates="user")
     liked_posts = relationship("PostLike", back_populates="user")
+    learning_sessions = relationship("LearningSession", back_populates="user")
+    login_streaks = relationship("LoginStreak", back_populates="user")
 
 class PasswordResetToken(Base, SoftDeleteMixin, TimestampMixin):
     __tablename__ = "password_reset_tokens"

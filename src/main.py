@@ -5,6 +5,7 @@ from src.auth.router import router as auth_router
 from src.posts.router import router as posts_router
 from src.dictionary.router import router as dictionary_router
 from src.notifications.router import router as notifications_router
+from src.analytics.router import router as analytics_router
 from fastapi import Request
 
 # Import all models to ensure they are registered with SQLAlchemy
@@ -33,6 +34,7 @@ app.include_router(auth_router, prefix=settings.API_V1_STR)
 app.include_router(posts_router, prefix=settings.API_V1_STR)
 app.include_router(dictionary_router)
 app.include_router(notifications_router)
+app.include_router(analytics_router, prefix=settings.API_V1_STR)
 
 # Root endpoint
 @app.get("/")
