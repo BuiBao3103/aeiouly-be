@@ -20,6 +20,7 @@ class UserResponse(UserBase):
     id: int
     role: UserRole
     is_active: bool
+    avatar_url: Optional[str] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
 
@@ -53,4 +54,22 @@ class PasswordResetConfirm(CustomModel):
 
 class PasswordChange(CustomModel):
     current_password: str
-    new_password: str 
+    new_password: str
+
+class UserUpdate(CustomModel):
+    username: Optional[str] = None
+    full_name: Optional[str] = None
+
+class UserUpdateResponse(CustomModel):
+    id: int
+    email: str
+    username: str
+    full_name: Optional[str] = None
+    role: UserRole
+    is_active: bool
+    avatar_url: Optional[str] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True 

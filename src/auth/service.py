@@ -23,7 +23,7 @@ from src.auth.utils import generate_secure_token, generate_refresh_token, is_tok
 from src.mailer.service import EmailService
 from src.config import settings
 from passlib.context import CryptContext
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status, UploadFile
 from src.analytics.streak_service import LoginStreakService
 
 
@@ -319,3 +319,61 @@ class AuthService:
         except Exception:
             db.rollback()
             return False
+
+    async def update_user_profile(self, user: User, update_data: dict, db: Session) -> User:
+        """Update user profile (username, full_name)"""
+        try:
+            # Check if username is being updated and if it's unique
+            if 'username' in update_data and update_data['username'] != user.username:
+                existing_user = await self.get_user_by_username(update_data['username'], db)
+                if existing_user:
+                    raise HTTPException(
+                        status_code=400, 
+                        detail="Username đã được sử dụng"
+                    )
+                user.username = update_data['username']
+            
+            # Update full_name if provided
+            if 'full_name' in update_data:
+                user.full_name = update_data['full_name']
+            
+            db.commit()
+            db.refresh(user)
+            return user
+        except HTTPException:
+            raise
+        except Exception as e:
+            db.rollback()
+            raise HTTPException(status_code=500, detail=f"Lỗi cập nhật profile: {str(e)}")
+
+    async def upload_user_avatar(self, user: User, image: UploadFile, db: Session) -> User:
+        """Upload avatar for user"""
+        from src.storage import S3StorageService
+        
+        # Validate content-type
+        if not image.content_type or not image.content_type.startswith("image/"):
+            raise HTTPException(status_code=400, detail="File phải là hình ảnh")
+        
+        try:
+            storage_service = S3StorageService()
+            
+            # Delete old avatar if exists
+            if user.avatar_url:
+                storage_service.delete_file(user.avatar_url)
+            
+            # Upload new avatar to S3
+            url = storage_service.upload_fileobj(
+                image.file, 
+                image.content_type, 
+                key_prefix="avatars/"
+            )
+            
+            # Update user with new avatar URL
+            user.avatar_url = url
+            db.commit()
+            db.refresh(user)
+            
+            return user
+        except Exception as e:
+            db.rollback()
+            raise HTTPException(status_code=500, detail=f"Lỗi upload avatar: {str(e)}")

@@ -1,11 +1,13 @@
 """
 Router for Auth module with DI pattern
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Response, UploadFile
 from sqlalchemy.orm import Session
 from src.auth.schemas import (
     UserCreate, 
     UserResponse, 
+    UserUpdate,
+    UserUpdateResponse,
     Token, 
     PasswordResetRequest, 
     PasswordResetConfirm,
@@ -19,6 +21,7 @@ from src.auth.dependencies import (
     get_current_active_user,
     get_refresh_token_from_cookie
 )
+from src.auth.models import User
 from src.database import get_db
 from src.config import settings
 from src.auth.dependencies import validate_token_optional
@@ -182,3 +185,65 @@ async def delete_account(
     response.delete_cookie(settings.ACCESS_TOKEN_COOKIE_NAME)
     response.delete_cookie(settings.REFRESH_TOKEN_COOKIE_NAME)
     return {"message": "Tài khoản đã được vô hiệu hóa"}
+
+
+@router.put("/me", response_model=UserUpdateResponse)
+async def update_user_profile(
+    update_data: UserUpdate,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+    service: AuthService = Depends(AuthService)
+):
+    """Update current user's profile (username, full_name)"""
+    try:
+        # Convert Pydantic model to dict, excluding None values
+        update_dict = update_data.model_dump(exclude_unset=True)
+        
+        if not update_dict:
+            raise HTTPException(status_code=400, detail="Không có dữ liệu để cập nhật")
+        
+        updated_user = await service.update_user_profile(current_user, update_dict, db)
+        
+        return UserUpdateResponse(
+            id=updated_user.id,
+            email=updated_user.email,
+            username=updated_user.username,
+            full_name=updated_user.full_name,
+            role=updated_user.role,
+            is_active=updated_user.is_active,
+            avatar_url=updated_user.avatar_url,
+            created_at=updated_user.created_at,
+            updated_at=updated_user.updated_at
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lỗi cập nhật profile: {str(e)}")
+
+
+@router.post("/me/avatar", response_model=UserUpdateResponse)
+async def upload_user_avatar(
+    image: UploadFile,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+    service: AuthService = Depends(AuthService)
+):
+    """Upload avatar for current user"""
+    try:
+        updated_user = await service.upload_user_avatar(current_user, image, db)
+        
+        return UserUpdateResponse(
+            id=updated_user.id,
+            email=updated_user.email,
+            username=updated_user.username,
+            full_name=updated_user.full_name,
+            role=updated_user.role,
+            is_active=updated_user.is_active,
+            avatar_url=updated_user.avatar_url,
+            created_at=updated_user.created_at,
+            updated_at=updated_user.updated_at
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lỗi upload avatar: {str(e)}")

@@ -20,6 +20,7 @@ class User(Base, SoftDeleteMixin, TimestampMixin):
     role = Column(Enum(UserRole), default=UserRole.USER, nullable=False)
     is_active = Column(Boolean, default=True)
     is_online = Column(Boolean, default=False, nullable=False)
+    avatar_url = Column(String(500), nullable=True)
     
     # Relationships
     posts = relationship("Post", back_populates="author")
