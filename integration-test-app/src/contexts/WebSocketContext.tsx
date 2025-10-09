@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useRef, useState, ReactNode } from 'react'
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 interface WebSocketContextType {
   connected: boolean
@@ -18,7 +18,7 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({ children }
   const [logs, setLogs] = useState<string[]>([])
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimeoutRef = useRef<number | null>(null)
-  const [autoConnect, setAutoConnect] = useState(true)
+  const [autoConnect, setAutoConnect] = useState(false)
 
   const addLog = (line: string) => {
     const timestamp = new Date().toLocaleTimeString()
@@ -87,9 +87,26 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({ children }
     addLog(`📤 Sent: ${message}`)
   }
 
-  // Auto-connect on mount and handle page visibility
+  // Connect only when authenticated; handle page visibility
   useEffect(() => {
-    connect()
+    // Check auth once on mount
+    const checkAuthAndConnect = async () => {
+      try {
+        const res = await fetch('http://localhost:8000/api/v1/auth/me', {
+          method: 'GET',
+          credentials: 'include',
+        })
+        if (res.ok) {
+          setAutoConnect(true)
+          connect()
+        } else {
+          setAutoConnect(false)
+        }
+      } catch {
+        setAutoConnect(false)
+      }
+    }
+    checkAuthAndConnect()
     
     const handleVisibilityChange = () => {
       if (!document.hidden && !connected && autoConnect) {
@@ -99,9 +116,27 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({ children }
     }
     
     document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    // React to auth changes: disconnect on logout, (re)connect on login
+    const handleAuthChanged = (e: Event) => {
+      const detail = (e as CustomEvent<{ status?: 'logged_in' | 'logged_out' }>).detail
+      if (detail?.status === 'logged_out') {
+        addLog('🔒 Auth changed: logged out → disconnecting WebSocket')
+        disconnect()
+      } else if (detail?.status === 'logged_in') {
+        addLog('🔓 Auth changed: logged in → reconnecting WebSocket')
+        setAutoConnect(true)
+        connect()
+      } else {
+        // Fallback: just attempt a reconnect to refresh presence
+        connect()
+      }
+    }
+    window.addEventListener('auth:changed', handleAuthChanged as EventListener)
     
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('auth:changed', handleAuthChanged as EventListener)
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current)
       }
@@ -110,12 +145,12 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({ children }
     }
   }, [])
 
-  const value: WebSocketContextType = {
+  const value: WebSocketContextType = useMemo(() => ({
     connected,
     logs,
     sendMessage,
     addLog
-  }
+  }), [connected, logs])
 
   return (
     <WebSocketContext.Provider value={value}>

@@ -9,6 +9,7 @@ from src.auth.schemas import (
     UserUpdate,
     UserUpdateResponse,
     Token, 
+    GoogleLoginRequest,
     PasswordResetRequest, 
     PasswordResetConfirm,
     PasswordChange,
@@ -70,6 +71,37 @@ async def login(
         samesite=settings.COOKIE_SAMESITE
     )
     
+    return token_data
+
+
+@router.post("/google", response_model=Token)
+async def login_with_google(
+    response: Response,
+    payload: GoogleLoginRequest,
+    service: AuthService = Depends(AuthService),
+    db: Session = Depends(get_db)
+):
+    """Login via Google ID token, then issue our tokens and set cookies."""
+    token_data = await service.login_with_google(payload.id_token, db)
+
+    # Set cookies like normal login
+    response.set_cookie(
+        key=settings.ACCESS_TOKEN_COOKIE_NAME,
+        value=token_data.access_token,
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        httponly=settings.COOKIE_HTTPONLY,
+        secure=settings.COOKIE_SECURE,
+        samesite=settings.COOKIE_SAMESITE
+    )
+    response.set_cookie(
+        key=settings.REFRESH_TOKEN_COOKIE_NAME,
+        value=token_data.refresh_token,
+        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
+        httponly=settings.COOKIE_HTTPONLY,
+        secure=settings.COOKIE_SECURE,
+        samesite=settings.COOKIE_SAMESITE
+    )
+
     return token_data
 
 @router.post("/refresh", response_model=Token, responses={

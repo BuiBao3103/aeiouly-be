@@ -37,6 +37,10 @@ class Token(CustomModel):
     token_type: str = "bearer"
     expires_in: int
 
+
+class GoogleLoginRequest(CustomModel):
+    id_token: str
+
 class ErrorResponse(CustomModel):
     message: str
     code: str

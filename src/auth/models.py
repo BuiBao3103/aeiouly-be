@@ -16,7 +16,7 @@ class User(Base, SoftDeleteMixin, TimestampMixin):
     email = Column(String(255), unique=True, index=True, nullable=False)
     username = Column(String(100), unique=True, index=True, nullable=False)
     full_name = Column(String(255), nullable=True)
-    hashed_password = Column(String(255), nullable=False)
+    hashed_password = Column(String(255), nullable=True)
     role = Column(Enum(UserRole), default=UserRole.USER, nullable=False)
     is_active = Column(Boolean, default=True)
     is_online = Column(Boolean, default=False, nullable=False)

@@ -25,6 +25,8 @@ from src.config import settings
 from passlib.context import CryptContext
 from fastapi import APIRouter, Depends, HTTPException, Query, status, UploadFile
 from src.analytics.streak_service import LoginStreakService
+from google.oauth2 import id_token as google_id_token
+from google.auth.transport import requests as google_requests
 
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -34,7 +36,9 @@ class AuthService:
     def __init__(self):
         self.email_service = EmailService()
 
-    def verify_password(self, plain_password: str, hashed_password: str) -> bool:
+    def verify_password(self, plain_password: str, hashed_password: Optional[str]) -> bool:
+        if not hashed_password:
+            return False
         try:
             return pwd_context.verify(plain_password, hashed_password)
         except Exception:
@@ -197,6 +201,77 @@ class AuthService:
             refresh_token=new_refresh_token,
             token_type="bearer",
             expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60  # Convert to seconds
+        )
+
+    async def login_with_google(self, google_id_token_str: str, db: Session) -> Token:
+        """Verify Google ID token, upsert user, and issue our tokens."""
+        try:
+            idinfo = google_id_token.verify_oauth2_token(
+                google_id_token_str,
+                google_requests.Request(),
+                settings.GOOGLE_OAUTH_CLIENT_ID or None,
+            )
+        except Exception:
+            raise InvalidCredentialsException("Google token không hợp lệ")
+
+        sub = idinfo.get("sub")
+        email = idinfo.get("email")
+        name = idinfo.get("name") or ""
+
+        if not sub or not email:
+            raise InvalidCredentialsException("Thiếu thông tin từ Google")
+
+        # Find existing user by email
+        user = db.query(User).filter(User.email == email).first()
+        if not user:
+            # Create a new user with a generated username
+            base_username = email.split("@")[0]
+            username = base_username
+            suffix = 1
+            while db.query(User).filter(User.username == username).first() is not None:
+                username = f"{base_username}{suffix}"
+                suffix += 1
+
+            user = User(
+                username=username,
+                email=email,
+                full_name=name,
+                # Mark OAuth-created account: no local password
+                hashed_password=None,
+                role=UserRole.USER,
+            )
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+
+        # Record login streak (non-blocking error)
+        try:
+            streak_service = LoginStreakService()
+            await streak_service.record_login(user.id, db)
+        except Exception as e:
+            print(f"Error recording login streak (Google): {e}")
+
+        # Issue tokens
+        access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token = self.create_access_token(
+            data={"sub": str(user.id), "username": user.username},
+            expires_delta=access_token_expires,
+        )
+
+        refresh_token = self.create_refresh_token()
+        db_refresh_token = RefreshToken(
+            token=refresh_token,
+            user_id=user.id,
+            expires_at=datetime.now(ZoneInfo("UTC")) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+        )
+        db.add(db_refresh_token)
+        db.commit()
+
+        return Token(
+            access_token=access_token,
+            refresh_token=refresh_token,
+            token_type="bearer",
+            expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         )
 
     async def logout(self, refresh_token: str, db: Session) -> bool:

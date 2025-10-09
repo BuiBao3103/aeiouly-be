@@ -49,6 +49,7 @@ class Settings(BaseSettings):
 
     # Google AI API
     GOOGLE_AI_API_KEY: str = ""
+    GOOGLE_OAUTH_CLIENT_ID: str = ""
 
     # Migrations
     AUTO_MIGRATE_ON_STARTUP: bool = False
