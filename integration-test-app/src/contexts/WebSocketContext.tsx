@@ -99,6 +99,8 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({ children }
         if (res.ok) {
           setAutoConnect(true)
           connect()
+          // Dispatch auth:changed event to notify AuthStatus (only on initial mount)
+          window.dispatchEvent(new CustomEvent('auth:changed', { detail: { status: 'logged_in', source: 'mount_check' } }))
         } else {
           setAutoConnect(false)
         }
