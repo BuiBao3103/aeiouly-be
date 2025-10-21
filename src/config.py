@@ -48,7 +48,7 @@ class Settings(BaseSettings):
     SMTP_SSL: bool = False
 
     # Google AI API
-    GOOGLE_AI_API_KEY: str = ""
+    GOOGLE_API_KEY: str = ""
     GOOGLE_OAUTH_CLIENT_ID: str = ""
 
     # Migrations

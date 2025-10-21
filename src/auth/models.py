@@ -28,6 +28,7 @@ class User(Base, SoftDeleteMixin, TimestampMixin):
     liked_posts = relationship("PostLike", back_populates="user")
     learning_sessions = relationship("LearningSession", back_populates="user")
     login_streaks = relationship("LoginStreak", back_populates="user")
+    writing_sessions = relationship("WritingSession", back_populates="user")
 
 class PasswordResetToken(Base, SoftDeleteMixin, TimestampMixin):
     __tablename__ = "password_reset_tokens"

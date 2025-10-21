@@ -321,7 +321,7 @@ class PostService:
             is_liked = True
 
         # Get updated likes count
-        likes_count = self.get_post_likes_count(post_id, db)
+        likes_count = await self.get_post_likes_count(post_id, db)
 
         return PostResponse(
             id=post.id,

@@ -33,3 +33,4 @@ from src.auth.models import UserRole, User, PasswordResetToken, RefreshToken
 from src.analytics.models import LearningSession, LoginStreak
 from src.posts.models import Post, PostLike
 from src.dictionary.models import Dictionary
+from src.writing.models import WritingSession, WritingChatMessage
