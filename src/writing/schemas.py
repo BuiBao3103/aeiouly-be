@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any
+from typing import List, Optional
 from datetime import datetime
 from src.models import CustomModel
 from src.writing.models import CEFRLevel, SessionStatus
@@ -20,7 +20,6 @@ class WritingSessionResponse(CustomModel):
     vietnamese_text: str
     vietnamese_sentences: List[str]  # Array of sentences
     current_sentence: Optional[str] = None
-    session_data: Optional[Dict[str, Any]] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
 

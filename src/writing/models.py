@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey, Enum, JSON
+from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey, Enum
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from src.database import Base
@@ -29,7 +29,6 @@ class WritingSession(Base, SoftDeleteMixin, TimestampMixin):
     status = Column(Enum(SessionStatus), default=SessionStatus.ACTIVE)
     vietnamese_text = Column(Text, nullable=False)  # Full Vietnamese text
     current_sentence = Column(Text, nullable=True)  # Current sentence being translated
-    session_data = Column(JSON, nullable=True)  # Additional session data for agents
     
     # Relationships
     user = relationship("User", back_populates="writing_sessions")

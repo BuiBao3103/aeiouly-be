@@ -2,16 +2,17 @@
 Service layer for Writing Practice module
 """
 
-from typing import List, Optional, Dict, Any
+from typing import List, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from src.writing.models import WritingSession, WritingChatMessage, SessionStatus, CEFRLevel
 from src.writing.schemas import (
     WritingSessionCreate, 
     WritingSessionResponse, 
-    ChatMessageCreate,
-    ChatMessageResponse,
-    HintResponse,
+    WritingSessionListResponse,
+    ChatMessageCreate, 
+    ChatMessageResponse, 
+    HintResponse, 
     FinalEvaluationResponse
 )
 from src.writing.agents.writing_coordinator import writing_coordinator_agent
@@ -158,7 +159,6 @@ class WritingService:
                 vietnamese_text=db_session.vietnamese_text,
                 vietnamese_sentences=vietnamese_sentences,
                 current_sentence=db_session.current_sentence,
-                session_data=db_session.session_data,
                 created_at=db_session.created_at,
                 updated_at=db_session.updated_at
             )
@@ -208,27 +208,26 @@ class WritingService:
             vietnamese_text=session.vietnamese_text,
             vietnamese_sentences=vietnamese_sentences,
             current_sentence=session.current_sentence,
-            session_data=session.session_data,
             created_at=session.created_at,
             updated_at=session.updated_at
         )
     
-    def get_user_writing_sessions(self, user_id: int, db: Session) -> List[Dict[str, Any]]:
+    def get_user_writing_sessions(self, user_id: int, db: Session) -> List[WritingSessionListResponse]:
         """Get all writing sessions for a user"""
         sessions = db.query(WritingSession).filter(
             WritingSession.user_id == user_id
         ).order_by(desc(WritingSession.created_at)).all()
         
         return [
-            {
-                "id": session.id,
-                "topic": session.topic,
-                "difficulty": session.difficulty.value,
-                "total_sentences": session.total_sentences,
-                "current_sentence_index": session.current_sentence_index,
-                "status": session.status.value,
-                "created_at": session.created_at.isoformat()
-            }
+            WritingSessionListResponse(
+                id=session.id,
+                topic=session.topic,
+                difficulty=session.difficulty,
+                total_sentences=session.total_sentences,
+                current_sentence_index=session.current_sentence_index,
+                status=session.status,
+                created_at=session.created_at
+            )
             for session in sessions
         ]
     
