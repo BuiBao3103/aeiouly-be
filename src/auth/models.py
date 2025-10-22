@@ -29,6 +29,7 @@ class User(Base, SoftDeleteMixin, TimestampMixin):
     learning_sessions = relationship("LearningSession", back_populates="user")
     login_streaks = relationship("LoginStreak", back_populates="user")
     writing_sessions = relationship("WritingSession", back_populates="user")
+    listening_sessions = relationship("ListeningSession", back_populates="user")
 
 class PasswordResetToken(Base, SoftDeleteMixin, TimestampMixin):
     __tablename__ = "password_reset_tokens"
