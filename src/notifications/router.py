@@ -9,7 +9,7 @@ from src.notifications.schemas import BroadcastRequest, ConnectionStatus
 from src.notifications.dependencies import get_connection_manager
 
 
-router = APIRouter(prefix="/notifications", tags=["notifications"])
+router = APIRouter(prefix="/notifications", tags=["Notifications"])
 
 
 @router.websocket("/ws")

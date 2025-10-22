@@ -26,7 +26,7 @@ from src.listening.exceptions import (
     ProgressUpdateFailedException, SessionCompletionFailedException
 )
 
-router = APIRouter(prefix="", tags=["listening"])
+router = APIRouter(prefix="", tags=["Listening Practice"])
 
 LESSON_NOT_FOUND = "Không tìm thấy bài học"
 LESSON_CREATE_ERROR = "Lỗi khi tạo bài học"

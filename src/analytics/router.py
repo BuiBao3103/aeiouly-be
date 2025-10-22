@@ -14,7 +14,7 @@ from src.analytics.schemas import (
 )
 from datetime import date, datetime, timezone
 
-router = APIRouter(prefix="/analytics", tags=["analytics"])
+router = APIRouter(prefix="/analytics", tags=["Analytics"])
 
 
 @router.post("/learning/start", response_model=dict)
