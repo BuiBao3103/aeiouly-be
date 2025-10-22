@@ -10,7 +10,7 @@ from src.listening.schemas import (
     LessonCreate, LessonUpload, LessonUpdate, LessonResponse, LessonDetailResponse,
     SessionCreate, SessionResponse, SessionDetailResponse,
     ProgressSubmit, ProgressStats, SessionCompleteResponse,
-    LessonFilter
+    LessonFilter, UserSessionResponse
 )
 from src.pagination import PaginationParams, PaginatedResponse, paginate
 from src.listening.utils import SRTParser, TextNormalizer, sanitize_subtitle_text, is_non_speech_subtitle
@@ -130,7 +130,6 @@ class ListeningService:
             for i, subtitle in enumerate(subtitles):
                 # Normalize text
                 normalized_text = TextNormalizer.normalize(subtitle.text)
-                # Alternatives removed
                 
                 # Get translation from batch result
                 translation = all_translations[i] if i < len(all_translations) else f"[Translation for: {subtitle.text}]"
@@ -562,13 +561,13 @@ class ListeningService:
         )
     
     def delete_lesson(self, lesson_id: int, db: Session) -> bool:
-        """Delete a listening lesson"""
+        """Soft delete a listening lesson"""
         lesson = db.query(ListenLesson).filter(ListenLesson.id == lesson_id).first()
         if not lesson:
             raise LessonNotFoundException()
         
-        # Delete related sentences first (cascade should handle this)
-        db.delete(lesson)
+        # Soft delete the lesson (sets deleted_at timestamp)
+        lesson.deleted_at = datetime.now(timezone.utc)
         db.commit()
         return True
     
@@ -592,7 +591,6 @@ class ListeningService:
                 "start_time": sentence.start_time,
                 "end_time": sentence.end_time,
                 "normalized_text": sentence.normalized_text,
-                # alternatives removed
             }
             for sentence in sentences
         ]
@@ -609,13 +607,53 @@ class ListeningService:
         )
     
     def create_session(self, user_id: int, session_data: SessionCreate, db: Session) -> SessionResponse:
-        """Create a new listening session"""
+        """Create a new listening session or return existing active session"""
         # Check if lesson exists
         lesson = db.query(ListenLesson).filter(ListenLesson.id == session_data.lesson_id).first()
         if not lesson:
             raise ValueError("Lesson not found")
         
-        # Create session
+        # Check if user already has a session for this lesson (active or completed)
+        existing_session = db.query(ListeningSession).filter(
+            and_(
+                ListeningSession.user_id == user_id,
+                ListeningSession.lesson_id == session_data.lesson_id
+            )
+        ).first()
+        
+        if existing_session:
+            if existing_session.status == "completed":
+                # Reset completed session to active and start from beginning
+                existing_session.status = "active"
+                existing_session.current_sentence_index = 0
+                existing_session.attempts += 1  # Increment attempts counter
+                db.commit()
+                db.refresh(existing_session)
+                
+                return SessionResponse(
+                    id=existing_session.id,
+                    user_id=existing_session.user_id,
+                    lesson_id=existing_session.lesson_id,
+                    current_sentence_index=existing_session.current_sentence_index,
+                    status=existing_session.status,
+                    attempts=existing_session.attempts,
+                    created_at=existing_session.created_at,
+                    updated_at=existing_session.updated_at
+                )
+            else:
+                # Return existing active session
+                return SessionResponse(
+                    id=existing_session.id,
+                    user_id=existing_session.user_id,
+                    lesson_id=existing_session.lesson_id,
+                    current_sentence_index=existing_session.current_sentence_index,
+                    status=existing_session.status,
+                    attempts=existing_session.attempts,
+                    created_at=existing_session.created_at,
+                    updated_at=existing_session.updated_at
+                )
+        
+        # Create new session if none exists
         db_session = ListeningSession(
             user_id=user_id,
             lesson_id=session_data.lesson_id,
@@ -632,6 +670,7 @@ class ListeningService:
             lesson_id=db_session.lesson_id,
             current_sentence_index=db_session.current_sentence_index,
             status=db_session.status,
+            attempts=db_session.attempts,
             created_at=db_session.created_at,
             updated_at=db_session.updated_at
         )
@@ -680,7 +719,6 @@ class ListeningService:
                     "start_time": sentence.start_time,
                     "end_time": sentence.end_time,
                     "normalized_text": sentence.normalized_text,
-                    # alternatives removed
                 }
         
         return SessionDetailResponse(
@@ -689,14 +727,15 @@ class ListeningService:
             lesson_id=session.lesson_id,
             current_sentence_index=session.current_sentence_index,
             status=session.status,
+            attempts=session.attempts,
             lesson=lesson_response,
             current_sentence=current_sentence,
             created_at=session.created_at,
             updated_at=session.updated_at
         )
     
-    def submit_progress(self, session_id: int, user_id: int, progress: ProgressSubmit, db: Session) -> ProgressStats:
-        """Submit progress for current sentence and move to next"""
+    def get_next_sentence(self, session_id: int, user_id: int, db: Session) -> SessionDetailResponse:
+        """Move to next sentence and return session detail with current sentence"""
         session = db.query(ListeningSession).filter(
             and_(
                 ListeningSession.id == session_id,
@@ -710,29 +749,101 @@ class ListeningService:
         if session.status == "completed":
             raise SessionAlreadyCompletedException()
         
-        # Update session progress
+        # Increment current sentence index
         session.current_sentence_index += 1
         
-        # Check if completed
+        # Get lesson info
         lesson = db.query(ListenLesson).filter(ListenLesson.id == session.lesson_id).first()
+        
+        # Check if completed (reached end of lesson)
         if session.current_sentence_index >= lesson.total_sentences:
             session.status = "completed"
+            current_sentence = None  # No more sentences
+        else:
+            # Get current sentence
+            sentence = db.query(Sentence).filter(
+                and_(
+                    Sentence.lesson_id == session.lesson_id,
+                    Sentence.index == session.current_sentence_index
+                )
+            ).first()
+            
+            current_sentence = {
+                "id": sentence.id,
+                "lesson_id": sentence.lesson_id,
+                "index": sentence.index,
+                "text": sentence.text,
+                "translation": sentence.translation,
+                "start_time": sentence.start_time,
+                "end_time": sentence.end_time,
+                "normalized_text": sentence.normalized_text,
+            } if sentence else None
         
         db.commit()
         
-        # Calculate stats (simplified for now)
-        total_sentences = lesson.total_sentences
-        completed_sentences = session.current_sentence_index
-        accuracy = 85.0  # Placeholder - would need to track actual results
-        avg_time = 15.0  # Placeholder
-        
-        return ProgressStats(
-            total_sentences=total_sentences,
-            completed_sentences=completed_sentences,
-            correct_answers=int(completed_sentences * accuracy / 100),
-            total_attempts=completed_sentences,
-            total_hints_used=0,  # Placeholder
-            total_time_spent=completed_sentences * avg_time,
-            accuracy=accuracy,
-            average_time_per_sentence=avg_time
+        # Create lesson response
+        lesson_response = LessonResponse(
+            id=lesson.id,
+            title=lesson.title,
+            youtube_url=lesson.youtube_url,
+            level=lesson.level,
+            total_sentences=lesson.total_sentences,
+            created_at=lesson.created_at,
+            updated_at=lesson.updated_at
         )
+        
+        return SessionDetailResponse(
+            id=session.id,
+            user_id=session.user_id,
+            lesson_id=session.lesson_id,
+            current_sentence_index=session.current_sentence_index,
+            status=session.status,
+            attempts=session.attempts,
+            lesson=lesson_response,
+            current_sentence=current_sentence,
+            created_at=session.created_at,
+            updated_at=session.updated_at
+        )
+    
+    def get_user_sessions(self, user_id: int, pagination: PaginationParams, db: Session) -> PaginatedResponse[UserSessionResponse]:
+        """Get all active sessions for a user with pagination"""
+        # Base query for user's active sessions
+        query = db.query(ListeningSession).filter(
+            and_(
+                ListeningSession.user_id == user_id,
+            )
+        )
+        
+        # Get total count
+        total = query.count()
+        
+        # Apply pagination
+        offset = (pagination.page - 1) * pagination.size
+        sessions = query.order_by(desc(ListeningSession.created_at)).offset(offset).limit(pagination.size).all()
+        
+        user_sessions = []
+        for session in sessions:
+            # Get lesson info
+            lesson = db.query(ListenLesson).filter(ListenLesson.id == session.lesson_id).first()
+            lesson_response = LessonResponse(
+                id=lesson.id,
+                title=lesson.title,
+                youtube_url=lesson.youtube_url,
+                level=lesson.level,
+                total_sentences=lesson.total_sentences,
+                created_at=lesson.created_at,
+                updated_at=lesson.updated_at
+            )
+            
+            user_sessions.append(UserSessionResponse(
+                id=session.id,
+                lesson_id=session.lesson_id,
+                current_sentence_index=session.current_sentence_index,
+                status=session.status,
+                attempts=session.attempts,
+                lesson=lesson_response,
+                created_at=session.created_at,
+                updated_at=session.updated_at
+            ))
+        
+        return paginate(user_sessions, total, pagination.page, pagination.size)

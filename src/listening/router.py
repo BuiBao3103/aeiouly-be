@@ -4,7 +4,7 @@ FastAPI router for Listening module
 
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
 from sqlalchemy.orm import Session
-from typing import Optional
+from typing import Optional, List
 import json
 
 from src.database import get_db
@@ -15,7 +15,7 @@ from src.listening.schemas import (
     LessonUpload, LessonUpdate, LessonResponse, LessonDetailResponse,
     SessionCreate, SessionResponse, SessionDetailResponse,
     ProgressSubmit, ProgressStats, SessionCompleteResponse,
-    LessonFilter
+    LessonFilter, UserSessionResponse
 )
 from src.pagination import PaginationParams, PaginatedResponse
 from src.listening.exceptions import (
@@ -26,7 +26,7 @@ from src.listening.exceptions import (
     ProgressUpdateFailedException, SessionCompletionFailedException
 )
 
-router = APIRouter(prefix="/listening", tags=["listening"])
+router = APIRouter(prefix="", tags=["listening"])
 
 LESSON_NOT_FOUND = "Không tìm thấy bài học"
 LESSON_CREATE_ERROR = "Lỗi khi tạo bài học"
@@ -43,7 +43,7 @@ def get_listening_service() -> ListeningService:
     return ListeningService()
 
 # Lesson endpoints
-@router.post("/lessons", response_model=LessonResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/listen-lessons", response_model=LessonResponse, status_code=status.HTTP_201_CREATED)
 async def create_lesson(
     title: str = Form(...),
     youtube_url: str = Form(...),
@@ -75,7 +75,7 @@ async def create_lesson(
             detail=f"Lỗi khi tạo bài học: {str(e)}"
         )
 
-@router.get("/lessons", response_model=PaginatedResponse[LessonResponse])
+@router.get("/listen-lessons", response_model=PaginatedResponse[LessonResponse])
 def get_lessons(
     level: Optional[str] = None,
     search: Optional[str] = None,
@@ -103,7 +103,7 @@ def get_lessons(
             detail=f"Lỗi khi lấy danh sách bài học: {str(e)}"
         )
 
-@router.put("/lessons/{lesson_id}", response_model=LessonResponse)
+@router.put("/listen-lessons/{lesson_id}", response_model=LessonResponse)
 def update_lesson(
     lesson_id: int,
     lesson_data: LessonUpdate,
@@ -125,7 +125,7 @@ def update_lesson(
             detail=f"Lỗi khi cập nhật bài học: {str(e)}"
         )
 
-@router.delete("/lessons/{lesson_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/listen-lessons/{lesson_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_lesson(
     lesson_id: int,
     current_user: User = Depends(get_current_active_user),
@@ -148,7 +148,7 @@ def delete_lesson(
             detail=f"Lỗi khi xóa bài học: {str(e)}"
         )
 
-@router.get("/lessons/{lesson_id}", response_model=LessonDetailResponse)
+@router.get("/listen-lessons/{lesson_id}", response_model=LessonDetailResponse)
 def get_lesson_detail(
     lesson_id: int,
     current_user: User = Depends(get_current_active_user),
@@ -198,21 +198,43 @@ def get_session(
         )
     return session
 
-@router.post("/listening-sessions/{session_id}/next", response_model=ProgressStats)
-def submit_progress(
+@router.post("/listening-sessions/{session_id}/next", response_model=SessionDetailResponse)
+def get_next_sentence(
     session_id: int,
-    progress: ProgressSubmit,
     current_user: User = Depends(get_current_active_user),
     service: ListeningService = Depends(get_listening_service),
     db: Session = Depends(get_db)
 ):
-    """Submit progress for current sentence and move to next"""
+    """Move to next sentence and return session detail with current sentence"""
     try:
-        stats = service.submit_progress(session_id, current_user.id, progress, db)
-        return stats
+        session_detail = service.get_next_sentence(session_id, current_user.id, db)
+        return session_detail
+    except SessionNotFoundException as e:
+        raise e
+    except SessionAlreadyCompletedException as e:
+        raise e
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Lỗi khi cập nhật tiến độ: {str(e)}"
+            detail=f"Lỗi khi chuyển sang câu tiếp theo: {str(e)}"
+        )
+
+@router.get("/listening-sessions", response_model=PaginatedResponse[UserSessionResponse])
+def get_user_sessions(
+    page: int = 1,
+    size: int = 10,
+    current_user: User = Depends(get_current_active_user),
+    service: ListeningService = Depends(get_listening_service),
+    db: Session = Depends(get_db)
+):
+    """Get all active sessions for the current user with pagination"""
+    try:
+        pagination = PaginationParams(page=page, size=size)
+        sessions = service.get_user_sessions(current_user.id, pagination, db)
+        return sessions
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Lỗi khi lấy danh sách phiên học: {str(e)}"
         )
 

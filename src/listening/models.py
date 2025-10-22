@@ -54,6 +54,7 @@ class ListeningSession(Base, SoftDeleteMixin, TimestampMixin):
     lesson_id = Column(Integer, ForeignKey("listen_lessons.id"), nullable=False, index=True)
     current_sentence_index = Column(Integer, default=0)
     status = Column(String(20), default="active")
+    attempts = Column(Integer, default=1)  # Number of attempts for this lesson
     
     # Relationships
     user = relationship("User", back_populates="listening_sessions")

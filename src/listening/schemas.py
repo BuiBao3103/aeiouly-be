@@ -27,7 +27,6 @@ class SentenceResponse(CustomModel):
     start_time: float
     end_time: float
     normalized_text: Optional[str] = None
-    alternatives: Optional[List[str]] = None
 
 class LessonResponse(CustomModel):
     id: int
@@ -58,6 +57,7 @@ class SessionResponse(CustomModel):
     lesson_id: int
     current_sentence_index: int
     status: SessionStatus
+    attempts: int
     created_at: datetime
     updated_at: Optional[datetime] = None
 
@@ -67,6 +67,7 @@ class SessionDetailResponse(CustomModel):
     lesson_id: int
     current_sentence_index: int
     status: SessionStatus
+    attempts: int
     lesson: LessonResponse
     current_sentence: Optional[SentenceResponse] = None
     created_at: datetime
@@ -101,3 +102,14 @@ class SessionCompleteResponse(CustomModel):
 class LessonFilter(CustomModel):
     level: Optional[CEFRLevel] = None
     search: Optional[str] = None
+
+class UserSessionResponse(CustomModel):
+    """Response schema for user's sessions list"""
+    id: int
+    lesson_id: int
+    current_sentence_index: int
+    status: SessionStatus
+    attempts: int
+    lesson: LessonResponse
+    created_at: datetime
+    updated_at: Optional[datetime] = None
