@@ -64,7 +64,7 @@ class ReadingSessionDetail(CustomModel):
 # Summary evaluation schemas
 class SummarySubmission(CustomModel):
     """Request schema for summary submission"""
-    vietnamese_summary: str = Field(..., min_length=50, max_length=2000, description="Vietnamese summary")
+    summary: str = Field(..., min_length=50, max_length=2000, description="Summary in Vietnamese or English")
 
 class SummaryFeedback(CustomModel):
     """Response schema for summary feedback"""

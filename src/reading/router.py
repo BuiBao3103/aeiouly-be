@@ -123,7 +123,7 @@ async def submit_summary(
     service: ReadingService = Depends(get_reading_service),
     db: Session = Depends(get_db)
 ):
-    """Submit Vietnamese summary for evaluation"""
+    """Submit summary for evaluation (Vietnamese or English)"""
     try:
         feedback = await service.evaluate_summary(session_id, current_user.id, summary_data, db)
         return feedback

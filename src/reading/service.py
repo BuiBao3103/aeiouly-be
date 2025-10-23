@@ -16,8 +16,9 @@ from src.reading.schemas import (
 )
 from src.reading.agents.text_generation_agent import text_generation_agent, TextGenerationRequest
 from src.reading.agents.text_analysis_agent import text_analysis_agent, TextAnalysisRequest
-from src.reading.agents.summary_evaluation_agent import summary_evaluation_agent, SummaryEvaluationRequest
-from src.reading.agents.quiz_generation_agent import quiz_generation_agent, QuizGenerationRequest as QuizRequest
+from src.reading.agents.subagents.summary_evaluator.agent import summary_evaluation_agent, SummaryEvaluationRequest
+from src.reading.agents.quiz_generation_agent import quiz_generation_agent, QuizGenerationRequest
+from src.reading.agents.reading_coordinator import reading_coordinator_agent
 from src.reading.exceptions import (
     ReadingSessionNotFoundException, TextGenerationFailedException,
     TextAnalysisFailedException, SummaryEvaluationFailedException,
@@ -31,6 +32,7 @@ from src.config import get_database_url
 
 # Constants
 NO_AI_RESPONSE_ERROR = "No response from AI agent"
+DEFAULT_FEEDBACK = "Đánh giá tự động dựa trên nội dung tóm tắt."
 
 class ReadingService:
     def __init__(self):
@@ -186,13 +188,13 @@ class ReadingService:
             raise ReadingSessionNotFoundException()
         
         try:
-            # Evaluate summary with AI
-            evaluation_result = await self._evaluate_summary(session.content, summary_data.vietnamese_summary)
+            # Evaluate summary with coordinator
+            evaluation_result = await self._evaluate_summary_with_coordinator(session.content, summary_data.summary)
             
             # Handle both dict and object responses
             if isinstance(evaluation_result, dict):
                 score = evaluation_result.get("score", 75)
-                feedback = evaluation_result.get("feedback", "Đánh giá tự động dựa trên nội dung tóm tắt.")
+                feedback = evaluation_result.get("feedback", DEFAULT_FEEDBACK)
             else:
                 score = evaluation_result.score
                 feedback = evaluation_result.feedback
@@ -204,6 +206,57 @@ class ReadingService:
             
         except Exception as e:
             raise SummaryEvaluationFailedException(f"Failed to evaluate summary: {str(e)}")
+    
+    async def _evaluate_summary_with_coordinator(self, original_text: str, summary_text: str) -> Any:
+        """Evaluate summary using coordinator agent"""
+        try:
+            runner = Runner(
+                agent=reading_coordinator_agent,
+                app_name="ReadingPractice",
+                session_service=self.session_service
+            )
+            session_id = f"coordinator_{int(time.time())}"
+            
+            try:
+                await self.session_service.create_session(
+                    app_name="ReadingPractice",
+                    user_id="system",
+                    session_id=session_id,
+                    state={}
+                )
+            except Exception:
+                pass  # Session might already exist
+            
+            content = types.Content(
+                role="user",
+                parts=[types.Part(text=f"""
+                Evaluate this summary:
+                
+                Original text: {original_text}
+                Summary: {summary_text}
+                
+                Please determine if the summary is in Vietnamese or English and provide appropriate evaluation.
+                """)]
+            )
+            
+            async for event in runner.run_async(
+                user_id="system",
+                session_id=session_id,
+                new_message=content
+            ):
+                if event.is_final_response() and event.content and event.content.parts:
+                    response_text = event.content.parts[0].text.strip()
+                    try:
+                        # Try to parse as JSON first
+                        return json.loads(response_text)
+                    except json.JSONDecodeError:
+                        # Fallback to text response
+                        return {"score": 75, "feedback": response_text}
+            
+            return {"score": 75, "feedback": DEFAULT_FEEDBACK}
+            
+        except Exception as e:
+            raise SummaryEvaluationFailedException(f"Coordinator evaluation failed: {str(e)}")
     
     async def generate_quiz(self, session_id: int, user_id: int, quiz_request: QuizGenerationRequest, db: Session) -> QuizResponse:
         """Generate quiz from reading session"""
