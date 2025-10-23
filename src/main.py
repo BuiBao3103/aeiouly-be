@@ -14,6 +14,7 @@ from src.notifications.router import router as notifications_router
 from src.analytics.router import router as analytics_router
 from src.writing.router import router as writing_router
 from src.listening.router import router as listening_router
+from src.reading.router import router as reading_router
 from fastapi import Request
 
 # Import all models to ensure they are registered with SQLAlchemy
@@ -45,6 +46,7 @@ app.include_router(notifications_router)
 app.include_router(analytics_router, prefix=settings.API_V1_STR)
 app.include_router(writing_router, prefix=settings.API_V1_STR)
 app.include_router(listening_router, prefix=settings.API_V1_STR)
+app.include_router(reading_router, prefix=settings.API_V1_STR)
 
 # Root endpoint
 @app.get("/")

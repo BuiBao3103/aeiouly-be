@@ -5,7 +5,8 @@ Service layer for Listening module
 from typing import List, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, and_, or_
-from src.listening.models import ListenLesson, Sentence, ListeningSession, SessionStatus, CEFRLevel
+from src.constants.cefr import CEFRLevel
+from src.listening.models import ListenLesson, Sentence, ListeningSession, SessionStatus
 from src.listening.schemas import (
     LessonCreate, LessonUpload, LessonUpdate, LessonResponse, LessonDetailResponse,
     SessionCreate, SessionResponse, SessionDetailResponse,

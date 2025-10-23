@@ -3,15 +3,8 @@ from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from src.database import Base
 from src.orm_mixins import SoftDeleteMixin, TimestampMixin
+from src.constants.cefr import CEFRLevel
 import enum
-
-class CEFRLevel(str, enum.Enum):
-    A1 = "A1"
-    A2 = "A2"
-    B1 = "B1"
-    B2 = "B2"
-    C1 = "C1"
-    C2 = "C2"
 
 class SessionStatus(str, enum.Enum):
     ACTIVE = "active"

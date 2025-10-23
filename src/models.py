@@ -34,3 +34,4 @@ from src.analytics.models import LearningSession, LoginStreak
 from src.posts.models import Post, PostLike
 from src.dictionary.models import Dictionary
 from src.writing.models import WritingSession, WritingChatMessage
+from src.reading.models import ReadingSession, ReadingLevel, ReadingGenre

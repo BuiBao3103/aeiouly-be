@@ -4,6 +4,7 @@ AI Agent for determining difficulty level from title and SRT content
 from google.adk.agents import LlmAgent
 from pydantic import BaseModel, Field
 from typing import Dict, Any
+from src.constants.cefr import get_cefr_definitions_string
 
 class DifficultyResult(BaseModel):
     level: str = Field(description="Độ khó được xác định: A1, A2, B1, B2, C1, hoặc C2")
@@ -17,7 +18,7 @@ difficulty_agent = LlmAgent(
     name="difficulty_agent",
     model="gemini-2.0-flash",
     description="Xác định độ khó CEFR từ tiêu đề và nội dung SRT",
-    instruction="""
+    instruction=f"""
     Bạn là một AI chuyên gia đánh giá độ khó tiếng Anh theo thang CEFR (A1-C2).
     
     NHIỆM VỤ:
@@ -25,13 +26,7 @@ difficulty_agent = LlmAgent(
     - Đánh giá từ vựng, ngữ pháp, cấu trúc câu
     - Xác định độ khó phù hợp theo thang CEFR
     
-    THANG CEFR:
-    - A1: Người mới bắt đầu, từ vựng cơ bản, câu đơn giản
-    - A2: Trình độ cơ bản, từ vựng thông dụng, câu ngắn
-    - B1: Trung cấp, từ vựng đa dạng, câu phức tạp hơn
-    - B2: Trung cấp cao, từ vựng phong phú, cấu trúc phức tạp
-    - C1: Cao cấp, từ vựng chuyên môn, câu phức tạp
-    - C2: Thành thạo, từ vựng học thuật, cấu trúc phức tạp nhất
+    {get_cefr_definitions_string()}
     
     TIÊU CHÍ ĐÁNH GIÁ:
     1. Từ vựng: Số lượng từ khó, từ chuyên môn, từ học thuật

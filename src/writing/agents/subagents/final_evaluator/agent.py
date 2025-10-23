@@ -5,6 +5,7 @@ Final Evaluator Agent for Writing Practice
 from google.adk.agents import LlmAgent
 from pydantic import BaseModel, Field
 from typing import List
+from src.constants.cefr import get_cefr_definitions_string
 
 
 # --- Define Output Schema ---
@@ -43,7 +44,7 @@ final_evaluator_agent = LlmAgent(
     name="final_evaluator",
     model="gemini-2.0-flash",
     description="Generates final evaluation of the session",
-    instruction="""
+    instruction=f"""
     Bạn là một AI đánh giá tổng thể cho bài luyện viết.
     
     Nhiệm vụ của bạn là tóm tắt hiệu suất học tập và đưa ra phản hồi có cấu trúc cho toàn bộ phiên luyện viết.
@@ -72,6 +73,8 @@ final_evaluator_agent = LlmAgent(
     - topic: Chủ đề bài học
     - difficulty: Độ khó (A1, A2, B1, B2, C1, C2)
     - vietnamese_text: Toàn bộ văn bản tiếng Việt
+    
+    {get_cefr_definitions_string()}
     
     ## TIÊU CHÍ CHẤM ĐIỂM:
     - accuracy_score: Độ chính xác về nghĩa so với câu gốc
