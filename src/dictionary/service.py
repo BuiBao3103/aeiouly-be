@@ -1,9 +1,15 @@
 from typing import List, Optional
 import re
+import httpx
+import json
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, and_, case
 from src.dictionary.models import Dictionary
-from src.dictionary.schemas import DictionarySearchRequest, DictionarySearchResponse, DictionaryResponse
+from src.dictionary.schemas import (
+    DictionarySearchRequest, DictionarySearchResponse, DictionaryResponse,
+    TranslationRequest, TranslationResponse
+)
+from src.config import settings
 
 
 class DictionaryService:
@@ -194,5 +200,78 @@ class DictionaryService:
             )
             for result in results
         ]
+
+    async def translate_text(self, request: TranslationRequest) -> TranslationResponse:
+        """
+        Translate text using Google Cloud Translation API REST endpoint
+        """
+        try:
+            # Get Google Cloud Translation API key from settings
+            api_key = settings.GOOGLE_TRANSLATE_API_KEY
+            if not api_key:
+                raise ValueError("Google Translate API key not configured")
+            
+            # Google Cloud Translation API endpoint
+            url = "https://translation.googleapis.com/language/translate/v2"
+            
+            # Request parameters
+            params = {
+                "key": api_key,
+                "q": request.text,
+                "target": request.target_language,
+                "format": "text"
+            }
+            
+            # Add source language if specified
+            if request.source_language:
+                params["source"] = request.source_language
+            
+            # Headers
+            headers = {
+                "Content-Type": "application/json",
+                "User-Agent": "Aeiouly-Translation-API/1.0"
+            }
+            
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    url,
+                    params=params,
+                    headers=headers
+                )
+                response.raise_for_status()
+                
+                result = response.json()
+                
+                # Extract translation from Google Cloud API response
+                if "data" in result and "translations" in result["data"]:
+                    translations = result["data"]["translations"]
+                    if translations and len(translations) > 0:
+                        translation = translations[0]
+                        translated_text = translation.get("translatedText", request.text)
+                        
+                        return TranslationResponse(
+                            original_text=request.text,
+                            translated_text=translated_text,
+                            source_language=request.source_language,
+                            target_language=request.target_language
+                        )
+                
+                # If no translation found, return original text
+                return TranslationResponse(
+                    original_text=request.text,
+                    translated_text=request.text,
+                    source_language=request.source_language,
+                    target_language=request.target_language
+                )
+                
+        except Exception as e:
+            print(f"Translation error: {str(e)}")
+            print("Please check if GOOGLE_TRANSLATE_API_KEY is configured correctly and Translation API is enabled.")
+            # Raise HTTP 500 error instead of returning original text
+            from fastapi import HTTPException
+            raise HTTPException(
+                status_code=500,
+                detail=f"Translation failed: {str(e)}"
+            )
 
 

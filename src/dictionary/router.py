@@ -6,7 +6,9 @@ from src.dictionary.service import DictionaryService
 from src.dictionary.schemas import (
     DictionarySearchRequest, 
     DictionarySearchResponse, 
-    DictionaryResponse
+    DictionaryResponse,
+    TranslationRequest,
+    TranslationResponse
 )
 from src.dictionary.dependencies import get_dictionary_service
 
@@ -189,4 +191,25 @@ async def get_dictionary_stats(db: Session = Depends(get_db)):
         raise HTTPException(
             status_code=500,
             detail=f"Lỗi khi lấy thống kê: {str(e)}"
+        )
+
+
+@router.post("/translate", response_model=TranslationResponse)
+async def translate_text(
+    request: TranslationRequest,
+    service: DictionaryService = Depends(get_dictionary_service)
+):
+    """
+    Dịch văn bản sang ngôn ngữ khác
+    
+    - **text**: Văn bản cần dịch (1-5000 ký tự)
+    - **source_language**: Mã ngôn ngữ nguồn (mặc định: vi)
+    - **target_language**: Mã ngôn ngữ đích (mặc định: en)
+    """
+    try:
+        return await service.translate_text(request)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Lỗi khi dịch văn bản: {str(e)}"
         )

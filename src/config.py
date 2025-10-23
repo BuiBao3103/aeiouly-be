@@ -50,6 +50,9 @@ class Settings(BaseSettings):
     # Google AI API
     GOOGLE_API_KEY: str = ""
     GOOGLE_OAUTH_CLIENT_ID: str = ""
+    
+    # Google Cloud Translation API
+    GOOGLE_TRANSLATE_API_KEY: str = ""
 
     # Migrations
     AUTO_MIGRATE_ON_STARTUP: bool = False
