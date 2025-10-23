@@ -44,7 +44,7 @@ class ReadingSessionResponse(CustomModel):
 
 class ReadingSessionSummary(CustomModel):
     """Summary schema for reading session list"""
-    session_id: int
+    id: int
     level: ReadingLevel
     genre: ReadingGenre
     topic: str
@@ -53,7 +53,7 @@ class ReadingSessionSummary(CustomModel):
 
 class ReadingSessionDetail(CustomModel):
     """Detail schema for reading session"""
-    session_id: int
+    id: int
     content: str
     level: ReadingLevel
     genre: ReadingGenre
@@ -75,6 +75,7 @@ class SummaryFeedback(CustomModel):
 class QuizGenerationRequest(CustomModel):
     """Request schema for quiz generation"""
     number_of_questions: Optional[int] = Field(5, ge=3, le=10, description="Number of questions (3-10)")
+    question_language: Optional[str] = Field("vietnamese", description="Language for questions: 'vietnamese' or 'english'")
 
 class CorrectAnswer(CustomModel):
     """Schema for correct answer"""
@@ -84,8 +85,8 @@ class CorrectAnswer(CustomModel):
 class QuizQuestion(CustomModel):
     """Schema for quiz question"""
     id: str = Field(..., description="Question ID")
-    question: str = Field(..., description="Question text in Vietnamese")
-    options: List[str] = Field(..., description="Answer options in Vietnamese")
+    question: str = Field(..., description="Question text in specified language")
+    options: List[str] = Field(..., description="Answer options in specified language")
     correct_answer: CorrectAnswer = Field(..., description="Correct answer with explanation")
 
 class QuizResponse(CustomModel):

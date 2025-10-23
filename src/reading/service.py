@@ -140,7 +140,7 @@ class ReadingService:
         # Convert to response
         session_summaries = [
             ReadingSessionSummary(
-                session_id=session.id,
+                id=session.id,
                 level=ReadingLevel(session.level),
                 genre=ReadingGenre(session.genre),
                 topic=session.topic,
@@ -165,7 +165,7 @@ class ReadingService:
             raise ReadingSessionNotFoundException()
         
         return ReadingSessionDetail(
-            session_id=session.id,
+            id=session.id,
             content=session.content,
             level=ReadingLevel(session.level),
             genre=ReadingGenre(session.genre),
@@ -273,7 +273,7 @@ class ReadingService:
         
         try:
             # Generate quiz with AI
-            quiz_result = await self._generate_quiz(session.content, quiz_request.number_of_questions)
+            quiz_result = await self._generate_quiz(session.content, quiz_request.number_of_questions, quiz_request.question_language)
             
             # Handle both dict and object responses
             if isinstance(quiz_result, dict):
@@ -455,7 +455,7 @@ class ReadingService:
         except Exception as e:
             raise SummaryEvaluationFailedException(f"AI summary evaluation failed: {str(e)}")
     
-    async def _generate_quiz(self, content: str, number_of_questions: int) -> Any:
+    async def _generate_quiz(self, content: str, number_of_questions: int, question_language: str = "vietnamese") -> Any:
         """Generate quiz using AI agent"""
         try:
             runner = Runner(
@@ -478,8 +478,10 @@ class ReadingService:
             content_msg = types.Content(
                 role="user",
                 parts=[types.Part(text=f"""
-                Generate a quiz with {number_of_questions} questions from this reading text:
+                Generate a quiz with {number_of_questions} questions from this reading text.
+                Question language: {question_language}
                 
+                Reading text:
                 {content}
                 """)]
             )
