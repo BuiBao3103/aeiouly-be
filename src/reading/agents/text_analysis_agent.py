@@ -9,16 +9,13 @@ ReadingLevel = CEFRLevel
 
 class TextAnalysisRequest(BaseModel):
     """Request schema for text analysis"""
-    content: str = Field(..., description="Text content to analyze")
+    text: str = Field(..., description="Text to analyze")
 
 class TextAnalysisResult(BaseModel):
     """Response schema for text analysis"""
     level: ReadingLevel = Field(..., description="Detected reading level")
     genre: ReadingGenre = Field(..., description="Detected genre")
     topic: str = Field(..., description="Detected topic")
-    word_count: int = Field(..., description="Word count")
-    key_themes: List[str] = Field(..., description="Key themes in the text")
-    difficulty_factors: List[str] = Field(..., description="Factors that make it difficult")
 
 text_analysis_agent = LlmAgent(
     name="text_analysis_agent",
@@ -32,7 +29,6 @@ text_analysis_agent = LlmAgent(
     - Xác định genre của bài đọc
     - Xác định topic/chủ đề chính
     - Đếm số từ chính xác
-    - Xác định các chủ đề chính và yếu tố khó
     
     {get_cefr_definitions_string()}
     
@@ -52,9 +48,6 @@ text_analysis_agent = LlmAgent(
       "level": "level_detected",
       "genre": "genre_detected",
       "topic": "topic_detected",
-      "word_count": số_từ,
-      "key_themes": ["chủ đề 1", "chủ đề 2"],
-      "difficulty_factors": ["yếu tố khó 1", "yếu tố khó 2"]
     }}
     
     QUAN TRỌNG:

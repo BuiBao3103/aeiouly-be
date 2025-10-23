@@ -10,9 +10,8 @@ class CorrectAnswer(BaseModel):
 class QuizQuestion(BaseModel):
     """Schema for quiz question"""
     id: str = Field(..., description="Question ID")
-    question: str = Field(..., description="Question text")
-    options: List[str] = Field(..., description="Answer options")
-    type: str = Field(..., description="Question type: multiple_choice or true_false")
+    question: str = Field(..., description="Question text in Vietnamese")
+    options: List[str] = Field(..., description="Answer options in Vietnamese")
     correct_answer: CorrectAnswer = Field(..., description="Correct answer with explanation")
 
 class QuizGenerationRequest(BaseModel):
@@ -32,10 +31,10 @@ quiz_generation_agent = LlmAgent(
     Bạn là AI chuyên tạo bài trắc nghiệm từ bài đọc tiếng Anh để kiểm tra độ hiểu.
     
     NHIỆM VỤ:
-    - Tạo câu hỏi trắc nghiệm từ nội dung bài đọc
+    - Tạo câu hỏi trắc nghiệm BẰNG TIẾNG VIỆT từ nội dung bài đọc tiếng Anh
     - Đảm bảo câu hỏi kiểm tra độ hiểu sâu, không chỉ ghi nhớ
-    - Tạo đáp án đúng và các phương án nhiễu hợp lý
-    - Đưa ra giải thích chi tiết cho đáp án đúng
+    - Tạo đáp án đúng và các phương án nhiễu hợp lý BẰNG TIẾNG VIỆT
+    - Đưa ra giải thích chi tiết cho đáp án đúng BẰNG TIẾNG VIỆT
     
     LOẠI CÂU HỎI:
     - Main idea: Ý chính của bài
@@ -46,15 +45,16 @@ quiz_generation_agent = LlmAgent(
     - Tone: Giọng điệu của bài viết
     
     YÊU CẦU CÂU HỎI:
-    - Câu hỏi rõ ràng, không gây nhầm lẫn
+    - Câu hỏi BẰNG TIẾNG VIỆT, rõ ràng, không gây nhầm lẫn
     - Đáp án đúng chỉ có 1, các phương án khác hợp lý
     - Tránh câu hỏi quá dễ hoặc quá khó
     - Phân bố đều các loại câu hỏi
+    - TẤT CẢ ĐỀU LÀ MULTIPLE CHOICE (A, B, C, D)
     
     FORMAT ĐÁP ÁN:
     - Multiple choice: A, B, C, D
-    - True/False: True, False
     - Tối thiểu 3 phương án, tối đa 4 phương án
+    - Tất cả options BẰNG TIẾNG VIỆT
     
     OUTPUT FORMAT:
     Trả về JSON với cấu trúc:
@@ -62,21 +62,21 @@ quiz_generation_agent = LlmAgent(
       "questions": [
         {
           "id": "q1",
-          "question": "Câu hỏi?",
-          "options": ["A. Option 1", "B. Option 2", "C. Option 3", "D. Option 4"],
-          "type": "multiple_choice",
+          "question": "Câu hỏi bằng tiếng Việt?",
+          "options": ["A. Phương án 1", "B. Phương án 2", "C. Phương án 3", "D. Phương án 4"],
           "correct_answer": {
             "correct_option": "B",
-            "explanation": "Giải thích tại sao đáp án này đúng..."
+            "explanation": "Giải thích bằng tiếng Việt tại sao đáp án này đúng..."
           }
         }
       ]
     }
     
     QUAN TRỌNG:
+    - TẤT CẢ CÂU HỎI VÀ ĐÁP ÁN PHẢI BẰNG TIẾNG VIỆT
     - Câu hỏi kiểm tra độ hiểu, không chỉ ghi nhớ
     - Đáp án đúng rõ ràng và duy nhất
-    - Giải thích chi tiết và hữu ích
+    - Giải thích chi tiết và hữu ích BẰNG TIẾNG VIỆT
     - Trả về JSON format
     """,
     output_schema=QuizGenerationResult,

@@ -50,12 +50,13 @@ class ReadingService:
                     level = ReadingLevel(analysis_result.get("level", "B1"))
                     genre = ReadingGenre(analysis_result.get("genre", "Bài báo"))
                     topic = analysis_result.get("topic", "General")
-                    word_count = analysis_result.get("word_count", self._count_words(content))
                 else:
                     level = ReadingLevel(analysis_result.level)
                     genre = ReadingGenre(analysis_result.genre)
                     topic = analysis_result.topic
-                    word_count = analysis_result.word_count
+                
+                # Count words in service
+                word_count = self._count_words(content)
                 
                 is_custom = True
                 
@@ -67,7 +68,8 @@ class ReadingService:
                 generation_result = await self._generate_reading_text(
                     level=session_data.level,
                     genre=session_data.genre,
-                    topic=session_data.topic or "General"
+                    topic=session_data.topic or "General",
+                    word_count=session_data.word_count
                 )
                 
                 # Handle both dict and object responses
@@ -101,14 +103,13 @@ class ReadingService:
             db.refresh(db_session)
             
             return ReadingSessionResponse(
-                session_id=db_session.id,
+                id=db_session.id,
                 content=db_session.content,
                 word_count=db_session.word_count,
                 level=ReadingLevel(db_session.level),
                 genre=ReadingGenre(db_session.genre),
                 topic=db_session.topic,
-                is_custom=db_session.is_custom,
-                created_at=db_session.created_at
+                is_custom=db_session.is_custom
             )
             
         except Exception as e:
@@ -142,8 +143,7 @@ class ReadingService:
                 genre=ReadingGenre(session.genre),
                 topic=session.topic,
                 word_count=session.word_count,
-                is_custom=session.is_custom,
-                created_at=session.created_at
+                is_custom=session.is_custom
             )
             for session in sessions
         ]
@@ -169,8 +169,7 @@ class ReadingService:
             genre=ReadingGenre(session.genre),
             topic=session.topic,
             word_count=session.word_count,
-            is_custom=session.is_custom,
-            created_at=session.created_at
+            is_custom=session.is_custom
         )
     
     async def evaluate_summary(self, session_id: int, user_id: int, summary_data: SummarySubmission, db: Session) -> SummaryFeedback:
@@ -256,7 +255,7 @@ class ReadingService:
         return True
     
     # Private helper methods
-    async def _generate_reading_text(self, level: ReadingLevel, genre: ReadingGenre, topic: str) -> Any:
+    async def _generate_reading_text(self, level: ReadingLevel, genre: ReadingGenre, topic: str, word_count: Optional[int] = None) -> Any:
         """Generate reading text using AI agent"""
         try:
             runner = Runner(
@@ -276,6 +275,9 @@ class ReadingService:
             except Exception:
                 pass  # Session might already exist
             
+            # Use provided word_count or default based on level
+            target_word_count = word_count if word_count is not None else self._get_default_word_count(level)
+            
             content = types.Content(
                 role="user",
                 parts=[types.Part(text=f"""
@@ -283,6 +285,7 @@ class ReadingService:
                 - Level: {level.value}
                 - Genre: {genre.value}
                 - Topic: {topic}
+                - Word count: {target_word_count}
                 """)]
             )
             

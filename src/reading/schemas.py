@@ -25,6 +25,7 @@ class ReadingSessionCreate(CustomModel):
     # AI generation fields
     level: Optional[ReadingLevel] = None
     genre: Optional[ReadingGenre] = None
+    word_count: Optional[int] = Field(None, ge=100, le=1000, description="Word count (100-1000)")
     topic: Optional[str] = Field(None, max_length=200)
     
     # Custom text field
@@ -40,7 +41,6 @@ class ReadingSessionResponse(CustomModel):
     genre: ReadingGenre
     topic: str
     is_custom: bool
-    created_at: datetime
 
 class ReadingSessionSummary(CustomModel):
     """Summary schema for reading session list"""
@@ -50,7 +50,6 @@ class ReadingSessionSummary(CustomModel):
     topic: str
     word_count: int
     is_custom: bool
-    created_at: datetime
 
 class ReadingSessionDetail(CustomModel):
     """Detail schema for reading session"""
@@ -61,7 +60,6 @@ class ReadingSessionDetail(CustomModel):
     topic: str
     word_count: int
     is_custom: bool
-    created_at: datetime
 
 # Summary evaluation schemas
 class SummarySubmission(CustomModel):
@@ -86,9 +84,8 @@ class CorrectAnswer(CustomModel):
 class QuizQuestion(CustomModel):
     """Schema for quiz question"""
     id: str = Field(..., description="Question ID")
-    question: str = Field(..., description="Question text")
-    options: List[str] = Field(..., description="Answer options")
-    type: str = Field(..., description="Question type: multiple_choice or true_false")
+    question: str = Field(..., description="Question text in Vietnamese")
+    options: List[str] = Field(..., description="Answer options in Vietnamese")
     correct_answer: CorrectAnswer = Field(..., description="Correct answer with explanation")
 
 class QuizResponse(CustomModel):
