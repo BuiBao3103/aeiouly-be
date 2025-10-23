@@ -86,7 +86,6 @@ class ReadingService:
                 is_custom = False
             
             # Create session in database
-            now = datetime.now(timezone.utc)
             db_session = ReadingSession(
                 user_id=user_id,
                 level=level.value,
@@ -95,8 +94,6 @@ class ReadingService:
                 content=content,
                 word_count=word_count,
                 is_custom=is_custom,
-                created_at=now,
-                updated_at=now
             )
             
             db.add(db_session)
