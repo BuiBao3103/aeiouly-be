@@ -41,8 +41,8 @@ if settings.BACKEND_CORS_ORIGINS:
 # Include routers
 app.include_router(auth_router, prefix=settings.API_V1_STR)
 app.include_router(posts_router, prefix=settings.API_V1_STR)
-app.include_router(dictionary_router)
-app.include_router(notifications_router)
+app.include_router(dictionary_router, prefix=settings.API_V1_STR)
+app.include_router(notifications_router, prefix=settings.API_V1_STR)
 app.include_router(analytics_router, prefix=settings.API_V1_STR)
 app.include_router(writing_router, prefix=settings.API_V1_STR)
 app.include_router(listening_router, prefix=settings.API_V1_STR)

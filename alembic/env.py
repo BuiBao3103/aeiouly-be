@@ -69,10 +69,22 @@ def run_migrations_online() -> None:
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
+    
+    def include_object(object, name, type_, reflected, compare_to):
+        # Danh sách bảng ADK (bạn chỉnh lại tên cho đúng nhé)
+        adk_tables = {
+            "app_states",
+            "sessions",
+            "events",
+            "user_states",
+        }
+        if type_ == "table" and name in adk_tables:
+            return False
+        return True
 
     with connectable.connect() as connection:
         context.configure(
-            connection=connection, target_metadata=target_metadata
+            connection=connection, target_metadata=target_metadata, include_object=include_object
         )
 
         with context.begin_transaction():

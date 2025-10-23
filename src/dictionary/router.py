@@ -10,7 +10,7 @@ from src.dictionary.schemas import (
 )
 from src.dictionary.dependencies import get_dictionary_service
 
-router = APIRouter(prefix="/api/v1/dictionary", tags=["Dictionary"])
+router = APIRouter(prefix="/dictionary", tags=["Dictionary"])
 
 
 @router.get("/search", response_model=DictionarySearchResponse)

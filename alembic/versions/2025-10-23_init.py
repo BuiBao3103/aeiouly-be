@@ -1,8 +1,8 @@
 """init
 
-Revision ID: 323d0b8f944a
+Revision ID: 9686ac04a15a
 Revises: 
-Create Date: 2025-10-05 14:10:51.076095
+Create Date: 2025-10-23 18:02:13.155628
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = '323d0b8f944a'
+revision: str = '9686ac04a15a'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -32,6 +32,18 @@ def upgrade() -> None:
     )
     op.create_index(op.f('dictionary_id_idx'), 'dictionary', ['id'], unique=False)
     op.create_index('ix_dictionary_expression', 'dictionary', ['expression'], unique=False)
+    op.create_table('listen_lessons',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('title', sa.String(length=255), nullable=False),
+    sa.Column('youtube_url', sa.String(length=500), nullable=False),
+    sa.Column('level', sa.String(length=10), nullable=False),
+    sa.Column('total_sentences', sa.Integer(), nullable=True),
+    sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
+    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
+    sa.PrimaryKeyConstraint('id', name=op.f('listen_lessons_pkey'))
+    )
+    op.create_index(op.f('listen_lessons_id_idx'), 'listen_lessons', ['id'], unique=False)
     op.create_table('password_reset_tokens',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('email', sa.String(length=255), nullable=False),
@@ -51,7 +63,7 @@ def upgrade() -> None:
     sa.Column('email', sa.String(length=255), nullable=False),
     sa.Column('username', sa.String(length=100), nullable=False),
     sa.Column('full_name', sa.String(length=255), nullable=True),
-    sa.Column('hashed_password', sa.String(length=255), nullable=False),
+    sa.Column('hashed_password', sa.String(length=255), nullable=True),
     sa.Column('role', sa.Enum('ADMIN', 'USER', name='userrole'), nullable=False),
     sa.Column('is_active', sa.Boolean(), nullable=True),
     sa.Column('is_online', sa.Boolean(), nullable=False),
@@ -81,6 +93,23 @@ def upgrade() -> None:
     op.create_index(op.f('learning_sessions_session_end_idx'), 'learning_sessions', ['session_end'], unique=False)
     op.create_index(op.f('learning_sessions_session_start_idx'), 'learning_sessions', ['session_start'], unique=False)
     op.create_index(op.f('learning_sessions_user_id_idx'), 'learning_sessions', ['user_id'], unique=False)
+    op.create_table('listening_sessions',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('user_id', sa.Integer(), nullable=False),
+    sa.Column('lesson_id', sa.Integer(), nullable=False),
+    sa.Column('current_sentence_index', sa.Integer(), nullable=True),
+    sa.Column('status', sa.String(length=20), nullable=True),
+    sa.Column('attempts', sa.Integer(), nullable=True),
+    sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
+    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
+    sa.ForeignKeyConstraint(['lesson_id'], ['listen_lessons.id'], name=op.f('listening_sessions_lesson_id_fkey')),
+    sa.ForeignKeyConstraint(['user_id'], ['users.id'], name=op.f('listening_sessions_user_id_fkey')),
+    sa.PrimaryKeyConstraint('id', name=op.f('listening_sessions_pkey'))
+    )
+    op.create_index(op.f('listening_sessions_id_idx'), 'listening_sessions', ['id'], unique=False)
+    op.create_index(op.f('listening_sessions_lesson_id_idx'), 'listening_sessions', ['lesson_id'], unique=False)
+    op.create_index(op.f('listening_sessions_user_id_idx'), 'listening_sessions', ['user_id'], unique=False)
     op.create_table('login_streaks',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('user_id', sa.Integer(), nullable=False),
@@ -111,6 +140,25 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id', name=op.f('posts_pkey'))
     )
     op.create_index(op.f('posts_id_idx'), 'posts', ['id'], unique=False)
+    op.create_table('reading_sessions',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('user_id', sa.Integer(), nullable=False),
+    sa.Column('level', sa.String(length=2), nullable=False),
+    sa.Column('genre', sa.String(length=50), nullable=False),
+    sa.Column('topic', sa.String(length=200), nullable=False),
+    sa.Column('content', sa.Text(), nullable=False),
+    sa.Column('word_count', sa.Integer(), nullable=False),
+    sa.Column('is_custom', sa.Boolean(), nullable=False),
+    sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
+    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
+    sa.ForeignKeyConstraint(['user_id'], ['users.id'], name=op.f('reading_sessions_user_id_fkey')),
+    sa.PrimaryKeyConstraint('id', name=op.f('reading_sessions_pkey'))
+    )
+    op.create_index(op.f('reading_sessions_genre_idx'), 'reading_sessions', ['genre'], unique=False)
+    op.create_index(op.f('reading_sessions_id_idx'), 'reading_sessions', ['id'], unique=False)
+    op.create_index(op.f('reading_sessions_level_idx'), 'reading_sessions', ['level'], unique=False)
+    op.create_index(op.f('reading_sessions_user_id_idx'), 'reading_sessions', ['user_id'], unique=False)
     op.create_table('refresh_tokens',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('user_id', sa.Integer(), nullable=False),
@@ -126,6 +174,42 @@ def upgrade() -> None:
     op.create_index(op.f('refresh_tokens_id_idx'), 'refresh_tokens', ['id'], unique=False)
     op.create_index(op.f('refresh_tokens_token_idx'), 'refresh_tokens', ['token'], unique=True)
     op.create_index(op.f('refresh_tokens_user_id_idx'), 'refresh_tokens', ['user_id'], unique=False)
+    op.create_table('sentences',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('lesson_id', sa.Integer(), nullable=False),
+    sa.Column('index', sa.Integer(), nullable=False),
+    sa.Column('text', sa.Text(), nullable=False),
+    sa.Column('translation', sa.Text(), nullable=True),
+    sa.Column('start_time', sa.Float(), nullable=False),
+    sa.Column('end_time', sa.Float(), nullable=False),
+    sa.Column('normalized_text', sa.Text(), nullable=True),
+    sa.Column('confidence', sa.Float(), nullable=True),
+    sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
+    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
+    sa.ForeignKeyConstraint(['lesson_id'], ['listen_lessons.id'], name=op.f('sentences_lesson_id_fkey')),
+    sa.PrimaryKeyConstraint('id', name=op.f('sentences_pkey'))
+    )
+    op.create_index(op.f('sentences_id_idx'), 'sentences', ['id'], unique=False)
+    op.create_index(op.f('sentences_lesson_id_idx'), 'sentences', ['lesson_id'], unique=False)
+    op.create_table('writing_sessions',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('user_id', sa.Integer(), nullable=False),
+    sa.Column('topic', sa.String(length=255), nullable=False),
+    sa.Column('difficulty', sa.Enum('A1', 'A2', 'B1', 'B2', 'C1', 'C2', name='cefrlevel'), nullable=False),
+    sa.Column('total_sentences', sa.Integer(), nullable=False),
+    sa.Column('current_sentence_index', sa.Integer(), nullable=True),
+    sa.Column('status', sa.Enum('ACTIVE', 'COMPLETED', name='sessionstatus'), nullable=True),
+    sa.Column('vietnamese_text', sa.Text(), nullable=False),
+    sa.Column('current_sentence', sa.Text(), nullable=True),
+    sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
+    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
+    sa.ForeignKeyConstraint(['user_id'], ['users.id'], name=op.f('writing_sessions_user_id_fkey')),
+    sa.PrimaryKeyConstraint('id', name=op.f('writing_sessions_pkey'))
+    )
+    op.create_index(op.f('writing_sessions_id_idx'), 'writing_sessions', ['id'], unique=False)
+    op.create_index(op.f('writing_sessions_user_id_idx'), 'writing_sessions', ['user_id'], unique=False)
     op.create_table('post_likes',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('user_id', sa.Integer(), nullable=False),
@@ -139,24 +223,56 @@ def upgrade() -> None:
     sa.UniqueConstraint('user_id', 'post_id', name='unique_user_post_like')
     )
     op.create_index(op.f('post_likes_id_idx'), 'post_likes', ['id'], unique=False)
+    op.create_table('writing_chat_messages',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('session_id', sa.Integer(), nullable=False),
+    sa.Column('role', sa.String(length=20), nullable=False),
+    sa.Column('content', sa.Text(), nullable=False),
+    sa.Column('sentence_index', sa.Integer(), nullable=True),
+    sa.Column('deleted_at', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
+    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
+    sa.ForeignKeyConstraint(['session_id'], ['writing_sessions.id'], name=op.f('writing_chat_messages_session_id_fkey')),
+    sa.PrimaryKeyConstraint('id', name=op.f('writing_chat_messages_pkey'))
+    )
+    op.create_index(op.f('writing_chat_messages_id_idx'), 'writing_chat_messages', ['id'], unique=False)
+    op.create_index(op.f('writing_chat_messages_session_id_idx'), 'writing_chat_messages', ['session_id'], unique=False)
     # ### end Alembic commands ###
 
 
 def downgrade() -> None:
     """Downgrade schema."""
     # ### commands auto generated by Alembic - please adjust! ###
+    op.drop_index(op.f('writing_chat_messages_session_id_idx'), table_name='writing_chat_messages')
+    op.drop_index(op.f('writing_chat_messages_id_idx'), table_name='writing_chat_messages')
+    op.drop_table('writing_chat_messages')
     op.drop_index(op.f('post_likes_id_idx'), table_name='post_likes')
     op.drop_table('post_likes')
+    op.drop_index(op.f('writing_sessions_user_id_idx'), table_name='writing_sessions')
+    op.drop_index(op.f('writing_sessions_id_idx'), table_name='writing_sessions')
+    op.drop_table('writing_sessions')
+    op.drop_index(op.f('sentences_lesson_id_idx'), table_name='sentences')
+    op.drop_index(op.f('sentences_id_idx'), table_name='sentences')
+    op.drop_table('sentences')
     op.drop_index(op.f('refresh_tokens_user_id_idx'), table_name='refresh_tokens')
     op.drop_index(op.f('refresh_tokens_token_idx'), table_name='refresh_tokens')
     op.drop_index(op.f('refresh_tokens_id_idx'), table_name='refresh_tokens')
     op.drop_table('refresh_tokens')
+    op.drop_index(op.f('reading_sessions_user_id_idx'), table_name='reading_sessions')
+    op.drop_index(op.f('reading_sessions_level_idx'), table_name='reading_sessions')
+    op.drop_index(op.f('reading_sessions_id_idx'), table_name='reading_sessions')
+    op.drop_index(op.f('reading_sessions_genre_idx'), table_name='reading_sessions')
+    op.drop_table('reading_sessions')
     op.drop_index(op.f('posts_id_idx'), table_name='posts')
     op.drop_table('posts')
     op.drop_index(op.f('login_streaks_user_id_idx'), table_name='login_streaks')
     op.drop_index(op.f('login_streaks_id_idx'), table_name='login_streaks')
     op.drop_index(op.f('login_streaks_date_idx'), table_name='login_streaks')
     op.drop_table('login_streaks')
+    op.drop_index(op.f('listening_sessions_user_id_idx'), table_name='listening_sessions')
+    op.drop_index(op.f('listening_sessions_lesson_id_idx'), table_name='listening_sessions')
+    op.drop_index(op.f('listening_sessions_id_idx'), table_name='listening_sessions')
+    op.drop_table('listening_sessions')
     op.drop_index(op.f('learning_sessions_user_id_idx'), table_name='learning_sessions')
     op.drop_index(op.f('learning_sessions_session_start_idx'), table_name='learning_sessions')
     op.drop_index(op.f('learning_sessions_session_end_idx'), table_name='learning_sessions')
@@ -170,6 +286,8 @@ def downgrade() -> None:
     op.drop_index(op.f('password_reset_tokens_id_idx'), table_name='password_reset_tokens')
     op.drop_index(op.f('password_reset_tokens_email_idx'), table_name='password_reset_tokens')
     op.drop_table('password_reset_tokens')
+    op.drop_index(op.f('listen_lessons_id_idx'), table_name='listen_lessons')
+    op.drop_table('listen_lessons')
     op.drop_index('ix_dictionary_expression', table_name='dictionary')
     op.drop_index(op.f('dictionary_id_idx'), table_name='dictionary')
     op.drop_table('dictionary')
