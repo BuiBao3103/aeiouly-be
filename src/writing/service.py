@@ -144,6 +144,16 @@ class WritingService:
             db_session.current_sentence = self._get_sentence_by_index(vietnamese_sentences, 0)
             db.commit()
             
+            # create first assistant message
+            assistant_message = WritingChatMessage(
+                session_id=db_session.id,
+                role="assistant",
+                content=f"Hãy dịch câu tiếng Việt này sang tiếng Anh: {vietnamese_sentences[0]}",
+                sentence_index=0
+            )
+            db.add(assistant_message)
+            db.commit()
+            
             return WritingSessionResponse(
                 id=db_session.id,
                 user_id=db_session.user_id,
