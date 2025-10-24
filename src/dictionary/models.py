@@ -1,4 +1,5 @@
 from sqlalchemy import Column, BigInteger, Text, Index
+from sqlalchemy.orm import relationship
 from src.database import Base
 from src.orm_mixins import SoftDeleteMixin, TimestampMixin
 
@@ -11,6 +12,8 @@ class Dictionary(Base, SoftDeleteMixin, TimestampMixin):
     expression = Column(Text, nullable=False)  # headword
     definitions = Column(Text, nullable=False)  # raw glossary text
 
+    # Relationships
+    vocabulary_items = relationship("VocabularyItem", back_populates="dictionary")
 
     # Basic indexes (only on expression, definitions too large for btree index)
     __table_args__ = (
