@@ -37,3 +37,7 @@ from src.writing.models import WritingSession, WritingChatMessage
 from src.reading.models import ReadingSession, ReadingLevel, ReadingGenre
 from src.listening.models import ListenLesson, Sentence, ListeningSession
 from src.vocabulary.models import VocabularySet, VocabularyItem
+from src.solo_study.models import (
+    SessionGoalsStatus, BackgroundVideoType, BackgroundVideo, 
+    SessionGoal, UserFavoriteVideo, Sound
+)
