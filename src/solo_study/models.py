@@ -79,7 +79,7 @@ class Sound(Base, SoftDeleteMixin, TimestampMixin):
     
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), nullable=False)
-    sound_file_url = Column(String(500), nullable=False)  # Thay thế FileField bằng URL string
+    sound_file_url = Column(String(500), nullable=True)  # Thay thế FileField bằng URL string
     file_size = Column(Integer)  # Kích thước file (bytes)
     duration = Column(Integer)  # Thời lượng (seconds)
     

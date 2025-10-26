@@ -87,6 +87,7 @@ class S3StorageService:
 
 def _guess_ext_from_content_type(content_type: str) -> str:
     mapping = {
+        # Image formats
         "image/jpeg": ".jpg",
         "image/jpg": ".jpg",
         "image/png": ".png",
@@ -94,6 +95,19 @@ def _guess_ext_from_content_type(content_type: str) -> str:
         "image/gif": ".gif",
         "image/bmp": ".bmp",
         "image/svg+xml": ".svg",
+        # Audio formats
+        "audio/mpeg": ".mp3",
+        "audio/mp3": ".mp3",
+        "audio/wav": ".wav",
+        "audio/wave": ".wav",
+        "audio/x-wav": ".wav",
+        "audio/ogg": ".ogg",
+        "audio/vorbis": ".ogg",
+        "audio/aac": ".aac",
+        "audio/mp4": ".m4a",
+        "audio/x-m4a": ".m4a",
+        "audio/flac": ".flac",
+        "audio/webm": ".webm",
     }
     return mapping.get(content_type.lower(), "")
 
