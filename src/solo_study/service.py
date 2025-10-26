@@ -1,4 +1,5 @@
 import os
+import tempfile
 from typing import List, Optional
 from sqlalchemy.orm import Session
 from fastapi import UploadFile
@@ -151,6 +152,28 @@ class SoundService:
             if sound.sound_file_url:
                 self.storage_service.delete_file(sound.sound_file_url)
             
+            # Extract duration BEFORE uploading (file is still available in memory)
+            duration = None
+            try:
+                # Read file to temp location
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as tmp_file:
+                    # Copy file content to temp file
+                    sound_file.file.seek(0)  # Reset to beginning
+                    content = sound_file.file.read()
+                    tmp_file.write(content)
+                    tmp_file_path = tmp_file.name
+                    
+                    # Extract duration
+                    duration = self._get_audio_duration(tmp_file_path)
+                    
+                    # Clean up temp file
+                    os.unlink(tmp_file_path)
+            except Exception as e:
+                print(f"Warning: Could not extract duration: {e}")
+            
+            # Reset file pointer to beginning for upload
+            sound_file.file.seek(0)
+            
             # Upload new file to S3
             url = self.storage_service.upload_fileobj(
                 sound_file.file, 
@@ -161,19 +184,6 @@ class SoundService:
             # Update sound with new file info
             sound.sound_file_url = url
             sound.file_size = sound_file.size if hasattr(sound_file, 'size') else None
-            
-            # Extract duration from audio file
-            duration = None
-            if hasattr(sound_file, 'file') and hasattr(sound_file.file, 'name'):
-                # If file has a temporary path, extract duration
-                duration = self._get_audio_duration(sound_file.file.name)
-            elif hasattr(sound_file, 'filename') and sound_file.filename:
-                # Try to extract from filename if it's a local file
-                try:
-                    duration = self._get_audio_duration(sound_file.filename)
-                except Exception:
-                    pass
-            
             sound.duration = duration
             
             db.commit()

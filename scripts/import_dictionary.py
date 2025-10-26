@@ -1,14 +1,24 @@
 
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 Script to import dictionary data from CSV file
 """
 import csv
 import sys
 import os
+import codecs
+
+# Set UTF-8 encoding for Windows console
+if sys.platform == "win32":
+    sys.stdout = codecs.getwriter("utf-8")(sys.stdout.buffer, "strict")
+    sys.stderr = codecs.getwriter("utf-8")(sys.stderr.buffer, "strict")
 
 # Add project root to Python path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Import all models first to register them with SQLAlchemy
+import src.models  # This will register all models
 
 from sqlalchemy import create_engine, text
 from src.config import get_database_url
@@ -28,15 +38,8 @@ def import_dictionary_data(csv_file_path: str):
             # Check if data already exists
             result = conn.execute(text("SELECT COUNT(*) FROM dictionary")).scalar()
             if result > 0:
-                print(f"⚠️  Dictionary already has {result:,} entries.")
-                response = input("Do you want to clear existing data and reimport? (y/N): ")
-                if response.lower() == 'y':
-                    conn.execute(text("DELETE FROM dictionary"))
-                    conn.commit()
-                    print("🗑️  Cleared existing data")
-                else:
-                    print("❌ Import cancelled")
-                    return
+                print(f"ℹ️  Dictionary already has {result:,} entries. Skipping import.")
+                return
             
             # Import CSV data
             imported_count = 0

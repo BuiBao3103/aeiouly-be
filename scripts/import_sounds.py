@@ -1,14 +1,24 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 Script to import sound data into database
 """
 import json
 import sys
 import os
+import codecs
 from datetime import datetime
+
+# Set UTF-8 encoding for Windows console
+if sys.platform == "win32":
+    sys.stdout = codecs.getwriter("utf-8")(sys.stdout.buffer, "strict")
+    sys.stderr = codecs.getwriter("utf-8")(sys.stderr.buffer, "strict")
 
 # Add project root to Python path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Import all models first to register them with SQLAlchemy
+import src.models  # This will register all models
 
 from sqlalchemy import create_engine, text
 from src.config import get_database_url
@@ -32,8 +42,6 @@ def import_sound_data(sound_data: list):
                 return
             
             # Import sound data
-            imported_count = 0
-            
             for sound in sound_data:
                 # Parse datetime strings
                 created_at = datetime.fromisoformat(sound['created_at'].replace('Z', '+00:00'))
@@ -51,7 +59,6 @@ def import_sound_data(sound_data: list):
                     'created_at': created_at,
                     'updated_at': updated_at
                 })
-                imported_count += 1
                 print(f"📥 Imported: {sound['name']}")
             
             conn.commit()
