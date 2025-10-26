@@ -2,7 +2,7 @@ from fastapi import WebSocket
 from typing import Set, Dict
 from sqlalchemy.orm import Session
 from src.analytics.service import LearningAnalyticsService
-from src.auth.models import User
+from src.users.models import User
 from datetime import datetime, date
 import asyncio
 

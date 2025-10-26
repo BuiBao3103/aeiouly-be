@@ -7,7 +7,8 @@ from typing import Optional
 from jose import jwt
 from sqlalchemy.orm import Session
 from fastapi import Response
-from src.auth.models import User, PasswordResetToken, RefreshToken
+from src.users.models import User
+from src.auth.models import PasswordResetToken, RefreshToken
 from src.auth.schemas import UserRole
 from src.auth.schemas import UserCreate, Token, PasswordResetRequest, PasswordResetConfirm
 from src.auth.exceptions import (

@@ -18,7 +18,7 @@ from src.writing.schemas import (
 from src.writing.service import WritingService
 from src.writing.dependencies import get_writing_service
 from src.auth.dependencies import get_current_active_user
-from src.auth.models import User
+from src.users.models import User
 from src.database import get_db
 from src.pagination import PaginationParams, paginate, get_offset
 

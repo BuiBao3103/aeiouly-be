@@ -5,7 +5,7 @@ from src.posts.schemas import PostCreate, PostUpdate, PostResponse, PostLikeResp
 from src.posts.service import PostService
 from src.posts.dependencies import get_post_service
 from src.auth.dependencies import get_current_active_user, get_current_user_optional
-from src.auth.models import User
+from src.users.models import User
 from src.pagination import PaginationParams, paginate
 from src.database import get_db
 from src.posts.exceptions import PostException

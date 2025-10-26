@@ -29,7 +29,8 @@ class CustomModel(BaseModel):
 
 # Import all SQLAlchemy models to ensure they are registered with Base.metadata
 # This is needed for Alembic to detect all models
-from src.auth.models import UserRole, User, PasswordResetToken, RefreshToken
+from src.users.models import User, UserRole
+from src.auth.models import PasswordResetToken, RefreshToken
 from src.analytics.models import LearningSession, LoginStreak
 from src.posts.models import Post, PostLike
 from src.dictionary.models import Dictionary

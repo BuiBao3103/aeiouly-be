@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc, func
 from src.posts.models import Post, PostLike
 from src.posts.schemas import PostCreate, PostUpdate, PostResponse
-from src.auth.models import User, UserRole
+from src.users.models import User, UserRole
 from src.posts.exceptions import (
     PostNotFoundException,
     InsufficientPermissionsException,

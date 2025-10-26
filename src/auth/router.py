@@ -22,7 +22,7 @@ from src.auth.dependencies import (
     get_current_active_user,
     get_refresh_token_from_cookie
 )
-from src.auth.models import User
+from src.users.models import User
 from src.database import get_db
 from src.config import settings
 from src.auth.dependencies import validate_token_optional

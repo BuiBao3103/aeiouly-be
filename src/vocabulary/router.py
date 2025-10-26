@@ -4,7 +4,7 @@ from typing import List, Optional
 
 from src.database import get_db
 from src.auth.dependencies import get_current_active_user
-from src.auth.models import User
+from src.users.models import User
 from src.vocabulary.service import VocabularyService
 from src.vocabulary.dependencies import get_vocabulary_service
 from src.vocabulary.schemas import (

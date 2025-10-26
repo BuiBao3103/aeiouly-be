@@ -3,7 +3,7 @@ from fastapi import status
 from src.auth.dependencies import get_current_active_user, resolve_user_from_token
 from sqlalchemy.orm import Session
 from src.database import get_db
-from src.auth.models import User
+from src.users.models import User
 from src.notifications.connection_manager import ConnectionManager
 from src.notifications.schemas import BroadcastRequest, ConnectionStatus
 from src.notifications.dependencies import get_connection_manager

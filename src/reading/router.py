@@ -4,7 +4,7 @@ from typing import Optional
 
 from src.database import get_db
 from src.auth.dependencies import get_current_active_user
-from src.auth.models import User
+from src.users.models import User
 from src.reading.service import ReadingService
 from src.reading.schemas import (
     ReadingSessionCreate, ReadingSessionResponse, ReadingSessionSummary,

@@ -2,7 +2,7 @@ from fastapi import Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from src.posts.models import Post
 from src.database import get_db
-from src.auth.models import User, UserRole
+from src.users.models import User, UserRole
 from src.auth.dependencies import get_current_active_user
 from src.posts.exceptions import PostNotFoundException, InsufficientPermissionsException
 from src.posts.service import PostService

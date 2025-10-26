@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from src.database import get_db
 from src.auth.dependencies import get_current_active_user
-from src.auth.models import User
+from src.users.models import User
 from src.analytics.service import LearningAnalyticsService
 from src.analytics.online_service import OnlineAnalyticsService
 from src.analytics.dependencies import get_learning_analytics_service, get_online_analytics_service

@@ -1,7 +1,8 @@
 from fastapi import Depends, HTTPException, status, Request, Response
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
-from src.auth.models import User, RefreshToken
+from src.users.models import User
+from src.auth.models import RefreshToken
 from src.auth.exceptions import (
     RefreshTokenExpiredException,
     RefreshTokenRevokedException,

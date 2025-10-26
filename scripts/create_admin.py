@@ -20,7 +20,7 @@ import src.models  # This will register all models
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
-from src.auth.models import User, UserRole
+from src.users.models import User, UserRole
 from src.config import get_database_url
 
 

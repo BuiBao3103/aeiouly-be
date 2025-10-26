@@ -2,7 +2,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_, func
 from datetime import datetime, date, timedelta
 from typing import List, Optional
-from src.auth.models import User
+from src.users.models import User
 
 
 class OnlineAnalyticsService:

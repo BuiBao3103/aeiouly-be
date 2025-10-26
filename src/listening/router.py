@@ -9,7 +9,7 @@ import json
 
 from src.database import get_db
 from src.auth.dependencies import get_current_active_user
-from src.auth.models import User
+from src.users.models import User
 from src.listening.service import ListeningService
 from src.listening.schemas import (
     LessonUpload, LessonUpdate, LessonResponse, LessonDetailResponse,
