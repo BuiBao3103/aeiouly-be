@@ -41,3 +41,4 @@ from src.solo_study.models import (
     SessionGoalsStatus, BackgroundVideoType, BackgroundVideo, 
     SessionGoal, UserFavoriteVideo, Sound
 )
+from src.speaking.models import SpeakingSession, SpeakingChatMessage

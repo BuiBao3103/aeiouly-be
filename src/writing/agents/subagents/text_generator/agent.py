@@ -1,7 +1,7 @@
 """
 Text Generator Agent for Writing Practice
 
-This agent generates Vietnamese text based on topic and difficulty level.
+This agent generates Vietnamese text based on topic and level.
 """
 
 from google.adk.agents import LlmAgent
@@ -25,7 +25,7 @@ class VietnameseTextResult(BaseModel):
 text_generator_agent = LlmAgent(
     name="text_generator",
     model="gemini-2.0-flash",
-    description="Generates Vietnamese text for writing practice based on topic and difficulty",
+    description="Generates Vietnamese text for writing practice based on topic and level",
     instruction=f"""
     Bạn là một AI tạo văn bản tiếng Việt cho bài luyện viết tiếng Anh.
 
@@ -33,7 +33,7 @@ text_generator_agent = LlmAgent(
 
     ## THÔNG TIN ĐẦU VÀO
     **Chủ đề:** {{topic}}
-    **Độ khó:** {{difficulty}}
+    **Độ khó:** {{level}}
     **Số câu:** {{total_sentences}}
 
     ## YÊU CẦU

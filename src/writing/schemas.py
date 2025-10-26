@@ -6,14 +6,14 @@ from src.writing.models import CEFRLevel, SessionStatus
 
 class WritingSessionCreate(CustomModel):
     topic: str = Field(..., min_length=1, max_length=255, description="Chủ đề luyện viết")
-    difficulty: CEFRLevel = Field(..., description="Độ khó theo thang CEFR")
+    level: CEFRLevel = Field(..., description="Độ khó theo thang CEFR")
     total_sentences: int = Field(..., ge=1, le=20, description="Số câu cần dịch")
 
 class WritingSessionResponse(CustomModel):
     id: int
     user_id: int
     topic: str
-    difficulty: CEFRLevel
+    level: CEFRLevel
     total_sentences: int
     current_sentence_index: int
     status: SessionStatus
@@ -26,7 +26,7 @@ class WritingSessionResponse(CustomModel):
 class WritingSessionListResponse(CustomModel):
     id: int
     topic: str
-    difficulty: CEFRLevel
+    level: CEFRLevel
     total_sentences: int
     current_sentence_index: int
     status: SessionStatus

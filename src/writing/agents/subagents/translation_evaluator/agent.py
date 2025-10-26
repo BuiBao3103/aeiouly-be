@@ -11,11 +11,11 @@ from src.writing.models import CEFRLevel
 def evaluate_translation(
     vietnamese_sentence: str,
     user_translation: str,
-    difficulty: str,
+    level: str,
     tool_context: ToolContext,
 ) -> Dict[str, Any]:
     """Evaluate user's translation and provide feedback."""
-    print(f"--- Tool: evaluate_translation called for difficulty {difficulty} ---")
+    print(f"--- Tool: evaluate_translation called for level {level} ---")
     current_sentence_index = tool_context.state.get("current_sentence_index", 0)
 
     evaluation_history = tool_context.state.get("evaluation_history", [])
@@ -24,7 +24,7 @@ def evaluate_translation(
             "sentence_index": current_sentence_index,
             "vietnamese": vietnamese_sentence,
             "user_translation": user_translation,
-            "difficulty": difficulty,
+            "level": level,
         }
     )
     tool_context.state["evaluation_history"] = evaluation_history
@@ -34,7 +34,7 @@ def evaluate_translation(
         "sentence_index": current_sentence_index,
         "vietnamese_sentence": vietnamese_sentence,
         "user_translation": user_translation,
-        "difficulty": difficulty,
+        "level": level,
         "message": f"Evaluated translation for sentence {current_sentence_index + 1}",
     }
 

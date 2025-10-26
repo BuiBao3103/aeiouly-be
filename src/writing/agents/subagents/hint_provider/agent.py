@@ -7,7 +7,7 @@ from google.adk.tools.tool_context import ToolContext
 from typing import Dict, Any
 
 
-def provide_translation_hint(vietnamese_sentence: str, difficulty: str, tool_context: ToolContext) -> Dict[str, Any]:
+def provide_translation_hint(vietnamese_sentence: str, level: str, tool_context: ToolContext) -> Dict[str, Any]:
     """Provide translation hint and track hint history."""
     current_sentence_index = tool_context.state.get("current_sentence_index", 0)
     hint_history = tool_context.state.get("hint_history", [])
@@ -15,7 +15,7 @@ def provide_translation_hint(vietnamese_sentence: str, difficulty: str, tool_con
         {
             "sentence_index": current_sentence_index,
             "vietnamese_sentence": vietnamese_sentence,
-            "difficulty": difficulty,
+            "level": level,
         }
     )
     tool_context.state["hint_history"] = hint_history
@@ -23,7 +23,7 @@ def provide_translation_hint(vietnamese_sentence: str, difficulty: str, tool_con
         "action": "provide_hint",
         "sentence_index": current_sentence_index,
         "vietnamese_sentence": vietnamese_sentence,
-        "difficulty": difficulty,
+        "level": level,
         "message": f"Provided hint for sentence {current_sentence_index + 1}",
     }
 

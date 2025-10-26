@@ -58,9 +58,9 @@ final_evaluator_agent = LlmAgent(
     
     ## CÁCH HOẠT ĐỘNG:
     - Bạn có thể truy cập tất cả thông tin trong session state
-    - Đọc evaluation_history để xem lịch sử đánh giá các câu (gồm vietnamese, user_translation, difficulty, sentence_index)
+    - Đọc evaluation_history để xem lịch sử đánh giá các câu (gồm vietnamese, user_translation, level, sentence_index)
     - Đọc total_sentences, current_sentence_index để biết tiến độ
-    - Đọc topic, difficulty để hiểu ngữ cảnh bài học
+    - Đọc topic, level để hiểu ngữ cảnh bài học
     - Chấm điểm dựa trên độ chính xác ngữ nghĩa, ngữ pháp, từ vựng và độ tự nhiên của bản dịch
     - Điểm overall_score nên là trung bình của các điểm thành phần
     - Feedback phải bằng tiếng Việt, ngắn gọn nhưng đầy đủ thông tin
@@ -71,7 +71,7 @@ final_evaluator_agent = LlmAgent(
     - total_sentences: Tổng số câu
     - current_sentence_index: Số câu đã hoàn thành
     - topic: Chủ đề bài học
-    - difficulty: Độ khó (A1, A2, B1, B2, C1, C2)
+    - level: Độ khó (A1, A2, B1, B2, C1, C2)
     - vietnamese_text: Toàn bộ văn bản tiếng Việt
     
     {get_cefr_definitions_string()}

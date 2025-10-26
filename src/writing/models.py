@@ -16,7 +16,7 @@ class WritingSession(Base, SoftDeleteMixin, TimestampMixin):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     topic = Column(String(255), nullable=False)
-    difficulty = Column(Enum(CEFRLevel), nullable=False)
+    level = Column(Enum(CEFRLevel), nullable=False)
     total_sentences = Column(Integer, nullable=False)
     current_sentence_index = Column(Integer, default=0)
     status = Column(Enum(SessionStatus), default=SessionStatus.ACTIVE)
