@@ -314,7 +314,7 @@ class BackgroundVideoService:
         try:
             video = BackgroundVideo(
                 youtube_url=video_data.youtube_url,
-                image_url=video_data.image_url,
+                image_url=None,  # Image will be uploaded separately
                 type_id=video_data.type_id
             )
             
@@ -442,6 +442,56 @@ class BackgroundVideoService:
         except Exception as e:
             db.rollback()
             raise BackgroundVideoValidationException(f"Lỗi khi xóa video nền: {str(e)}")
+
+    def upload_image(self, video_id: int, image_file: UploadFile, db: Session) -> BackgroundVideoResponse:
+        """Upload image file for background video to AWS S3"""
+        # Validate image file
+        if not image_file.content_type or not image_file.content_type.startswith("image/"):
+            raise BackgroundVideoValidationException("File phải là hình ảnh (image/*)")
+        
+        # Get video record
+        video = db.query(BackgroundVideo).filter(
+            BackgroundVideo.id == video_id,
+            BackgroundVideo.deleted_at.is_(None)
+        ).first()
+        
+        if not video:
+            raise BackgroundVideoNotFoundException(f"Không tìm thấy video nền với ID {video_id}")
+        
+        try:
+            # Delete old image if exists
+            if video.image_url:
+                from src.storage import S3StorageService
+                storage_service = S3StorageService()
+                storage_service.delete_file(video.image_url)
+            
+            # Upload new file to S3
+            from src.storage import S3StorageService
+            storage_service = S3StorageService()
+            url = storage_service.upload_fileobj(
+                image_file.file, 
+                image_file.content_type, 
+                key_prefix="background-videos/"
+            )
+            
+            # Update video with new image url
+            video.image_url = url
+            
+            db.commit()
+            db.refresh(video)
+            
+            return BackgroundVideoResponse(
+                id=video.id,
+                youtube_url=video.youtube_url,
+                image_url=video.image_url,
+                type_id=video.type_id,
+                type_name=video.type.name if video.type else None,
+                created_at=video.created_at,
+                updated_at=video.updated_at
+            )
+        except Exception as e:
+            db.rollback()
+            raise BackgroundVideoValidationException(f"Lỗi khi upload hình ảnh: {str(e)}")
 
 
 # SessionGoal Service

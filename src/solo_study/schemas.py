@@ -79,7 +79,6 @@ class BackgroundVideoBase(CustomModel):
 
 class BackgroundVideoCreate(CustomModel):
     youtube_url: str = Field(..., description="URL video YouTube", max_length=500)
-    image_url: Optional[str] = Field(None, description="URL hình ảnh", max_length=500)
     type_id: int = Field(..., description="ID loại video nền")
 
 

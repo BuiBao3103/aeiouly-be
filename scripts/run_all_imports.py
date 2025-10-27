@@ -2,9 +2,10 @@
 # -*- coding: utf-8 -*-
 """
 Script to run all import scripts in sequence
-- import_dictionary.py: Import dictionary data
-- import_sounds.py: Import sound data
 - create_admin.py: Create admin user
+- import_sounds.py: Import sound data
+- import_background_videos.py: Import background video types and videos (requires data file)
+- import_dictionary.py: Import dictionary data (requires CSV file)
 """
 import sys
 import os
@@ -60,12 +61,15 @@ def main():
     print("🚀 Starting all import scripts...")
     
     # List of scripts to run
-    # Note: dictionary import requires CSV file, so it's commented out
-    # You can run it manually: python scripts/import_dictionary.py data/dictionary.csv
+    # Note: dictionary and background videos imports require data files, so they're commented out
+    # You can run them manually:
+    # python scripts/import_dictionary.py data/dictionary.csv
+    # python scripts/import_background_videos.py
     scripts = [
         ("create_admin.py", "Create Admin User"),
         ("import_sounds.py", "Import Sound Data"),
         # ("import_dictionary.py", "Import Dictionary Data"),  # Requires CSV file argument
+        # ("import_background_videos.py", "Import Background Videos"),  # Requires JSON file in data/
     ]
     
     results = {}

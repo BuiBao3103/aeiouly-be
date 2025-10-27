@@ -43,6 +43,9 @@ python scripts/run_all_imports.py
 
 # Import dictionary separately (requires CSV file)
 python scripts/import_dictionary.py data/dictionary.csv
+
+# Import background videos separately (requires JSON file)
+python scripts/import_background_videos.py
 ```
 
 #### Option 2: Import data separately
@@ -63,6 +66,12 @@ python scripts/import_sounds.py
 ```bash
 # Import English-Vietnamese dictionary from CSV
 python scripts/import_dictionary.py data/dictionary.csv
+```
+
+**Import background videos:**
+```bash
+# Import background video types and videos
+python scripts/import_background_videos.py
 ```
 
 ### 6. Run the application
@@ -112,12 +121,20 @@ uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
 - **Format**: TSV (Tab-Separated Values)
 - **Behavior**: Only imports if no dictionary entries exist
 
+### Background Videos
+- **Script**: `scripts/import_background_videos.py`
+- **Requires**: JSON file at `data/background_videos_data.json`
+- **Imports**: 
+  - 8 background video types (🌸 Anime, 📚 Library, 🌿 Nature, 🐱 Animals, ☕ Cafe, 💻 Desk, 🏙️ City, ✨ Other)
+  - Background videos with YouTube URLs and image URLs
+- **Behavior**: Only imports if no background videos exist in database
+
 ### All-in-One Import
 - **Script**: `scripts/run_all_imports.py`
 - **Runs all scripts in sequence**:
   1. Create admin user
   2. Import sound files
-- **Note**: Dictionary import requires CSV file and must be run separately
+- **Note**: Dictionary and background videos imports require data files and must be run separately
 
 ---
 

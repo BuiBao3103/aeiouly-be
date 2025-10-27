@@ -1,5 +1,5 @@
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 
 from src.database import get_db
@@ -26,8 +26,8 @@ async def create_background_video(
     """
     Tạo video nền mới
     - **youtube_url**: URL video YouTube
-    - **image_url**: URL hình ảnh (optional)
     - **type_id**: ID loại video nền
+    - **Lưu ý**: Hình ảnh sẽ được upload riêng qua endpoint upload-image
     """
     try:
         return service.create_video(video_data, db)
@@ -85,8 +85,8 @@ async def update_background_video(
     Cập nhật video nền
     - **video_id**: ID của video nền
     - **youtube_url**: URL video YouTube (optional)
-    - **image_url**: URL hình ảnh (optional)
     - **type_id**: ID loại video nền (optional)
+    - **Lưu ý**: Để cập nhật hình ảnh, sử dụng endpoint upload-image
     """
     try:
         return service.update_video(video_id, video_data, db)
@@ -120,4 +120,26 @@ async def delete_background_video(
         raise background_video_validation_exception(str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Lỗi khi xóa video nền: {str(e)}")
+
+
+@router.post("/{video_id}/upload-image", response_model=BackgroundVideoResponse)
+async def upload_background_video_image(
+    video_id: int,
+    image_file: UploadFile = File(..., description="File hình ảnh (image/*)"),
+    service: BackgroundVideoService = Depends(get_background_video_service),
+    db: Session = Depends(get_db)
+):
+    """
+    Upload hình ảnh cho video nền lên AWS S3
+    - **video_id**: ID của video nền
+    - **image_file**: File hình ảnh (phải là image/*)
+    """
+    try:
+        return service.upload_image(video_id, image_file, db)
+    except BackgroundVideoNotFoundException as e:
+        raise background_video_not_found_exception(video_id)
+    except BackgroundVideoValidationException as e:
+        raise background_video_validation_exception(str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lỗi khi upload hình ảnh: {str(e)}")
 
