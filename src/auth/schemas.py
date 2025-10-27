@@ -1,12 +1,8 @@
 from pydantic import EmailStr
 from typing import Optional
 from datetime import datetime
-from enum import Enum
 from src.models import CustomModel
-
-class UserRole(str, Enum):
-    ADMIN = "admin"  # Match the values in models.py
-    USER = "user"
+from src.users.models import UserRole
 
 class UserBase(CustomModel):
     email: EmailStr

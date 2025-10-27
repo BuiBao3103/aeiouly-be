@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, APIRouter, Request
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import os
@@ -16,9 +16,18 @@ from src.writing.router import router as writing_router
 from src.listening.router import router as listening_router
 from src.reading.router import router as reading_router
 from src.vocabulary.router import router as vocabulary_router
-from src.solo_study.router import router as solo_study_router
+from src.solo_study.router import router as sound_router
+from src.solo_study.background_video_type_router import router as background_video_type_router
+from src.solo_study.background_video_router import router as background_video_router
+from src.solo_study.session_goal_router import router as session_goal_router
+
+# Combine solo study routers
+solo_study_router = APIRouter()
+solo_study_router.include_router(sound_router)
+solo_study_router.include_router(background_video_type_router)
+solo_study_router.include_router(background_video_router)
+solo_study_router.include_router(session_goal_router)
 from src.users.router import router as users_router
-from fastapi import Request
 
 # Import all models to ensure they are registered with SQLAlchemy
 import src.models
