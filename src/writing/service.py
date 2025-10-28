@@ -24,9 +24,14 @@ from google.genai import types
 from datetime import datetime
 import json
 from src.config import get_database_url
+from src.utils.agent_utils import call_agent_with_logging
+import logging
 
 # Constants
 SESSION_NOT_FOUND_MSG = "Session not found"
+
+# Logger for writing service
+logger = logging.getLogger(__name__)
 
 class WritingService:
     def __init__(self):
@@ -81,28 +86,18 @@ class WritingService:
                 session_service=self.session_service
             )
             
-            # Start the text generation process
-            content = types.Content(
-                role="user", 
-                parts=[types.Part(text=f"Generate Vietnamese text for topic: {session_data.topic}, level: {session_data.level.value}, sentences: {session_data.total_sentences}")]
-            )
-            
-            # Run agent to generate text
+            # Run agent to generate text with logging
             generated_text = ""
             try:
-                print(f"Starting agent with user_id: {user_id}, session_id: {db_session.id}")
-                print(f"Content: {content}")
+                query = f"Generate Vietnamese text for topic: {session_data.topic}, level: {session_data.level.value}, sentences: {session_data.total_sentences}"
                 
-                async for event in runner.run_async(
+                generated_text = await call_agent_with_logging(
+                    runner=runner,
                     user_id=str(user_id),
                     session_id=str(db_session.id),
-                    new_message=content
-                ):
-                    print(f"Agent event: {event}")
-                    if event.is_final_response() and event.content and event.content.parts:
-                        generated_text = event.content.parts[0].text.strip()
-                        print(f"Generated text: {generated_text}")
-                        break
+                    query=query,
+                    logger=logger
+                )
                 
                 # If no text generated, raise error
                 if not generated_text:
@@ -293,27 +288,20 @@ class WritingService:
             db.add(user_message)
             db.commit()
             
-            # Get agent response
+            # Get agent response with logging
             runner = Runner(
                 agent=writing_coordinator_agent,
                 app_name="WritingPractice",
                 session_service=self.session_service
             )
             
-            content = types.Content(
-                role="user",
-                parts=[types.Part(text=message_data.content)]
-            )
-            
-            agent_response = ""
-            async for event in runner.run_async(
+            agent_response = await call_agent_with_logging(
+                runner=runner,
                 user_id=str(user_id),
                 session_id=str(session_id),
-                new_message=content
-            ):
-                if event.is_final_response() and event.content and event.content.parts:
-                    agent_response = event.content.parts[0].text.strip()
-                    break
+                query=message_data.content,
+                logger=logger
+            )
             
             # Save agent response
             agent_message = WritingChatMessage(
@@ -391,27 +379,20 @@ class WritingService:
             if not current_sentence:
                 raise ValueError("No current sentence available")
             
-            # Get hint from agent
+            # Get hint from agent with logging
             runner = Runner(
                 agent=hint_provider_agent,
                 app_name="WritingPractice",
                 session_service=self.session_service
             )
             
-            content = types.Content(
-                role="user",
-                parts=[types.Part(text=f"Provide hint for: {current_sentence}")]
-            )
-            
-            hint_response = ""
-            async for event in runner.run_async(
+            hint_response = await call_agent_with_logging(
+                runner=runner,
                 user_id=str(user_id),
                 session_id=str(session_id),
-                new_message=content
-            ):
-                if event.is_final_response() and event.content and event.content.parts:
-                    hint_response = event.content.parts[0].text.strip()
-                    break
+                query=f"Provide hint for: {current_sentence}",
+                logger=logger
+            )
             
             return HintResponse(
                 hint=hint_response,
@@ -433,27 +414,20 @@ class WritingService:
             if not session:
                 raise ValueError(SESSION_NOT_FOUND_MSG)
             
-            # Get final evaluation from agent
+            # Get final evaluation from agent with logging
             runner = Runner(
                 agent=final_evaluator_agent,
                 app_name="WritingPractice",
                 session_service=self.session_service
             )
             
-            content = types.Content(
-                role="user",
-                parts=[types.Part(text="Generate final evaluation for this writing session")]
-            )
-            
-            evaluation_response = ""
-            async for event in runner.run_async(
+            evaluation_response = await call_agent_with_logging(
+                runner=runner,
                 user_id=str(user_id),
                 session_id=str(session_id),
-                new_message=content
-            ):
-                if event.is_final_response() and event.content and event.content.parts:
-                    evaluation_response = event.content.parts[0].text.strip()
-                    break
+                query="Generate final evaluation for this writing session",
+                logger=logger
+            )
             
             # Get structured output from agent session state
             try:
