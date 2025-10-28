@@ -90,7 +90,8 @@ class AuthService:
             email=user_data.email,
             full_name=user_data.full_name,
             hashed_password=hashed_password,
-            role=UserRole.USER  # Default role for new users
+            role=UserRole.USER,  # Default role for new users
+            avatar_url=settings.DEFAULT_AVATAR_URL  # Set default avatar
         )
 
         db.add(db_user)
@@ -239,6 +240,7 @@ class AuthService:
                 # Mark OAuth-created account: no local password
                 hashed_password=None,
                 role=UserRole.USER,
+                avatar_url=settings.DEFAULT_AVATAR_URL  # Set default avatar
             )
             db.add(user)
             db.commit()
@@ -432,8 +434,8 @@ class AuthService:
         try:
             storage_service = S3StorageService()
             
-            # Delete old avatar if exists
-            if user.avatar_url:
+            # Delete old avatar if exists and it's not the default avatar
+            if user.avatar_url and user.avatar_url != settings.DEFAULT_AVATAR_URL:
                 storage_service.delete_file(user.avatar_url)
             
             # Upload new avatar to S3

@@ -3,7 +3,7 @@ Schemas for Users module
 """
 from datetime import datetime
 from typing import Optional
-from pydantic import Field
+from pydantic import EmailStr, Field
 
 from src.models import CustomModel
 from src.users.models import UserRole
@@ -14,18 +14,16 @@ ROLE_DESC = "Vai trò"
 
 
 class UserBase(CustomModel):
-    username: str = Field(..., description="Tên đăng nhập")
-    email: str = Field(..., description="Email")
-    full_name: Optional[str] = Field(None, description=FULL_NAME_DESC)
-    role: UserRole = Field(UserRole.USER, description=ROLE_DESC)
-    is_active: bool = Field(True, description="Trạng thái hoạt động")
+    email: EmailStr
+    username: str
+    full_name: Optional[str] = None
 
 
 class UserCreate(CustomModel):
-    username: str = Field(..., description="Tên đăng nhập")
-    email: str = Field(..., description="Email")
-    password: str = Field(..., min_length=6, description="Mật khẩu")
-    full_name: Optional[str] = Field(None, description=FULL_NAME_DESC)
+    username: str
+    email: EmailStr
+    password: str
+    full_name: Optional[str] = None
     # Note: role is always USER and cannot be set via API
     # Admin users must be created manually
 
@@ -38,14 +36,42 @@ class UserUpdate(CustomModel):
     # Admin users must be created manually
 
 
+class UserProfileUpdate(CustomModel):
+    """Schema for users to update their own profile"""
+    username: Optional[str] = None
+    full_name: Optional[str] = None
+
+
 class UserResetPassword(CustomModel):
     new_password: str = Field(..., min_length=6, description="Mật khẩu mới")
 
 
-class UserResponse(UserBase):
-    id: int = Field(..., description="ID user")
-    created_at: datetime = Field(..., description="Thời gian tạo")
-    updated_at: datetime = Field(..., description="Thời gian cập nhật")
+class UserResponse(CustomModel):
+    id: int
+    email: str
+    username: str
+    full_name: Optional[str] = None
+    role: UserRole
+    is_active: bool
+    avatar_url: Optional[str] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class UserUpdateResponse(CustomModel):
+    """Response after updating user profile"""
+    id: int
+    email: str
+    username: str
+    full_name: Optional[str] = None
+    role: UserRole
+    is_active: bool
+    avatar_url: Optional[str] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

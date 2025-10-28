@@ -82,6 +82,9 @@ class Settings(BaseSettings):
     AWS_S3_REGION: str = "ap-southeast-1"
     AWS_S3_BUCKET: str = ""
     AWS_S3_PUBLIC_URL: str = ""  # Optional CDN/base URL; if empty, build from region/bucket
+    
+    # Default Avatar URL
+    DEFAULT_AVATAR_URL: str = "https://aeiouly.s3.ap-southeast-1.amazonaws.com/avatars/default-avatar.png"
 
     @validator("BACKEND_CORS_ORIGINS", pre=True)
     def assemble_cors_origins(cls, v: Union[str, List[str]]) -> Union[List[str], str]:

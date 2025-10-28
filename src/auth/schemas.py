@@ -1,27 +1,7 @@
 from pydantic import EmailStr
 from typing import Optional
-from datetime import datetime
 from src.models import CustomModel
-from src.users.models import UserRole
-
-class UserBase(CustomModel):
-    email: EmailStr
-    username: str
-    full_name: Optional[str] = None
-
-class UserCreate(UserBase):
-    password: str
-
-class UserResponse(UserBase):
-    id: int
-    role: UserRole
-    is_active: bool
-    avatar_url: Optional[str] = None
-    created_at: datetime
-    updated_at: Optional[datetime] = None
-
-    class Config:
-        from_attributes = True
+from src.users.schemas import UserCreate, UserResponse, UserUpdateResponse, UserProfileUpdate
 
 class LoginRequest(CustomModel):
     username: str
@@ -56,20 +36,5 @@ class PasswordChange(CustomModel):
     current_password: str
     new_password: str
 
-class UserUpdate(CustomModel):
-    username: Optional[str] = None
-    full_name: Optional[str] = None
-
-class UserUpdateResponse(CustomModel):
-    id: int
-    email: str
-    username: str
-    full_name: Optional[str] = None
-    role: UserRole
-    is_active: bool
-    avatar_url: Optional[str] = None
-    created_at: datetime
-    updated_at: Optional[datetime] = None
-
-    class Config:
-        from_attributes = True 
+# Re-export UserUpdate as UserProfileUpdate for backward compatibility
+UserUpdate = UserProfileUpdate

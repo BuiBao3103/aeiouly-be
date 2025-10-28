@@ -15,6 +15,7 @@ from src.users.exceptions import (
     UserValidationException
 )
 from src.pagination import PaginationParams, PaginatedResponse, paginate
+from src.config import settings
 
 
 class UsersService:
@@ -56,7 +57,8 @@ class UsersService:
                 email=user_data.email,
                 full_name=user_data.full_name,
                 hashed_password=hashed_password,
-                role=UserRole.USER  # All new users are regular users
+                role=UserRole.USER,  # All new users are regular users
+                avatar_url=settings.DEFAULT_AVATAR_URL  # Set default avatar
             )
 
             db.add(db_user)
