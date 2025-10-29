@@ -2,7 +2,13 @@ from sqlalchemy.orm import Session
 from fastapi import Depends
 
 from src.database import get_db
-from src.solo_study.service import SoundService, BackgroundVideoTypeService, BackgroundVideoService, SessionGoalService
+from src.solo_study.service import (
+    SoundService, 
+    BackgroundVideoTypeService, 
+    BackgroundVideoService, 
+    SessionGoalService,
+    UserFavoriteVideoService
+)
 
 
 def get_sound_service() -> SoundService:
@@ -23,3 +29,8 @@ def get_background_video_service() -> BackgroundVideoService:
 def get_session_goal_service() -> SessionGoalService:
     """Dependency to get SessionGoalService instance"""
     return SessionGoalService()
+
+
+def get_user_favorite_video_service() -> UserFavoriteVideoService:
+    """Dependency to get UserFavoriteVideoService instance"""
+    return UserFavoriteVideoService()

@@ -20,6 +20,7 @@ from src.solo_study.router import router as sound_router
 from src.solo_study.background_video_type_router import router as background_video_type_router
 from src.solo_study.background_video_router import router as background_video_router
 from src.solo_study.session_goal_router import router as session_goal_router
+from src.solo_study.user_favorite_video_router import router as user_favorite_video_router
 
 # Combine solo study routers
 solo_study_router = APIRouter()
@@ -27,6 +28,7 @@ solo_study_router.include_router(sound_router)
 solo_study_router.include_router(background_video_type_router)
 solo_study_router.include_router(background_video_router)
 solo_study_router.include_router(session_goal_router)
+solo_study_router.include_router(user_favorite_video_router)
 from src.users.router import router as users_router
 
 # Import all models to ensure they are registered with SQLAlchemy

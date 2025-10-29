@@ -143,3 +143,45 @@ def session_goal_validation_exception(message: str) -> HTTPException:
         status_code=400,
         detail=f"Lỗi validation mục tiêu phiên học: {message}"
     )
+
+
+# UserFavoriteVideo Exceptions
+class UserFavoriteVideoException(Exception):
+    """Base exception for UserFavoriteVideo operations"""
+    pass
+
+
+class UserFavoriteVideoNotFoundException(UserFavoriteVideoException):
+    """Raised when user favorite video is not found"""
+    pass
+
+
+class UserFavoriteVideoValidationException(UserFavoriteVideoException):
+    """Raised when user favorite video validation fails"""
+    pass
+
+
+class UserFavoriteVideoAlreadyExistsException(UserFavoriteVideoException):
+    """Raised when user favorite video already exists"""
+    pass
+
+
+def user_favorite_video_not_found_exception(video_id: int) -> HTTPException:
+    return HTTPException(
+        status_code=404,
+        detail=f"Không tìm thấy video yêu thích với ID {video_id}"
+    )
+
+
+def user_favorite_video_validation_exception(message: str) -> HTTPException:
+    return HTTPException(
+        status_code=400,
+        detail=f"Lỗi validation video yêu thích: {message}"
+    )
+
+
+def user_favorite_video_already_exists_exception(message: str) -> HTTPException:
+    return HTTPException(
+        status_code=400,
+        detail=f"Video yêu thích đã tồn tại: {message}"
+    )

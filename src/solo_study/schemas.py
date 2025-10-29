@@ -122,3 +122,27 @@ class SessionGoalResponse(SessionGoalBase):
 
     class Config:
         from_attributes = True
+
+
+# UserFavoriteVideo Schemas
+class UserFavoriteVideoCreate(CustomModel):
+    youtube_url: str = Field(..., description="URL video YouTube", max_length=500)
+
+
+class UserFavoriteVideoUpdate(CustomModel):
+    name: Optional[str] = Field(None, description="Tên video", max_length=255)
+
+
+class UserFavoriteVideoResponse(CustomModel):
+    id: int = Field(..., description="ID video yêu thích")
+    user_id: int = Field(..., description="ID người dùng")
+    youtube_url: str = Field(..., description="URL video YouTube", max_length=500)
+    image_url: Optional[str] = Field(None, description="URL hình ảnh", max_length=500)
+    name: str = Field(..., description="Tên video")
+    author_name: str = Field(..., description="Tên tác giả")
+    author_url: str = Field(..., description="URL tác giả")
+    created_at: datetime = Field(..., description="Thời gian tạo")
+    updated_at: datetime = Field(..., description="Thời gian cập nhật")
+
+    class Config:
+        from_attributes = True

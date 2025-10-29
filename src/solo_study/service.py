@@ -1,5 +1,9 @@
 import os
 import tempfile
+import urllib.parse
+import urllib.request
+import json
+import re
 from typing import List, Optional
 from sqlalchemy.orm import Session
 from fastapi import UploadFile
@@ -8,18 +12,20 @@ from mutagen.mp3 import MP3
 from mutagen.wave import WAVE
 from mutagen.oggvorbis import OggVorbis
 
-from src.solo_study.models import Sound, BackgroundVideoType, BackgroundVideo, SessionGoal, SessionGoalsStatus
+from src.solo_study.models import Sound, BackgroundVideoType, BackgroundVideo, SessionGoal, SessionGoalsStatus, UserFavoriteVideo
 from src.solo_study.schemas import (
     SoundCreate, SoundUpdate, SoundResponse, SoundUploadResponse,
     BackgroundVideoTypeCreate, BackgroundVideoTypeUpdate, BackgroundVideoTypeResponse,
     BackgroundVideoCreate, BackgroundVideoUpdate, BackgroundVideoResponse,
-    SessionGoalCreate, SessionGoalUpdate, SessionGoalResponse
+    SessionGoalCreate, SessionGoalUpdate, SessionGoalResponse,
+    UserFavoriteVideoCreate, UserFavoriteVideoUpdate, UserFavoriteVideoResponse
 )
 from src.solo_study.exceptions import (
     SoundNotFoundException, SoundValidationException, SoundUploadException, SoundDeleteException,
     BackgroundVideoTypeNotFoundException, BackgroundVideoTypeValidationException,
     BackgroundVideoNotFoundException, BackgroundVideoValidationException,
-    SessionGoalNotFoundException, SessionGoalValidationException
+    SessionGoalNotFoundException, SessionGoalValidationException,
+    UserFavoriteVideoNotFoundException, UserFavoriteVideoValidationException, UserFavoriteVideoAlreadyExistsException
 )
 from src.storage import S3StorageService
 from src.pagination import PaginationParams, PaginatedResponse, paginate
@@ -594,3 +600,179 @@ class SessionGoalService:
         except Exception as e:
             db.rollback()
             raise SessionGoalValidationException(f"Lỗi khi xóa mục tiêu phiên học: {str(e)}")
+
+
+# UserFavoriteVideo Service
+class UserFavoriteVideoService:
+    def __init__(self):
+        """Initialize UserFavoriteVideoService"""
+        pass
+
+    def _extract_youtube_video_id(self, url: str) -> Optional[str]:
+        """Extract YouTube video ID from URL"""
+        patterns = [
+            r'(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)',
+            r'youtube\.com\/watch\?.*v=([^&\n?#]+)',
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, url)
+            if match:
+                return match.group(1)
+        
+        return None
+
+    def _get_youtube_metadata(self, video_id: str) -> dict:
+        """Get YouTube video metadata using oembed API"""
+        oembed_url = "https://www.youtube.com/oembed"
+        params = {
+            "format": "json",
+            "url": f"https://www.youtube.com/watch?v={video_id}"
+        }
+        query_string = urllib.parse.urlencode(params)
+        full_url = f"{oembed_url}?{query_string}"
+
+        try:
+            with urllib.request.urlopen(full_url) as response:
+                data = json.loads(response.read().decode())
+                return {
+                    "title": data.get("title", ""),
+                    "author_name": data.get("author_name", ""),
+                    "author_url": data.get("author_url", ""),
+                    "thumbnail_url": data.get("thumbnail_url", ""),
+                }
+        except Exception as e:
+            print("Error fetching YouTube metadata:", e)
+            return {
+                "title": "",
+                "author_name": "",
+                "author_url": "",
+                "thumbnail_url": ""
+            }
+
+    def create_favorite_video(self, video_data: UserFavoriteVideoCreate, user_id: int, db: Session) -> UserFavoriteVideoResponse:
+        """Create a new favorite video for user"""
+        try:
+            # Extract video ID from URL
+            video_id = self._extract_youtube_video_id(video_data.youtube_url)
+            if video_id is None:
+                raise UserFavoriteVideoValidationException("URL YouTube không hợp lệ")
+
+            # Build canonical YouTube URL using only v param
+            canonical_url = f"https://www.youtube.com/watch?v={video_id}"
+
+            # Check duplicates by canonical URL
+            existing_video = db.query(UserFavoriteVideo).filter(
+                UserFavoriteVideo.user_id == user_id,
+                UserFavoriteVideo.youtube_url == canonical_url,
+                UserFavoriteVideo.deleted_at.is_(None)
+            ).first()
+            if existing_video:
+                raise UserFavoriteVideoAlreadyExistsException("Video này đã được thêm vào danh sách yêu thích")
+
+            # Get metadata from YouTube
+            metadata = self._get_youtube_metadata(video_id)
+            
+            # Create new favorite video
+            favorite_video = UserFavoriteVideo(
+                user_id=user_id,
+                youtube_url=canonical_url,
+                image_url=metadata.get("thumbnail_url", None),
+                name=metadata.get("title", ""),
+                author_name=metadata.get("author_name", ""),
+                author_url=metadata.get("author_url", "")
+            )
+            
+            db.add(favorite_video)
+            db.commit()
+            db.refresh(favorite_video)
+            
+            return UserFavoriteVideoResponse.from_orm(favorite_video)
+        except UserFavoriteVideoAlreadyExistsException:
+            raise
+        except UserFavoriteVideoValidationException:
+            raise
+        except Exception as e:
+            db.rollback()
+            raise UserFavoriteVideoValidationException(f"Lỗi khi tạo video yêu thích: {str(e)}")
+
+    def get_favorite_videos(self, user_id: int, db: Session, pagination: PaginationParams) -> PaginatedResponse[UserFavoriteVideoResponse]:
+        """Get all favorite videos for a user with pagination"""
+        try:
+            # Get total count
+            total = db.query(UserFavoriteVideo).filter(
+                UserFavoriteVideo.user_id == user_id,
+                UserFavoriteVideo.deleted_at.is_(None)
+            ).count()
+            
+            # Get paginated results
+            offset = (pagination.page - 1) * pagination.size
+            videos = db.query(UserFavoriteVideo).filter(
+                UserFavoriteVideo.user_id == user_id,
+                UserFavoriteVideo.deleted_at.is_(None)
+            ).offset(offset).limit(pagination.size).all()
+            
+            # Convert to response objects
+            video_responses = [UserFavoriteVideoResponse.from_orm(video) for video in videos]
+            
+            # Return paginated response
+            return paginate(video_responses, total, pagination.page, pagination.size)
+        except Exception as e:
+            raise UserFavoriteVideoValidationException(f"Lỗi khi lấy danh sách video yêu thích: {str(e)}")
+
+    def get_favorite_video_by_id(self, video_id: int, user_id: int, db: Session) -> UserFavoriteVideoResponse:
+        """Get favorite video by ID"""
+        video = db.query(UserFavoriteVideo).filter(
+            UserFavoriteVideo.id == video_id,
+            UserFavoriteVideo.user_id == user_id,
+            UserFavoriteVideo.deleted_at.is_(None)
+        ).first()
+        
+        if not video:
+            raise UserFavoriteVideoNotFoundException(f"Không tìm thấy video yêu thích với ID {video_id}")
+        
+        return UserFavoriteVideoResponse.from_orm(video)
+
+    def update_favorite_video(self, video_id: int, video_data: UserFavoriteVideoUpdate, user_id: int, db: Session) -> UserFavoriteVideoResponse:
+        """Update favorite video"""
+        video = db.query(UserFavoriteVideo).filter(
+            UserFavoriteVideo.id == video_id,
+            UserFavoriteVideo.user_id == user_id,
+            UserFavoriteVideo.deleted_at.is_(None)
+        ).first()
+        
+        if not video:
+            raise UserFavoriteVideoNotFoundException(f"Không tìm thấy video yêu thích với ID {video_id}")
+        
+        try:
+            if video_data.name is not None:
+                video.name = video_data.name
+            
+            db.commit()
+            db.refresh(video)
+            
+            return UserFavoriteVideoResponse.from_orm(video)
+        except Exception as e:
+            db.rollback()
+            raise UserFavoriteVideoValidationException(f"Lỗi khi cập nhật video yêu thích: {str(e)}")
+
+    def delete_favorite_video(self, video_id: int, user_id: int, db: Session) -> bool:
+        """Soft delete favorite video"""
+        video = db.query(UserFavoriteVideo).filter(
+            UserFavoriteVideo.id == video_id,
+            UserFavoriteVideo.user_id == user_id,
+            UserFavoriteVideo.deleted_at.is_(None)
+        ).first()
+        
+        if not video:
+            raise UserFavoriteVideoNotFoundException(f"Không tìm thấy video yêu thích với ID {video_id}")
+        
+        try:
+            from datetime import datetime, timezone
+            video.deleted_at = datetime.now(timezone.utc)
+            
+            db.commit()
+            return True
+        except Exception as e:
+            db.rollback()
+            raise UserFavoriteVideoValidationException(f"Lỗi khi xóa video yêu thích: {str(e)}")
