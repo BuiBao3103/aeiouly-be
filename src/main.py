@@ -21,6 +21,7 @@ from src.solo_study.background_video_type_router import router as background_vid
 from src.solo_study.background_video_router import router as background_video_router
 from src.solo_study.session_goal_router import router as session_goal_router
 from src.solo_study.user_favorite_video_router import router as user_favorite_video_router
+from src.speaking.router import router as speaking_router
 
 # Combine solo study routers
 solo_study_router = APIRouter()
@@ -64,6 +65,7 @@ app.include_router(reading_router, prefix=settings.API_V1_STR)
 app.include_router(vocabulary_router, prefix=settings.API_V1_STR)
 app.include_router(solo_study_router, prefix=settings.API_V1_STR)
 app.include_router(users_router, prefix=settings.API_V1_STR)
+app.include_router(speaking_router, prefix=settings.API_V1_STR)
 
 # Root endpoint
 @app.get("/")

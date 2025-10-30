@@ -1,9 +1,10 @@
 from typing import List, Optional
 import re
-import httpx
-import json
+import os
+from pathlib import Path
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, and_, case
+from google.cloud import translate_v2 as translate
 from src.dictionary.models import Dictionary
 from src.dictionary.schemas import (
     DictionarySearchRequest, DictionarySearchResponse, DictionaryResponse,
@@ -16,8 +17,23 @@ class DictionaryService:
     """Service for dictionary operations"""
 
     def __init__(self):
-        # Initialize service instance
-        pass
+        """Initialize DictionaryService with Google Cloud Translation client"""
+        # Set credentials if provided
+        if settings.GOOGLE_APPLICATION_CREDENTIALS:
+            # Resolve relative path to absolute path
+            cred_path = settings.GOOGLE_APPLICATION_CREDENTIALS
+            if not os.path.isabs(cred_path):
+                # Get project root (2 levels up from src/dictionary/service.py)
+                project_root = Path(__file__).resolve().parent.parent.parent
+                cred_path = project_root / cred_path
+            os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = str(cred_path)
+        
+        # Initialize Translation client
+        try:
+            self.translate_client = translate.Client()
+        except Exception as e:
+            print(f"Warning: Could not initialize Google Cloud Translation client: {e}")
+            self.translate_client = None
 
     def _get_base_forms(self, word: str) -> List[str]:
         """Get base forms of a word by removing common suffixes"""
@@ -203,70 +219,45 @@ class DictionaryService:
 
     async def translate_text(self, request: TranslationRequest) -> TranslationResponse:
         """
-        Translate text using Google Cloud Translation API REST endpoint
+        Translate text using Google Cloud Translation API
         """
+        if not self.translate_client:
+            from fastapi import HTTPException
+            raise HTTPException(
+                status_code=500,
+                detail="Google Cloud Translation client chưa được khởi tạo"
+            )
+        
         try:
-            # Get Google Cloud Translation API key from settings
-            api_key = settings.GOOGLE_TRANSLATE_API_KEY
-            if not api_key:
-                raise ValueError("Google Translate API key not configured")
-            
-            # Google Cloud Translation API endpoint
-            url = "https://translation.googleapis.com/language/translate/v2"
-            
-            # Request parameters
-            params = {
-                "key": api_key,
-                "q": request.text,
-                "target": request.target_language,
-                "format": "text"
-            }
-            
-            # Add source language if specified
+            # Translate text using google-cloud-translate v2 client
+            # Signature: translate(values, target_language=None, format_=None, source_language=None, ...)
             if request.source_language:
-                params["source"] = request.source_language
-            
-            # Headers
-            headers = {
-                "Content-Type": "application/json",
-                "User-Agent": "Aeiouly-Translation-API/1.0"
-            }
-            
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(
-                    url,
-                    params=params,
-                    headers=headers
-                )
-                response.raise_for_status()
-                
-                result = response.json()
-                
-                # Extract translation from Google Cloud API response
-                if "data" in result and "translations" in result["data"]:
-                    translations = result["data"]["translations"]
-                    if translations and len(translations) > 0:
-                        translation = translations[0]
-                        translated_text = translation.get("translatedText", request.text)
-                        
-                        return TranslationResponse(
-                            original_text=request.text,
-                            translated_text=translated_text,
-                            source_language=request.source_language,
-                            target_language=request.target_language
-                        )
-                
-                # If no translation found, return original text
-                return TranslationResponse(
-                    original_text=request.text,
-                    translated_text=request.text,
+                result = self.translate_client.translate(
+                    request.text,
+                    target_language=request.target_language,
                     source_language=request.source_language,
-                    target_language=request.target_language
+                    format_="text",
                 )
+            else:
+                result = self.translate_client.translate(
+                    request.text,
+                    target_language=request.target_language,
+                    format_="text",
+                )
+            
+            # Extract translated text
+            translated_text = result.get('translatedText', request.text)
+            
+            return TranslationResponse(
+                original_text=request.text,
+                translated_text=translated_text,
+                source_language=request.source_language,
+                target_language=request.target_language
+            )
                 
         except Exception as e:
             print(f"Translation error: {str(e)}")
-            print("Please check if GOOGLE_TRANSLATE_API_KEY is configured correctly and Translation API is enabled.")
+            print("Please check if GOOGLE_APPLICATION_CREDENTIALS is configured correctly and Translation API is enabled.")
             # Raise HTTP 500 error instead of returning original text
             from fastapi import HTTPException
             raise HTTPException(

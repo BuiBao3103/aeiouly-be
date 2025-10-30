@@ -53,6 +53,10 @@ class Settings(BaseSettings):
     
     # Google Cloud Translation API
     GOOGLE_TRANSLATE_API_KEY: str = ""
+    
+    # Google Cloud Speech-to-Text API
+    GOOGLE_CLOUD_PROJECT_ID: str = ""
+    GOOGLE_APPLICATION_CREDENTIALS: str = ""  # Path to service account JSON file
 
     # Migrations
     AUTO_MIGRATE_ON_STARTUP: bool = False

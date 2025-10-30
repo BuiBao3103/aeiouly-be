@@ -341,14 +341,18 @@ class BackgroundVideoService:
             db.rollback()
             raise BackgroundVideoValidationException(f"Lỗi khi tạo video nền: {str(e)}")
 
-    def get_videos(self, db: Session, pagination: PaginationParams) -> PaginatedResponse[BackgroundVideoResponse]:
-        """Get all background videos with pagination"""
+    def get_videos(self, db: Session, pagination: PaginationParams, type_id: Optional[int] = None) -> PaginatedResponse[BackgroundVideoResponse]:
+        """Get all background videos with pagination, optionally filtered by type_id"""
         try:
-            total = db.query(BackgroundVideo).filter(BackgroundVideo.deleted_at.is_(None)).count()
-            
+            base_query = db.query(BackgroundVideo).filter(BackgroundVideo.deleted_at.is_(None))
+            if type_id is not None:
+                base_query = base_query.filter(BackgroundVideo.type_id == type_id)
+
+            total = base_query.count()
+
             offset = (pagination.page - 1) * pagination.size
-            videos = db.query(BackgroundVideo).filter(BackgroundVideo.deleted_at.is_(None)).offset(offset).limit(pagination.size).all()
-            
+            videos = base_query.offset(offset).limit(pagination.size).all()
+
             video_responses = []
             for video in videos:
                 video_responses.append(BackgroundVideoResponse(
@@ -360,7 +364,7 @@ class BackgroundVideoService:
                     created_at=video.created_at,
                     updated_at=video.updated_at
                 ))
-            
+
             return paginate(video_responses, total, pagination.page, pagination.size)
         except Exception as e:
             raise BackgroundVideoValidationException(f"Lỗi khi lấy danh sách video nền: {str(e)}")

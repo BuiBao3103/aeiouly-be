@@ -40,16 +40,18 @@ async def create_background_video(
 @router.get("/", response_model=PaginatedResponse[BackgroundVideoResponse])
 async def get_background_videos(
     pagination: PaginationParams = Depends(),
+    type_id: int | None = None,
     service: BackgroundVideoService = Depends(get_background_video_service),
     db: Session = Depends(get_db)
 ):
     """
-    Lấy danh sách video nền với phân trang
+    Lấy danh sách video nền với phân trang (có thể lọc theo loại)
     - **page**: Số trang (mặc định: 1)
     - **size**: Số bản ghi mỗi trang (mặc định: 10, tối đa: 100)
+    - **type_id**: ID loại video nền (tùy chọn)
     """
     try:
-        return service.get_videos(db, pagination)
+        return service.get_videos(db, pagination, type_id)
     except BackgroundVideoValidationException as e:
         raise background_video_validation_exception(str(e))
     except Exception as e:
