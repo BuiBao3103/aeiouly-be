@@ -4,8 +4,7 @@ import tempfile
 from typing import Optional
 from fastapi import UploadFile
 import mutagen
-from google.cloud import speech_v1
-from google.cloud.speech_v1.types import RecognitionConfig, RecognitionAudio
+from google.cloud import speech
 
 from src.speaking.schemas import SpeechToTextResponse
 from src.speaking.exceptions import SpeechToTextException
@@ -23,7 +22,7 @@ class SpeakingService:
         
         # Initialize Speech client
         try:
-            self.client = speech_v1.SpeechClient()
+            self.client = speech.SpeechClient()
         except Exception as e:
             print(f"Warning: Could not initialize Google Cloud Speech client: {e}")
             self.client = None
@@ -45,6 +44,55 @@ class SpeakingService:
             return os.path.getsize(file_path)
         except Exception as e:
             print(f"Warning: Could not get file size: {e}")
+        return None
+    
+    def _detect_audio_encoding_and_sample_rate(
+        self, 
+        audio_file: UploadFile, 
+        file_path: str
+    ) -> tuple[str, Optional[int]]:
+        """
+        Detect audio encoding and sample rate from file
+        Returns: (encoding, sample_rate_hertz)
+        """
+        # Get encoding from content type or file extension
+        content_type = audio_file.content_type or ""
+        filename = audio_file.filename or ""
+        
+        # Detect encoding based on content type
+        if "mp3" in content_type.lower() or filename.lower().endswith(".mp3"):
+            # MP3 doesn't require sample_rate_hertz
+            return "MP3", None
+        elif "m4a" in content_type.lower() or filename.lower().endswith(".m4a"):
+            # M4A - use ENCODING_UNSPECIFIED to let API auto-detect
+            return "ENCODING_UNSPECIFIED", None
+        elif "aac" in content_type.lower() or filename.lower().endswith(".aac"):
+            # AAC - use ENCODING_UNSPECIFIED to let API auto-detect
+            return "ENCODING_UNSPECIFIED", None
+        elif "ogg" in content_type.lower() or filename.lower().endswith((".ogg", ".opus")):
+            return "OGG_OPUS", None
+        elif "webm" in content_type.lower() or filename.lower().endswith(".webm"):
+            return "WEBM_OPUS", None
+        elif "flac" in content_type.lower() or filename.lower().endswith(".flac"):
+            # FLAC requires sample_rate_hertz
+            sample_rate = self._get_sample_rate(file_path)
+            return "FLAC", sample_rate or 16000
+        elif "wav" in content_type.lower() or filename.lower().endswith(".wav"):
+            # WAV requires sample_rate_hertz
+            sample_rate = self._get_sample_rate(file_path)
+            return "LINEAR16", sample_rate or 16000
+        else:
+            # Default to ENCODING_UNSPECIFIED to let API auto-detect
+            return "ENCODING_UNSPECIFIED", None
+    
+    def _get_sample_rate(self, file_path: str) -> Optional[int]:
+        """Extract sample rate from audio file"""
+        try:
+            audio_file = mutagen.File(file_path)
+            if audio_file is not None and hasattr(audio_file.info, 'sample_rate'):
+                return int(audio_file.info.sample_rate)
+        except Exception as e:
+            print(f"Warning: Could not extract sample rate from {file_path}: {e}")
         return None
     
     def _validate_audio_file(self, audio_file: UploadFile) -> tuple[str, int, int]:
@@ -90,58 +138,53 @@ class SpeakingService:
         return temp_file_path, duration, file_size
     
     def speech_to_text(
-        self, 
+        self,
         audio_file: UploadFile,
         language_code: str = "en-US",
-        sample_rate_hertz: int = 16000,
-        encoding: str = "LINEAR16"
     ) -> SpeechToTextResponse:
         """
-        Convert audio to text using Google Cloud Speech-to-Text API
-        
-        Args:
-            audio_file: Audio file to transcribe
-            language_code: Language code (default: en-US)
-            sample_rate_hertz: Sample rate in Hz (default: 16000)
-            encoding: Audio encoding (default: LINEAR16)
-        
-        Returns:
-            SpeechToTextResponse with transcribed text
+        Convert audio to text using Google Cloud Speech-to-Text API (simplified)
+        - Assumes uploaded audio is LINEAR16 at 16000 Hz (per quickstart example)
         """
         if not self.client:
             raise SpeechToTextException("Google Cloud Speech client chưa được khởi tạo")
         
-        # Validate audio file
+        # Validate audio file (size/duration)
         temp_file_path, _, _ = self._validate_audio_file(audio_file)
-        
+
         try:
             # Read audio file
             with open(temp_file_path, 'rb') as audio_content:
                 audio_data = audio_content.read()
             
-            # Configure recognition
-            config = RecognitionConfig(
-                encoding=encoding,
-                sample_rate_hertz=sample_rate_hertz,
+            # Configure recognition per quickstart: fixed LINEAR16 @ 16000 Hz
+            config = speech.RecognitionConfig(
+                encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
+                sample_rate_hertz=16000,
                 language_code=language_code,
                 enable_automatic_punctuation=True,
-                model='latest_long'
+                max_alternatives=1,
             )
             
-            audio = RecognitionAudio(content=audio_data)
+            audio = speech.RecognitionAudio(content=audio_data)
             
-            # Perform speech recognition
+            # Perform speech recognition (synchronous)
             response = self.client.recognize(config=config, audio=audio)
             
-            # Extract transcribed text
+            # Extract transcribed text from all results (concatenate segments)
             transcribed_text = ""
-            for result in response.results:
-                transcribed_text += result.alternatives[0].transcript
+            if response.results:
+                for result in response.results:
+                    if result.alternatives:
+                        transcribed_text += result.alternatives[0].transcript + " "
+            
+            # Clean up extra spaces
+            transcribed_text = " ".join(transcribed_text.split())
             
             if not transcribed_text:
                 raise SpeechToTextException("Không thể nhận dạng giọng nói từ file âm thanh")
             
-            return SpeechToTextResponse(text=transcribed_text.strip())
+            return SpeechToTextResponse(text=transcribed_text)
             
         except SpeechToTextException:
             raise

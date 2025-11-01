@@ -13,7 +13,7 @@ from src.speaking.exceptions import SpeechToTextException, speech_to_text_except
 
 router = APIRouter(
     prefix="/speaking",
-    tags=["speaking"]
+    tags=["Speaking Practice"]
 )
 
 
@@ -21,8 +21,6 @@ router = APIRouter(
 async def convert_speech_to_text(
     audio_file: UploadFile = File(..., description="File âm thanh (max 10MB, max 60s)"),
     language_code: str = Form(default="en-US", description="Language code (default: en-US)"),
-    sample_rate_hertz: int = Form(default=16000, description="Sample rate in Hz (default: 16000)"),
-    encoding: str = Form(default="LINEAR16", description="Audio encoding (default: LINEAR16)"),
     current_user: User = Depends(get_current_active_user),
     service: SpeakingService = Depends(get_speaking_service),
     db: Session = Depends(get_db)
@@ -39,8 +37,6 @@ async def convert_speech_to_text(
     **Parameters:**
     - **audio_file**: Audio file to transcribe (WAV, MP3, FLAC, etc.)
     - **language_code**: Language code (default: en-US)
-    - **sample_rate_hertz**: Sample rate in Hz (default: 16000)
-    - **encoding**: Audio encoding (default: LINEAR16)
     
     **Returns:**
     - Transcribed text in English
@@ -48,9 +44,7 @@ async def convert_speech_to_text(
     try:
         return service.speech_to_text(
             audio_file=audio_file,
-            language_code=language_code,
-            sample_rate_hertz=sample_rate_hertz,
-            encoding=encoding
+            language_code=language_code
         )
     except SpeechToTextException as e:
         raise speech_to_text_exception(str(e))

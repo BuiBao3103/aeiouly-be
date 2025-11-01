@@ -40,7 +40,8 @@ app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
     description=settings.DESCRIPTION,
-    openapi_url=f"{settings.API_V1_STR}/openapi.json"
+    openapi_url=f"{settings.API_V1_STR}/openapi.json",
+    swagger_ui_parameters={"docExpansion": "none"}
 )
 
 # Add CORS middleware
@@ -55,17 +56,17 @@ if settings.BACKEND_CORS_ORIGINS:
 
 # Include routers
 app.include_router(auth_router, prefix=settings.API_V1_STR)
-app.include_router(posts_router, prefix=settings.API_V1_STR)
-app.include_router(dictionary_router, prefix=settings.API_V1_STR)
-app.include_router(notifications_router, prefix=settings.API_V1_STR)
-app.include_router(analytics_router, prefix=settings.API_V1_STR)
+app.include_router(users_router, prefix=settings.API_V1_STR)
 app.include_router(writing_router, prefix=settings.API_V1_STR)
 app.include_router(listening_router, prefix=settings.API_V1_STR)
+app.include_router(speaking_router, prefix=settings.API_V1_STR)
 app.include_router(reading_router, prefix=settings.API_V1_STR)
+app.include_router(dictionary_router, prefix=settings.API_V1_STR)
 app.include_router(vocabulary_router, prefix=settings.API_V1_STR)
 app.include_router(solo_study_router, prefix=settings.API_V1_STR)
-app.include_router(users_router, prefix=settings.API_V1_STR)
-app.include_router(speaking_router, prefix=settings.API_V1_STR)
+app.include_router(posts_router, prefix=settings.API_V1_STR)
+app.include_router(notifications_router, prefix=settings.API_V1_STR)
+app.include_router(analytics_router, prefix=settings.API_V1_STR)
 
 # Root endpoint
 @app.get("/")
