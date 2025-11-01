@@ -26,20 +26,19 @@ async def convert_speech_to_text(
     db: Session = Depends(get_db)
 ):
     """
-    Convert speech to text using Google Cloud Speech-to-Text API
+    Chuyển đổi giọng nói sang văn bản bằng Google Cloud Speech-to-Text API
     
-    **Requirements:**
-    - Authentication required
-    - File must be audio format (audio/*)
-    - File size: max 10MB
-    - Duration: max 60 seconds
+    **Yêu cầu:**
+    - Cần đăng nhập
+    - File âm thanh: tối đa 10MB, tối đa 60 giây
     
-    **Parameters:**
-    - **audio_file**: Audio file to transcribe (WAV, MP3, FLAC, etc.)
-    - **language_code**: Language code (default: en-US)
+    **Định dạng hỗ trợ:** WebM, OGG, WAV, MP3, M4A, FLAC
     
-    **Returns:**
-    - Transcribed text in English
+    **Tham số:**
+    - **audio_file**: File âm thanh cần chuyển đổi
+    - **language_code**: Mã ngôn ngữ (mặc định: en-US)
+    
+    **Trả về:** Văn bản đã chuyển đổi
     """
     try:
         return service.speech_to_text(
