@@ -1,11 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Query
 from typing import List, Optional
 from sqlalchemy.orm import Session
 from src.posts.schemas import PostCreate, PostUpdate, PostResponse, PostLikeResponse, PostListResponse
 from src.posts.service import PostService
 from src.posts.dependencies import get_post_service
 from src.auth.dependencies import get_current_active_user, get_current_user_optional
-from src.users.models import User
+from src.users.models import User, UserRole
 from src.pagination import PaginationParams, paginate
 from src.database import get_db
 from src.posts.exceptions import PostException
@@ -219,3 +219,46 @@ async def upload_post_image(
         raise e
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Lỗi khi upload hình ảnh: {str(e)}")
+
+@router.get("/admin/all", response_model=PostListResponse)
+async def get_all_posts_admin(
+    pagination: PaginationParams = Depends(),
+    include_draft: Optional[bool] = Query(None, description="True: chỉ lấy nháp, False: chỉ lấy đã xuất bản, None: lấy tất cả"),
+    current_user: User = Depends(get_current_active_user),
+    service: PostService = Depends(get_post_service),
+    db: Session = Depends(get_db)
+):
+    """
+    Lấy tất cả bài viết (bao gồm nháp) - Chỉ admin mới có thể truy cập
+    
+    - **page**: Số trang (mặc định: 1)
+    - **size**: Số bài viết mỗi trang (mặc định: 10, tối đa: 100)
+    - **include_draft**: 
+        - `True`: Chỉ lấy bài viết nháp (is_published = false)
+        - `False`: Chỉ lấy bài viết đã xuất bản (is_published = true)
+        - `None`: Lấy tất cả bài viết (cả nháp và đã xuất bản)
+    """
+    # Check if user is admin
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Chỉ admin mới có thể xem tất cả bài viết"
+        )
+    
+    try:
+        posts_with_likes = await service.get_all_posts_admin_with_like_info(
+            pagination, current_user, db, include_draft
+        )
+        total = await service.get_total_all_posts_count_admin(db, include_draft)
+        
+        return paginate(
+            posts_with_likes,
+            total,
+            pagination.page,
+            pagination.size
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Lỗi khi lấy danh sách bài viết: {str(e)}"
+        )

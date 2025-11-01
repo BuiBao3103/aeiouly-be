@@ -142,6 +142,71 @@ class PostService:
 
         return posts
 
+    async def get_all_posts_admin(self, pagination: PaginationParams, db: Session, include_draft: Optional[bool] = None) -> List[Post]:
+        """Get all posts (including drafts) for admin - can filter by is_published status"""
+        query = db.query(Post)
+        
+        # Filter by draft status if specified
+        if include_draft is not None:
+            if include_draft:
+                query = query.filter(Post.is_published == False)
+            else:
+                query = query.filter(Post.is_published == True)
+        
+        # Apply pagination
+        offset = (pagination.page - 1) * pagination.size
+        posts = query.order_by(desc(Post.created_at)).offset(offset).limit(pagination.size).all()
+
+        return posts
+
+    async def get_all_posts_admin_with_like_info(
+        self, 
+        pagination: PaginationParams, 
+        current_user: Optional[User], 
+        db: Session,
+        include_draft: Optional[bool] = None
+    ) -> List[PostResponse]:
+        """Get all posts (including drafts) for admin with like information"""
+        posts = await self.get_all_posts_admin(pagination, db, include_draft)
+        
+        result = []
+        for post in posts:
+            likes_count = await self.get_post_likes_count(post.id, db)
+            is_liked = False
+            if current_user:
+                is_liked = await self.is_post_liked_by_user(post.id, current_user.id, db)
+            
+            result.append(PostResponse(
+                id=post.id,
+                content=post.content,
+                is_published=post.is_published,
+                image_url=post.image_url,
+                author={
+                    "id": post.author.id,
+                    "username": post.author.username,
+                    "full_name": post.author.full_name
+                },
+                likes_count=likes_count,
+                is_liked_by_user=is_liked,
+                created_at=post.created_at,
+                updated_at=post.updated_at
+            ))
+        
+        return result
+
+    async def get_total_all_posts_count_admin(self, db: Session, include_draft: Optional[bool] = None) -> int:
+        """Get total posts count (including drafts) for admin"""
+        query = db.query(Post)
+        
+        # Filter by draft status if specified
+        if include_draft is not None:
+            if include_draft:
+                query = query.filter(Post.is_published == False)
+            else:
+                query = query.filter(Post.is_published == True)
+        
+        return query.count()
+
     async def get_post_by_id(self, post_id: int, db: Session) -> Post:
         """Get a specific post by ID"""
         post = db.query(Post).filter(Post.id == post_id).first()
