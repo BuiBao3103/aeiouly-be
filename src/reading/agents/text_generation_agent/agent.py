@@ -15,7 +15,7 @@ def create_cefr_instruction() -> str:
     NHIỆM VỤ:
     - Tạo bài đọc tiếng Anh phù hợp với level được yêu cầu
     - Đảm bảo nội dung phù hợp với genre và topic
-    - Kiểm soát độ dài theo word_count yêu cầu
+    - Kiểm soát độ dài theo word_count yêu cầu (xấp xỉ ±10%)
     - Sử dụng từ vựng và ngữ pháp phù hợp với level
     
     """
@@ -34,19 +34,11 @@ def create_cefr_instruction() -> str:
     - Bài mạng xã hội: Phong cách informal, hashtag
     - Hướng dẫn sử dụng: Các bước, lưu ý, cách làm
     
-    OUTPUT FORMAT:
-    Trả về JSON với cấu trúc:
-    {
-      "content": "nội dung bài đọc",
-      "level": "level_detected",
-      "genre": "genre_detected", 
-      "topic": "topic_detected"
-    }
-    
     QUAN TRỌNG:
     - Nội dung phù hợp với level CEFR (sử dụng định nghĩa chi tiết ở trên)
     - Đúng genre và topic
-    - Trả về JSON format
+    - Độ dài xấp xỉ word_count (±10%)
+    - CHỈ TRẢ VỀ NỘI DUNG BÀI ĐỌC THUẦN VĂN BẢN (không JSON, không tiêu đề phụ)
     """
     
     return instruction
@@ -58,20 +50,14 @@ class TextGenerationRequest(BaseModel):
     word_count: int = Field(..., description="Target word count")
     topic: str = Field(..., description="Reading topic")
 
-class TextGenerationResult(BaseModel):
-    """Response schema for text generation"""
-    content: str = Field(..., description="Generated reading text")
-    level: ReadingLevel = Field(..., description="Detected reading level")
-    genre: ReadingGenre = Field(..., description="Detected genre")
-    topic: str = Field(..., description="Detected topic")
-
 text_generation_agent = LlmAgent(
     name="text_generation_agent",
     model="gemini-2.0-flash",
     description="Generates English reading texts for practice based on level, genre, and topic",
     instruction=create_cefr_instruction(),
-    output_schema=TextGenerationResult,
-    output_key="generation_result",
+    # Return plain text content only
     disallow_transfer_to_parent=True,
     disallow_transfer_to_peers=True
 )
+
+

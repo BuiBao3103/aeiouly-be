@@ -9,7 +9,8 @@ from src.reading.service import ReadingService
 from src.reading.schemas import (
     ReadingSessionCreate, ReadingSessionResponse, ReadingSessionSummary,
     ReadingSessionDetail, ReadingSessionFilter, SummarySubmission,
-    SummaryFeedback, QuizGenerationRequest, QuizResponse
+    SummaryFeedback, QuizGenerationRequest, QuizResponse,
+    DiscussionGenerationRequest, DiscussionResponse
 )
 from src.reading.dependencies import get_reading_service
 from src.reading.exceptions import (
@@ -159,6 +160,27 @@ async def generate_quiz(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Lỗi khi tạo bài trắc nghiệm: {str(e)}"
+        )
+
+@router.post("/reading-sessions/{session_id}/generate-discussion", response_model=DiscussionResponse)
+async def generate_discussion(
+    session_id: int,
+    discussion_request: DiscussionGenerationRequest,
+    current_user: User = Depends(get_current_active_user),
+    service: ReadingService = Depends(get_reading_service),
+    db: Session = Depends(get_db)
+):
+    """Generate discussion questions from reading session"""
+    try:
+        discussion = await service.generate_discussion(session_id, current_user.id, discussion_request, db)
+        return discussion
+        
+    except ReadingSessionNotFoundException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Lỗi khi tạo câu hỏi thảo luận: {str(e)}"
         )
 
 @router.delete("/reading-sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)

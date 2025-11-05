@@ -6,10 +6,10 @@ with parallel evaluation for English summaries and single evaluation for Vietnam
 """
 
 from google.adk.agents import ParallelAgent, SequentialAgent, LlmAgent
-from .subagents.grammar_evaluator.agent import grammar_evaluator_agent
-from .subagents.feedback_synthesizer.agent import feedback_synthesizer_agent
-from .subagents.comprehension_evaluator.agent import comprehension_evaluator_agent
-from .subagents.summary_evaluator.agent import summary_evaluation_agent
+from ..subagents.grammar_evaluator.agent import grammar_evaluator_agent
+from ..subagents.feedback_synthesizer.agent import feedback_synthesizer_agent
+from ..subagents.comprehension_evaluator.agent import comprehension_evaluator_agent
+from ..subagents.summary_evaluator.agent import summary_evaluation_agent
 
 # Parallel agent for concurrent evaluation
 parallel_evaluator = ParallelAgent(
@@ -63,3 +63,5 @@ reading_coordinator_agent = LlmAgent(
     disallow_transfer_to_parent=True,
     disallow_transfer_to_peers=True
 )
+
+

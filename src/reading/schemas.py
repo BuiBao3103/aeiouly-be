@@ -77,21 +77,30 @@ class QuizGenerationRequest(CustomModel):
     number_of_questions: Optional[int] = Field(5, ge=3, le=10, description="Number of questions (3-10)")
     question_language: Optional[str] = Field("vietnamese", description="Language for questions: 'vietnamese' or 'english'")
 
-class CorrectAnswer(CustomModel):
-    """Schema for correct answer"""
-    correct_option: str = Field(..., description="Correct answer option")
-    explanation: str = Field(..., description="Explanation for the answer")
-
 class QuizQuestion(CustomModel):
     """Schema for quiz question"""
-    id: str = Field(..., description="Question ID")
     question: str = Field(..., description="Question text in specified language")
-    options: List[str] = Field(..., description="Answer options in specified language")
-    correct_answer: CorrectAnswer = Field(..., description="Correct answer with explanation")
+    options: List[str] = Field(..., description="Answer options (plain text, no A/B/C/D prefix) in specified language")
+    correctAnswer: int = Field(..., description="Index of correct answer (0-based)")
+    explanation: str = Field(..., description="Explanation for the correct answer in specified language")
 
 class QuizResponse(CustomModel):
     """Response schema for quiz generation"""
     questions: List[QuizQuestion] = Field(..., description="List of questions with correct answers")
+
+# Discussion schemas
+class DiscussionGenerationRequest(CustomModel):
+    """Request schema for discussion generation"""
+    number_of_questions: int = Field(3, ge=1, le=10, description="Number of discussion questions (1-10)")
+
+class DiscussionQuestion(CustomModel):
+    """Schema for discussion question"""
+    questionEn: str = Field(..., description="Question text in English")
+    questionVi: str = Field(..., description="Question text in Vietnamese")
+
+class DiscussionResponse(CustomModel):
+    """Response schema for discussion generation"""
+    questions: List[DiscussionQuestion] = Field(..., description="List of discussion questions in both English and Vietnamese")
 
 # Filter schemas
 class ReadingSessionFilter(CustomModel):

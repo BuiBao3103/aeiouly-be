@@ -40,31 +40,33 @@ def log_event(event, logger: logging.Logger = None):
         event: Event from agent runner
         logger: Optional logger instance, defaults to print if None
     """
-    log_func = logger.info if logger else print
+    log_func_info = logger.info if logger else print
+    log_func_debug = (logger.debug if logger else (lambda *_args, **_kwargs: None))
     
     # Basic event info
     event_info = f"Event ID: {event.id}"
     if event.author:
         event_info += f", Author: {event.author}"
-    log_func(event_info)
+    # Keep concise event summary at INFO so it's visible by default
+    log_func_info(event_info)
     
     # Check for specific parts
     if event.content and event.content.parts:
         for idx, part in enumerate(event.content.parts):
             # Tool calls
             if hasattr(part, "tool_response") and part.tool_response:
-                log_func(f"  [{idx}] Tool Response: {part.tool_response.output}")
+                log_func_debug(f"  [{idx}] Tool Response: {part.tool_response.output}")
             
             # Executable code
             elif hasattr(part, "executable_code") and part.executable_code:
                 code = part.executable_code.code
-                log_func(f"  [{idx}] Generated Code:\n```python\n{code}\n```")
+                log_func_debug(f"  [{idx}] Generated Code:\n```python\n{code}\n```")
             
             # Code execution results
             elif hasattr(part, "code_execution_result") and part.code_execution_result:
                 outcome = part.code_execution_result.outcome
                 output = part.code_execution_result.output
-                log_func(f"  [{idx}] Code Execution: {outcome} - Output: {output}")
+                log_func_debug(f"  [{idx}] Code Execution: {outcome} - Output: {output}")
             
             # Text content
             elif hasattr(part, "text") and part.text:
@@ -73,16 +75,16 @@ def log_event(event, logger: logging.Logger = None):
                     # Truncate very long text
                     if len(text_content) > 200:
                         text_content = text_content[:197] + "..."
-                    log_func(f"  [{idx}] Text: '{text_content}'")
+                    log_func_debug(f"  [{idx}] Text: '{text_content}'")
             
             # Function calls
             elif hasattr(part, "function_call") and part.function_call:
                 func_name = part.function_call.name if hasattr(part.function_call, "name") else "unknown"
-                log_func(f"  [{idx}] Function Call: {func_name}")
+                log_func_debug(f"  [{idx}] Function Call: {func_name}")
             
             # Function responses
             elif hasattr(part, "function_response") and part.function_response:
-                log_func(f"  [{idx}] Function Response: {part.function_response}")
+                log_func_debug(f"  [{idx}] Function Response: {part.function_response}")
 
 
 def log_agent_transfer(event, logger: logging.Logger = None):
@@ -93,13 +95,12 @@ def log_agent_transfer(event, logger: logging.Logger = None):
         event: Event from agent runner
         logger: Optional logger instance, defaults to print if None
     """
-    log_func = logger.info if logger else print
-    
     if event.author and event.author != "unknown":
-        log_func(
-            f"{Colors.YELLOW}Event from agent: {event.author}, "
-            f"event id: {event.id}{Colors.RESET}"
-        )
+        # Option A: suppress transfer log at INFO; emit at DEBUG only
+        if logger:
+            logger.debug(
+                f"Event from agent: {event.author}, event id: {event.id}"
+            )
 
 
 async def process_agent_response(event, logger: logging.Logger = None):
@@ -122,18 +123,16 @@ async def process_agent_response(event, logger: logging.Logger = None):
             if hasattr(first_part, "text") and first_part.text:
                 final_response = first_part.text.strip()
                 
-                # Log the final response with formatting
-                log_func(
+                # Log the final response as a single INFO entry (Option D)
+                boxed_message = (
                     f"\n{Colors.BG_BLUE}{Colors.WHITE}{Colors.BOLD}"
-                    f"╔══ AGENT RESPONSE ═════════════════════════════════════════"
-                    f"{Colors.RESET}"
-                )
-                log_func(f"{Colors.CYAN}{Colors.BOLD}{final_response}{Colors.RESET}")
-                log_func(
+                    f"╔══ AGENT RESPONSE ═════════════════════════════════════════\n"
+                    f"{Colors.CYAN}{Colors.BOLD}{final_response}{Colors.RESET}\n"
                     f"{Colors.BG_BLUE}{Colors.WHITE}{Colors.BOLD}"
                     f"╚═════════════════════════════════════════════════════════════"
                     f"{Colors.RESET}\n"
                 )
+                log_func(boxed_message)
                 return final_response
         else:
             log_func(
@@ -170,12 +169,19 @@ async def call_agent_with_logging(
     # Create content
     content = types.Content(role="user", parts=[types.Part(text=query)])
     
-    # Log the query
-    log_func(
-        f"\n{Colors.BG_GREEN}{Colors.BLACK}{Colors.BOLD}"
-        f"--- Running Query: {query} ---"
-        f"{Colors.RESET}"
-    )
+    # Log the query at INFO for visibility; downgrade to DEBUG if too noisy later
+    if logger:
+        logger.info(
+            f"\n{Colors.BG_GREEN}{Colors.BLACK}{Colors.BOLD}"
+            f"--- Running Query: {query} ---"
+            f"{Colors.RESET}"
+        )
+    else:
+        print(
+            f"\n{Colors.BG_GREEN}{Colors.BLACK}{Colors.BOLD}"
+            f"--- Running Query: {query} ---"
+            f"{Colors.RESET}"
+        )
     
     final_response_text = None
     

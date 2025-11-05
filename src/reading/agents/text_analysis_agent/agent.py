@@ -28,19 +28,22 @@ text_analysis_agent = LlmAgent(
     - Phân tích độ khó của bài đọc và xác định level CEFR (A1-C2)
     - Xác định genre của bài đọc
     - Xác định topic/chủ đề chính
-    - Đếm số từ chính xác
     
     {get_cefr_definitions_string()}
     
-    GENRE DETECTION:
-    - Bài báo: Tin tức, sự kiện, phong cách báo chí
-    - Email/Thư từ: Thư cá nhân, công việc, trang trọng
-    - Truyện ngắn: Có cốt truyện, nhân vật, kết thúc
-    - Hội thoại: Đối thoại giữa các nhân vật
-    - Bài luận: Luận điểm, lập luận, kết luận
-    - Đánh giá sản phẩm: Nhận xét, ưu nhược điểm
-    - Bài mạng xã hội: Phong cách informal, hashtag
-    - Hướng dẫn sử dụng: Các bước, lưu ý, cách làm
+    GENRE DETECTION (PHẢI XÁC ĐỊNH CHÍNH XÁC):
+    Phân tích kỹ cấu trúc, phong cách và mục đích của văn bản để xác định genre một cách chính xác:
+    
+    - Bài báo: Có tiêu đề báo chí, cấu trúc tin tức (5W1H), phong cách khách quan, báo cáo sự kiện/thời sự
+    - Email/Thư từ: Có phần chào hỏi/kết thúc, địa chỉ người nhận, mục đích giao tiếp cá nhân/công việc
+    - Truyện ngắn: Có cốt truyện, nhân vật, bối cảnh, diễn biến và kết thúc rõ ràng
+    - Hội thoại: Chủ yếu là đối thoại trực tiếp giữa các nhân vật, có dấu ngoặc kép hoặc dấu gạch ngang
+    - Bài luận: Có luận điểm, lập luận, ví dụ, kết luận; mang tính phân tích/argumentative
+    - Đánh giá sản phẩm: Nhận xét về sản phẩm/dịch vụ, liệt kê ưu/nhược điểm, đánh giá tổng thể
+    - Bài mạng xã hội: Phong cách informal, có hashtag, emoji, @mention, hoặc cấu trúc như post/blog
+    - Hướng dẫn sử dụng: Có các bước/lệnh, mệnh lệnh (imperative), số thứ tự, lưu ý/cảnh báo
+    
+    LƯU Ý: Chỉ chọn MỘT genre phù hợp nhất. Nếu văn bản có nhiều đặc điểm, chọn đặc điểm NỔI BẬT NHẤT.
     
     OUTPUT FORMAT:
     Trả về JSON với cấu trúc:
@@ -52,8 +55,8 @@ text_analysis_agent = LlmAgent(
     
     QUAN TRỌNG:
     - Phân tích chính xác level dựa trên từ vựng và ngữ pháp (sử dụng định nghĩa CEFR ở trên)
-    - Xác định đúng genre và topic
-    - Đếm từ chính xác (không tính dấu câu)
+    - Xác định đúng genre dựa trên phân tích kỹ cấu trúc và phong cách văn bản (xem hướng dẫn chi tiết ở trên)
+    - Topic phải được trả về BẰNG TIẾNG VIỆT (ví dụ: "Du lịch", "Công nghệ", "Giáo dục", "Sức khỏe")
     - Trả về JSON format
     """,
     output_schema=TextAnalysisResult,
@@ -61,3 +64,5 @@ text_analysis_agent = LlmAgent(
     disallow_transfer_to_parent=True,
     disallow_transfer_to_peers=True
 )
+
+

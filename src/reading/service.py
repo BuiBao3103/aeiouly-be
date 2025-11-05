@@ -2,6 +2,8 @@ from typing import Optional, List, Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, and_
 import time
+import json
+import logging
 from datetime import datetime, timezone
 
 from src.constants.cefr import CEFRLevel
@@ -12,13 +14,15 @@ ReadingLevel = CEFRLevel
 from src.reading.schemas import (
     ReadingSessionCreate, ReadingSessionResponse, ReadingSessionSummary,
     ReadingSessionDetail, ReadingSessionFilter, SummarySubmission,
-    SummaryFeedback, QuizGenerationRequest, QuizResponse
+    SummaryFeedback, QuizGenerationRequest, QuizResponse,
+    DiscussionGenerationRequest, DiscussionResponse
 )
-from src.reading.agents.text_generation_agent import text_generation_agent, TextGenerationRequest
-from src.reading.agents.text_analysis_agent import text_analysis_agent, TextAnalysisRequest
-from src.reading.agents.subagents.summary_evaluator.agent import summary_evaluation_agent, SummaryEvaluationRequest
-from src.reading.agents.quiz_generation_agent import quiz_generation_agent, QuizGenerationRequest
-from src.reading.agents.reading_coordinator import reading_coordinator_agent
+from src.reading.agents.text_generation_agent.agent import text_generation_agent
+from src.reading.agents.text_analysis_agent.agent import text_analysis_agent
+from src.reading.agents.subagents.summary_evaluator.agent import summary_evaluation_agent
+from src.reading.agents.quiz_generation_agent.agent import quiz_generation_agent
+from src.reading.agents.discussion_generation_agent.agent import discussion_generation_agent
+from src.reading.agents.reading_coordinator.agent import reading_coordinator_agent
 from src.reading.exceptions import (
     ReadingSessionNotFoundException, TextGenerationFailedException,
     TextAnalysisFailedException, SummaryEvaluationFailedException,
@@ -27,8 +31,8 @@ from src.reading.exceptions import (
 from src.pagination import PaginationParams, PaginatedResponse, paginate
 from google.adk.runners import Runner
 from google.adk.sessions import DatabaseSessionService
-from google.genai import types
 from src.config import get_database_url
+from src.utils.agent_utils import call_agent_with_logging
 
 # Constants
 NO_AI_RESPONSE_ERROR = "No response from AI agent"
@@ -37,6 +41,7 @@ DEFAULT_FEEDBACK = "Đánh giá tự động dựa trên nội dung tóm tắt."
 class ReadingService:
     def __init__(self):
         self.session_service = DatabaseSessionService(db_url=get_database_url())
+        self.logger = logging.getLogger(__name__)
     
     async def create_reading_session(self, user_id: int, session_data: ReadingSessionCreate, db: Session) -> ReadingSessionResponse:
         """Create a new reading session"""
@@ -74,17 +79,11 @@ class ReadingService:
                     word_count=session_data.word_count
                 )
                 
-                # Handle both dict and object responses
-                if isinstance(generation_result, dict):
-                    content = generation_result.get("content", "")
-                    level = ReadingLevel(generation_result.get("level", session_data.level.value))
-                    genre = ReadingGenre(generation_result.get("genre", session_data.genre.value))
-                    topic = generation_result.get("topic", session_data.topic or "General")
-                else:
-                    content = generation_result.content
-                    level = ReadingLevel(generation_result.level)
-                    genre = ReadingGenre(generation_result.genre)
-                    topic = generation_result.topic
+                # Agent now returns plain text content only
+                content = generation_result or ""
+                level = session_data.level
+                genre = session_data.genre
+                topic = session_data.topic or "General"
                 
                 word_count = self._count_words(content)
                 is_custom = False
@@ -227,33 +226,32 @@ class ReadingService:
             except Exception:
                 pass  # Session might already exist
             
-            content = types.Content(
-                role="user",
-                parts=[types.Part(text=f"""
-                Evaluate this summary:
-                
-                Original text: {original_text}
-                Summary: {summary_text}
-                
-                Please determine if the summary is in Vietnamese or English and provide appropriate evaluation.
-                """)]
-            )
+            query = f"""
+            Evaluate this summary:
             
-            async for event in runner.run_async(
+            Original text: {original_text}
+            Summary: {summary_text}
+            
+            Please determine if the summary is in Vietnamese or English and provide appropriate evaluation.
+            """
+            
+            response_text = await call_agent_with_logging(
+                runner=runner,
                 user_id="system",
                 session_id=session_id,
-                new_message=content
-            ):
-                if event.is_final_response() and event.content and event.content.parts:
-                    response_text = event.content.parts[0].text.strip()
-                    try:
-                        # Try to parse as JSON first
-                        return json.loads(response_text)
-                    except json.JSONDecodeError:
-                        # Fallback to text response
-                        return {"score": 75, "feedback": response_text}
+                query=query,
+                logger=self.logger
+            )
             
-            return {"score": 75, "feedback": DEFAULT_FEEDBACK}
+            if not response_text:
+                return {"score": 75, "feedback": DEFAULT_FEEDBACK}
+            
+            try:
+                # Try to parse as JSON first
+                return json.loads(response_text)
+            except json.JSONDecodeError:
+                # Fallback to text response
+                return {"score": 75, "feedback": response_text}
             
         except Exception as e:
             raise SummaryEvaluationFailedException(f"Coordinator evaluation failed: {str(e)}")
@@ -331,32 +329,33 @@ class ReadingService:
             # Use provided word_count or default based on level
             target_word_count = word_count if word_count is not None else self._get_default_word_count(level)
             
-            content = types.Content(
-                role="user",
-                parts=[types.Part(text=f"""
-                Generate a reading text with the following requirements:
-                - Level: {level.value}
-                - Genre: {genre.value}
-                - Topic: {topic}
-                - Word count: {target_word_count}
-                """)]
-            )
+            query = f"""
+            Generate an English reading text with the following requirements:
+            - Level: {level.value}
+            - Genre: {genre.value}
+            - Topic: {topic}
+            - Target word count: {target_word_count} (approximate ±10%)
+            - Use vocabulary and grammar appropriate to the level
             
-            async for event in runner.run_async(
+            IMPORTANT:
+            - Return ONLY the reading content as plain text.
+            - Do NOT return JSON or any extra fields.
+            - No title or metadata; content only.
+            """
+            
+            response_text = await call_agent_with_logging(
+                runner=runner,
                 user_id="system",
                 session_id=session_id,
-                new_message=content
-            ):
-                if event.is_final_response() and event.content and event.content.parts:
-                    response_text = event.content.parts[0].text.strip()
-                    try:
-                        import json
-                        return json.loads(response_text)
-                    except json.JSONDecodeError:
-                        # If not JSON, try to extract from text
-                        return {"content": response_text, "level": level.value, "genre": genre.value, "topic": topic}
+                query=query,
+                logger=self.logger
+            )
             
-            raise TextGenerationFailedException(NO_AI_RESPONSE_ERROR)
+            if not response_text:
+                raise TextGenerationFailedException(NO_AI_RESPONSE_ERROR)
+            
+            # Return plain text directly
+            return response_text
             
         except Exception as e:
             raise TextGenerationFailedException(f"AI text generation failed: {str(e)}")
@@ -381,26 +380,24 @@ class ReadingService:
             except Exception:
                 pass
             
-            content = types.Content(
-                role="user",
-                parts=[types.Part(text=f"Analyze this reading text:\n\n{text}")]
-            )
+            query = f"Analyze this reading text:\n\n{text}"
             
-            async for event in runner.run_async(
+            response_text = await call_agent_with_logging(
+                runner=runner,
                 user_id="system",
                 session_id=session_id,
-                new_message=content
-            ):
-                if event.is_final_response() and event.content and event.content.parts:
-                    response_text = event.content.parts[0].text.strip()
-                    try:
-                        import json
-                        return json.loads(response_text)
-                    except json.JSONDecodeError:
-                        # If not JSON, try to extract from text
-                        return {"level": "B1", "genre": "Bài báo", "topic": "General", "word_count": len(text.split())}
+                query=query,
+                logger=self.logger
+            )
             
-            raise TextAnalysisFailedException(NO_AI_RESPONSE_ERROR)
+            if not response_text:
+                raise TextAnalysisFailedException(NO_AI_RESPONSE_ERROR)
+            
+            try:
+                return json.loads(response_text)
+            except json.JSONDecodeError:
+                # If not JSON, try to extract from text
+                return {"level": "B1", "genre": "Bài báo", "topic": "General", "word_count": len(text.split())}
             
         except Exception as e:
             raise TextAnalysisFailedException(f"AI text analysis failed: {str(e)}")
@@ -425,32 +422,30 @@ class ReadingService:
             except Exception:
                 pass
             
-            content = types.Content(
-                role="user",
-                parts=[types.Part(text=f"""
-                Original text:
-                {original_text}
-                
-                Vietnamese summary to evaluate:
-                {vietnamese_summary}
-                """)]
-            )
+            query = f"""
+            Original text:
+            {original_text}
             
-            async for event in runner.run_async(
+            Vietnamese summary to evaluate:
+            {vietnamese_summary}
+            """
+            
+            response_text = await call_agent_with_logging(
+                runner=runner,
                 user_id="system",
                 session_id=session_id,
-                new_message=content
-            ):
-                if event.is_final_response() and event.content and event.content.parts:
-                    response_text = event.content.parts[0].text.strip()
-                    try:
-                        import json
-                        return json.loads(response_text)
-                    except json.JSONDecodeError:
-                        # If not JSON, try to extract from text
-                        return {"score": 75, "feedback": "Đánh giá tự động dựa trên nội dung tóm tắt."}
+                query=query,
+                logger=self.logger
+            )
             
-            raise SummaryEvaluationFailedException(NO_AI_RESPONSE_ERROR)
+            if not response_text:
+                raise SummaryEvaluationFailedException(NO_AI_RESPONSE_ERROR)
+            
+            try:
+                return json.loads(response_text)
+            except json.JSONDecodeError:
+                # If not JSON, try to extract from text
+                return {"score": 75, "feedback": "Đánh giá tự động dựa trên nội dung tóm tắt."}
             
         except Exception as e:
             raise SummaryEvaluationFailedException(f"AI summary evaluation failed: {str(e)}")
@@ -475,35 +470,111 @@ class ReadingService:
             except Exception:
                 pass
             
-            content_msg = types.Content(
-                role="user",
-                parts=[types.Part(text=f"""
-                Generate a quiz with {number_of_questions} questions from this reading text.
-                Question language: {question_language}
-                
-                Reading text:
-                {content}
-                """)]
-            )
+            query = f"""
+            Generate a quiz with {number_of_questions} questions from this reading text.
+            Question language: {question_language}
             
-            async for event in runner.run_async(
+            Reading text:
+            {content}
+            """
+            
+            response_text = await call_agent_with_logging(
+                runner=runner,
                 user_id="system",
                 session_id=session_id,
-                new_message=content_msg
-            ):
-                if event.is_final_response() and event.content and event.content.parts:
-                    response_text = event.content.parts[0].text.strip()
-                    try:
-                        import json
-                        return json.loads(response_text)
-                    except json.JSONDecodeError:
-                        # If not JSON, create fallback quiz
-                        return {"questions": []}
+                query=query,
+                logger=self.logger
+            )
             
-            raise QuizGenerationFailedException(NO_AI_RESPONSE_ERROR)
+            if not response_text:
+                raise QuizGenerationFailedException(NO_AI_RESPONSE_ERROR)
+            
+            try:
+                return json.loads(response_text)
+            except json.JSONDecodeError:
+                # If not JSON, create fallback quiz
+                return {"questions": []}
             
         except Exception as e:
             raise QuizGenerationFailedException(f"AI quiz generation failed: {str(e)}")
+    
+    async def generate_discussion(self, session_id: int, user_id: int, discussion_request: DiscussionGenerationRequest, db: Session) -> DiscussionResponse:
+        """Generate discussion questions from reading session"""
+        # Get session
+        session = db.query(ReadingSession).filter(
+            and_(
+                ReadingSession.id == session_id,
+                ReadingSession.user_id == user_id
+            )
+        ).first()
+        
+        if not session:
+            raise ReadingSessionNotFoundException()
+        
+        try:
+            # Generate discussion with AI
+            discussion_result = await self._generate_discussion(session.content, discussion_request.number_of_questions)
+            
+            # Handle both dict and object responses
+            if isinstance(discussion_result, dict):
+                questions = discussion_result.get("questions", [])
+            else:
+                questions = discussion_result.questions
+            
+            return DiscussionResponse(
+                questions=questions
+            )
+            
+        except Exception as e:
+            raise Exception(f"Failed to generate discussion: {str(e)}")
+    
+    async def _generate_discussion(self, content: str, number_of_questions: int) -> Any:
+        """Generate discussion questions using AI agent"""
+        try:
+            runner = Runner(
+                agent=discussion_generation_agent,
+                app_name="ReadingPractice",
+                session_service=self.session_service
+            )
+            session_id = f"discussion_gen_{int(time.time())}"
+            
+            try:
+                await self.session_service.create_session(
+                    app_name="ReadingPractice",
+                    user_id="system",
+                    session_id=session_id,
+                    state={}
+                )
+            except Exception:
+                pass
+            
+            query = f"""
+            Generate {number_of_questions} discussion questions from this reading text.
+            Each question must be provided in BOTH English and Vietnamese.
+            
+            Reading text:
+            {content}
+            """
+            
+            response_text = await call_agent_with_logging(
+                runner=runner,
+                user_id="system",
+                session_id=session_id,
+                query=query,
+                logger=self.logger
+            )
+            
+            if not response_text:
+                raise Exception(NO_AI_RESPONSE_ERROR)
+            
+            try:
+                return json.loads(response_text)
+            except json.JSONDecodeError:
+                # If not JSON, create fallback
+                return {"questions": []}
+            
+        except Exception as e:
+            raise Exception(f"AI discussion generation failed: {str(e)}")
     
     def _count_words(self, text: str) -> int:
         """Count words in text"""
