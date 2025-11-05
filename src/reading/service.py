@@ -276,7 +276,7 @@ class ReadingService:
         
         try:
             # Generate quiz with AI
-            quiz_result = await self._generate_quiz(session.content, quiz_request.number_of_questions, quiz_request.question_language)
+            quiz_result = await self._generate_quiz(session.content, quiz_request.number_of_questions)
             
             # Handle both dict and object responses
             if isinstance(quiz_result, dict):
@@ -407,7 +407,7 @@ class ReadingService:
         except Exception as e:
             raise TextAnalysisFailedException(f"AI text analysis failed: {str(e)}")
     
-    async def _generate_quiz(self, content: str, number_of_questions: int, question_language: str = "vietnamese") -> Any:
+    async def _generate_quiz(self, content: str, number_of_questions: int) -> Any:
         """Generate quiz using AI agent"""
         try:
             runner = Runner(
@@ -429,7 +429,7 @@ class ReadingService:
             
             query = f"""
             Generate a quiz with {number_of_questions} questions from this reading text.
-            Question language: {question_language}
+            Each question must be provided in BOTH English and Vietnamese.
             
             Reading text:
             {content}

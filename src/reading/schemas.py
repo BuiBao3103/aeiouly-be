@@ -76,14 +76,16 @@ class AnswerFeedback(CustomModel):
 class QuizGenerationRequest(CustomModel):
     """Request schema for quiz generation"""
     number_of_questions: Optional[int] = Field(5, ge=3, le=10, description="Number of questions (3-10)")
-    question_language: Optional[str] = Field("vietnamese", description="Language for questions: 'vietnamese' or 'english'")
 
 class QuizQuestion(CustomModel):
     """Schema for quiz question"""
-    question: str = Field(..., description="Question text in specified language")
-    options: List[str] = Field(..., description="Answer options (plain text, no A/B/C/D prefix) in specified language")
+    questionEn: str = Field(..., description="Question text in English")
+    questionVi: str = Field(..., description="Question text in Vietnamese")
+    optionsEn: List[str] = Field(..., description="Answer options in English (plain text, no A/B/C/D prefix)")
+    optionsVi: List[str] = Field(..., description="Answer options in Vietnamese (plain text, no A/B/C/D prefix)")
     correctAnswer: int = Field(..., description="Index of correct answer (0-based)")
-    explanation: str = Field(..., description="Explanation for the correct answer in specified language")
+    explanationEn: str = Field(..., description="Explanation for the correct answer in English")
+    explanationVi: str = Field(..., description="Explanation for the correct answer in Vietnamese")
 
 class QuizResponse(CustomModel):
     """Response schema for quiz generation"""
