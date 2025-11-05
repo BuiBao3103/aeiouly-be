@@ -13,20 +13,18 @@ from src.reading.models import ReadingSession, ReadingGenre
 ReadingLevel = CEFRLevel
 from src.reading.schemas import (
     ReadingSessionCreate, ReadingSessionResponse, ReadingSessionSummary,
-    ReadingSessionDetail, ReadingSessionFilter, SummarySubmission,
-    SummaryFeedback, QuizGenerationRequest, QuizResponse,
+    ReadingSessionDetail, ReadingSessionFilter, AnswerSubmission,
+    AnswerFeedback, QuizGenerationRequest, QuizResponse,
     DiscussionGenerationRequest, DiscussionResponse
 )
 from src.reading.agents.text_generation_agent.agent import text_generation_agent
 from src.reading.agents.text_analysis_agent.agent import text_analysis_agent
-from src.reading.agents.subagents.summary_evaluator.agent import summary_evaluation_agent
 from src.reading.agents.quiz_generation_agent.agent import quiz_generation_agent
 from src.reading.agents.discussion_generation_agent.agent import discussion_generation_agent
-from src.reading.agents.reading_coordinator.agent import reading_coordinator_agent
+from src.reading.agents.analyze_answer_agent.agent import analyze_answer_agent
 from src.reading.exceptions import (
     ReadingSessionNotFoundException, TextGenerationFailedException,
-    TextAnalysisFailedException, SummaryEvaluationFailedException,
-    QuizGenerationFailedException
+    TextAnalysisFailedException, QuizGenerationFailedException
 )
 from src.pagination import PaginationParams, PaginatedResponse, paginate
 from google.adk.runners import Runner
@@ -173,8 +171,8 @@ class ReadingService:
             is_custom=session.is_custom
         )
     
-    async def evaluate_summary(self, session_id: int, user_id: int, summary_data: SummarySubmission, db: Session) -> SummaryFeedback:
-        """Evaluate Vietnamese summary"""
+    async def evaluate_answer(self, session_id: int, user_id: int, answer_data: AnswerSubmission, db: Session) -> AnswerFeedback:
+        """Evaluate discussion answer (Vietnamese or English)"""
         # Get session
         session = db.query(ReadingSession).filter(
             and_(
@@ -187,8 +185,12 @@ class ReadingService:
             raise ReadingSessionNotFoundException()
         
         try:
-            # Evaluate summary with coordinator
-            evaluation_result = await self._evaluate_summary_with_coordinator(session.content, summary_data.summary)
+            # Evaluate answer with analyze_answer_agent
+            evaluation_result = await self._evaluate_answer_with_agent(
+                original_text=session.content,
+                question=answer_data.question,
+                user_answer=answer_data.answer
+            )
             
             # Handle both dict and object responses
             if isinstance(evaluation_result, dict):
@@ -198,23 +200,23 @@ class ReadingService:
                 score = evaluation_result.score
                 feedback = evaluation_result.feedback
             
-            return SummaryFeedback(
+            return AnswerFeedback(
                 score=score,
                 feedback=feedback
             )
             
         except Exception as e:
-            raise SummaryEvaluationFailedException(f"Failed to evaluate summary: {str(e)}")
+            raise Exception(f"Failed to evaluate answer: {str(e)}")
     
-    async def _evaluate_summary_with_coordinator(self, original_text: str, summary_text: str) -> Any:
-        """Evaluate summary using coordinator agent"""
+    async def _evaluate_answer_with_agent(self, original_text: str, question: str, user_answer: str) -> Any:
+        """Evaluate answer using analyze_answer_agent"""
         try:
             runner = Runner(
-                agent=reading_coordinator_agent,
+                agent=analyze_answer_agent,
                 app_name="ReadingPractice",
                 session_service=self.session_service
             )
-            session_id = f"coordinator_{int(time.time())}"
+            session_id = f"analyze_answer_{int(time.time())}"
             
             try:
                 await self.session_service.create_session(
@@ -227,12 +229,15 @@ class ReadingService:
                 pass  # Session might already exist
             
             query = f"""
-            Evaluate this summary:
+            Evaluate this discussion answer:
             
-            Original text: {original_text}
-            Summary: {summary_text}
+            Original reading text: {original_text}
             
-            Please determine if the summary is in Vietnamese or English and provide appropriate evaluation.
+            Question: {question}
+            
+            User's answer: {user_answer}
+            
+            Please determine if the answer is in Vietnamese or English and provide appropriate evaluation.
             """
             
             response_text = await call_agent_with_logging(
@@ -254,7 +259,7 @@ class ReadingService:
                 return {"score": 75, "feedback": response_text}
             
         except Exception as e:
-            raise SummaryEvaluationFailedException(f"Coordinator evaluation failed: {str(e)}")
+            raise Exception(f"Answer evaluation failed: {str(e)}")
     
     async def generate_quiz(self, session_id: int, user_id: int, quiz_request: QuizGenerationRequest, db: Session) -> QuizResponse:
         """Generate quiz from reading session"""
@@ -401,54 +406,6 @@ class ReadingService:
             
         except Exception as e:
             raise TextAnalysisFailedException(f"AI text analysis failed: {str(e)}")
-    
-    async def _evaluate_summary(self, original_text: str, vietnamese_summary: str) -> Any:
-        """Evaluate summary using AI agent"""
-        try:
-            runner = Runner(
-                agent=summary_evaluation_agent,
-                app_name="ReadingPractice",
-                session_service=self.session_service
-            )
-            session_id = f"summary_eval_{int(time.time())}"
-            
-            try:
-                await self.session_service.create_session(
-                    app_name="ReadingPractice",
-                    user_id="system",
-                    session_id=session_id,
-                    state={}
-                )
-            except Exception:
-                pass
-            
-            query = f"""
-            Original text:
-            {original_text}
-            
-            Vietnamese summary to evaluate:
-            {vietnamese_summary}
-            """
-            
-            response_text = await call_agent_with_logging(
-                runner=runner,
-                user_id="system",
-                session_id=session_id,
-                query=query,
-                logger=self.logger
-            )
-            
-            if not response_text:
-                raise SummaryEvaluationFailedException(NO_AI_RESPONSE_ERROR)
-            
-            try:
-                return json.loads(response_text)
-            except json.JSONDecodeError:
-                # If not JSON, try to extract from text
-                return {"score": 75, "feedback": "Đánh giá tự động dựa trên nội dung tóm tắt."}
-            
-        except Exception as e:
-            raise SummaryEvaluationFailedException(f"AI summary evaluation failed: {str(e)}")
     
     async def _generate_quiz(self, content: str, number_of_questions: int, question_language: str = "vietnamese") -> Any:
         """Generate quiz using AI agent"""

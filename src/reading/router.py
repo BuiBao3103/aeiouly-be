@@ -8,15 +8,14 @@ from src.users.models import User
 from src.reading.service import ReadingService
 from src.reading.schemas import (
     ReadingSessionCreate, ReadingSessionResponse, ReadingSessionSummary,
-    ReadingSessionDetail, ReadingSessionFilter, SummarySubmission,
-    SummaryFeedback, QuizGenerationRequest, QuizResponse,
+    ReadingSessionDetail, ReadingSessionFilter, AnswerSubmission,
+    AnswerFeedback, QuizGenerationRequest, QuizResponse,
     DiscussionGenerationRequest, DiscussionResponse
 )
 from src.reading.dependencies import get_reading_service
 from src.reading.exceptions import (
     ReadingSessionNotFoundException, TextGenerationFailedException,
-    TextAnalysisFailedException, SummaryEvaluationFailedException,
-    QuizGenerationFailedException
+    TextAnalysisFailedException, QuizGenerationFailedException
 )
 from src.reading.models import ReadingLevel, ReadingGenre
 from src.pagination import PaginationParams, PaginatedResponse
@@ -116,27 +115,25 @@ async def get_reading_session_detail(
             detail=f"Lỗi khi lấy chi tiết phiên đọc: {str(e)}"
         )
 
-@router.post("/reading-sessions/{session_id}/submit-summary", response_model=SummaryFeedback)
-async def submit_summary(
+@router.post("/reading-sessions/{session_id}/evaluate-answer", response_model=AnswerFeedback)
+async def evaluate_answer(
     session_id: int,
-    summary_data: SummarySubmission,
+    answer_data: AnswerSubmission,
     current_user: User = Depends(get_current_active_user),
     service: ReadingService = Depends(get_reading_service),
     db: Session = Depends(get_db)
 ):
-    """Submit summary for evaluation (Vietnamese or English)"""
+    """Evaluate discussion answer (Vietnamese or English)"""
     try:
-        feedback = await service.evaluate_summary(session_id, current_user.id, summary_data, db)
+        feedback = await service.evaluate_answer(session_id, current_user.id, answer_data, db)
         return feedback
         
     except ReadingSessionNotFoundException as e:
         raise e
-    except SummaryEvaluationFailedException as e:
-        raise e
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Lỗi khi đánh giá bài tóm tắt: {str(e)}"
+            detail=f"Lỗi khi đánh giá câu trả lời: {str(e)}"
         )
 
 @router.post("/reading-sessions/{session_id}/generate-quiz", response_model=QuizResponse)

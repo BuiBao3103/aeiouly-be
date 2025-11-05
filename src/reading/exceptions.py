@@ -20,11 +20,6 @@ class TextAnalysisFailedException(ReadingException):
     def __init__(self, detail: str = "Lỗi khi phân tích bài đọc"):
         super().__init__(detail=detail)
 
-class SummaryEvaluationFailedException(ReadingException):
-    """Exception for summary evaluation failure"""
-    def __init__(self, detail: str = "Lỗi khi đánh giá bài tóm tắt"):
-        super().__init__(detail=detail)
-
 class QuizGenerationFailedException(ReadingException):
     """Exception for quiz generation failure"""
     def __init__(self, detail: str = "Lỗi khi tạo bài trắc nghiệm"):

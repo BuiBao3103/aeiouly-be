@@ -61,13 +61,14 @@ class ReadingSessionDetail(CustomModel):
     word_count: int
     is_custom: bool
 
-# Summary evaluation schemas
-class SummarySubmission(CustomModel):
-    """Request schema for summary submission"""
-    summary: str = Field(..., min_length=50, max_length=2000, description="Summary in Vietnamese or English")
+# Answer evaluation schemas
+class AnswerSubmission(CustomModel):
+    """Request schema for answer submission"""
+    question: str = Field(..., description="Discussion question (in English or Vietnamese)")
+    answer: str = Field(..., min_length=20, max_length=2000, description="User's answer in Vietnamese or English")
 
-class SummaryFeedback(CustomModel):
-    """Response schema for summary feedback"""
+class AnswerFeedback(CustomModel):
+    """Response schema for answer feedback"""
     score: int = Field(..., ge=0, le=100, description="Overall score 0-100")
     feedback: str = Field(..., description="Overall feedback and suggestions")
 

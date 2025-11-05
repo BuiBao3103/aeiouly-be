@@ -43,48 +43,93 @@ def log_event(event, logger: logging.Logger = None):
     log_func_info = logger.info if logger else print
     log_func_debug = (logger.debug if logger else (lambda *_args, **_kwargs: None))
     
-    # Basic event info
-    event_info = f"Event ID: {event.id}"
-    if event.author:
-        event_info += f", Author: {event.author}"
-    # Keep concise event summary at INFO so it's visible by default
-    log_func_info(event_info)
+    # Determine event type and build info string
+    event_type = "UNKNOWN"
+    event_details = []
     
-    # Check for specific parts
+    # Check if this is a transfer event
+    if hasattr(event, "transfer_to") and event.transfer_to:
+        event_type = "TRANSFER"
+        event_details.append(f"→ {event.transfer_to}")
+    elif hasattr(event, "agent_transfer") and event.agent_transfer:
+        event_type = "TRANSFER"
+        if hasattr(event.agent_transfer, "target_agent"):
+            event_details.append(f"→ {event.agent_transfer.target_agent}")
+    
+    # Check for final response
+    if event.is_final_response():
+        if event_type == "UNKNOWN":
+            event_type = "FINAL_RESPONSE"
+        else:
+            event_details.append("(final response)")
+    
+    # Check content parts for tool/function calls
     if event.content and event.content.parts:
         for idx, part in enumerate(event.content.parts):
-            # Tool calls
-            if hasattr(part, "tool_response") and part.tool_response:
+            # Function calls
+            if hasattr(part, "function_call") and part.function_call:
+                if event_type == "UNKNOWN":
+                    event_type = "FUNCTION_CALL"
+                func_name = part.function_call.name if hasattr(part.function_call, "name") else "unknown"
+                event_details.append(f"function: {func_name}")
+                log_func_debug(f"  [{idx}] Function Call: {func_name}")
+            
+            # Tool calls/responses
+            elif hasattr(part, "tool_response") and part.tool_response:
+                if event_type == "UNKNOWN":
+                    event_type = "TOOL_RESPONSE"
                 log_func_debug(f"  [{idx}] Tool Response: {part.tool_response.output}")
             
             # Executable code
             elif hasattr(part, "executable_code") and part.executable_code:
+                if event_type == "UNKNOWN":
+                    event_type = "CODE_GENERATION"
                 code = part.executable_code.code
                 log_func_debug(f"  [{idx}] Generated Code:\n```python\n{code}\n```")
             
             # Code execution results
             elif hasattr(part, "code_execution_result") and part.code_execution_result:
+                if event_type == "UNKNOWN":
+                    event_type = "CODE_EXECUTION"
                 outcome = part.code_execution_result.outcome
                 output = part.code_execution_result.output
                 log_func_debug(f"  [{idx}] Code Execution: {outcome} - Output: {output}")
             
-            # Text content
-            elif hasattr(part, "text") and part.text:
+            # Function responses
+            elif hasattr(part, "function_response") and part.function_response:
+                if event_type == "UNKNOWN":
+                    event_type = "FUNCTION_RESPONSE"
+                log_func_debug(f"  [{idx}] Function Response: {part.function_response}")
+            
+            # Text content (only if not final response, as that's handled separately)
+            elif hasattr(part, "text") and part.text and not event.is_final_response():
+                if event_type == "UNKNOWN":
+                    event_type = "TEXT"
                 text_content = part.text.strip()
                 if not text_content.isspace():
                     # Truncate very long text
-                    if len(text_content) > 200:
-                        text_content = text_content[:197] + "..."
+                    if len(text_content) > 100:
+                        text_content = text_content[:97] + "..."
+                    event_details.append(f'text: "{text_content}"')
                     log_func_debug(f"  [{idx}] Text: '{text_content}'")
-            
-            # Function calls
-            elif hasattr(part, "function_call") and part.function_call:
-                func_name = part.function_call.name if hasattr(part.function_call, "name") else "unknown"
-                log_func_debug(f"  [{idx}] Function Call: {func_name}")
-            
-            # Function responses
-            elif hasattr(part, "function_response") and part.function_response:
-                log_func_debug(f"  [{idx}] Function Response: {part.function_response}")
+    
+    # If still unknown, check for other attributes
+    if event_type == "UNKNOWN":
+        # Check for common event attributes
+        if hasattr(event, "type"):
+            event_type = str(event.type).upper()
+        else:
+            event_type = "EVENT"
+    
+    # Build event info string
+    event_info = f"[{event_type}] Event ID: {event.id}"
+    if event.author:
+        event_info += f", Author: {event.author}"
+    if event_details:
+        event_info += f" | {', '.join(event_details)}"
+    
+    # Keep concise event summary at INFO so it's visible by default
+    log_func_info(event_info)
 
 
 def log_agent_transfer(event, logger: logging.Logger = None):
@@ -103,7 +148,7 @@ def log_agent_transfer(event, logger: logging.Logger = None):
             )
 
 
-async def process_agent_response(event, logger: logging.Logger = None):
+def process_agent_response(event, logger: logging.Logger = None):
     """
     Process and extract final response from agent events.
     
@@ -198,7 +243,7 @@ async def call_agent_with_logging(
             log_event(event, logger)
             
             # Process and extract final response
-            response = await process_agent_response(event, logger)
+            response = process_agent_response(event, logger)
             if response:
                 final_response_text = response
                 
