@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 from typing import Dict, Any
 from src.constants.cefr import get_cefr_definitions_string
 
+
 class DifficultyResult(BaseModel):
     level: str = Field(description="Độ khó được xác định: A1, A2, B1, B2, C1, hoặc C2")
     confidence: float = Field(ge=0, le=1, description="Độ tin cậy của việc xác định độ khó (0-1)")
@@ -13,6 +14,7 @@ class DifficultyResult(BaseModel):
     vocabulary_complexity: str = Field(description="Đánh giá độ phức tạp từ vựng")
     grammar_complexity: str = Field(description="Đánh giá độ phức tạp ngữ pháp")
     sentence_structure: str = Field(description="Đánh giá cấu trúc câu")
+
 
 difficulty_agent = LlmAgent(
     name="difficulty_agent",
@@ -44,6 +46,8 @@ difficulty_agent = LlmAgent(
     """,
     output_schema=DifficultyResult,
     output_key="difficulty_result",
-    disallow_transfer_to_parent=True, 
+    disallow_transfer_to_parent=True,
     disallow_transfer_to_peers=True
 )
+
+

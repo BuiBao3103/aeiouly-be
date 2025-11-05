@@ -22,14 +22,15 @@ from src.listening.exceptions import (
     DifficultyAnalysisFailedException, SessionCreationFailedException,
     ProgressUpdateFailedException, SessionCompletionFailedException
 )
-from src.listening.agents.translation_agent import translation_agent
-from src.listening.agents.difficulty_agent import difficulty_agent
+from src.listening.agents.translation_agent.agent import translation_agent
+from src.listening.agents.difficulty_agent.agent import difficulty_agent
 from google.adk.runners import Runner
 from google.adk.sessions import DatabaseSessionService
-from google.genai import types
 from src.config import get_database_url
 import asyncio
 from datetime import datetime, timezone
+import logging
+from src.utils.agent_utils import call_agent_with_logging
 
 class ListeningService:
     def __init__(self):
@@ -37,6 +38,7 @@ class ListeningService:
         # Configuration for batch processing
         self.MAX_SENTENCES_PER_BATCH = 50  # Giới hạn 5 câu/batch để có tối đa 10 batch
         self.MAX_RETRIES = 2  # Số lần retry khi có lỗi
+        self.logger = logging.getLogger(__name__)
     
     @staticmethod
     def _is_non_speech_subtitle(text: str) -> bool:
@@ -96,7 +98,7 @@ class ListeningService:
             subtitles = [s for s in subtitles if not is_non_speech_subtitle(s.text)]
             filtered_count = len(subtitles)
             if filtered_count != original_count:
-                print(f"Filtered non-speech subtitles: removed {original_count - filtered_count} items")
+                self.logger.debug(f"Filtered non-speech subtitles: removed {original_count - filtered_count} items")
 
             # Translate sentences in batches to avoid token limits
             all_translations = []
@@ -107,7 +109,7 @@ class ListeningService:
             for i in range(0, len(sentence_texts), self.MAX_SENTENCES_PER_BATCH):
                 batch = sentence_texts[i:i + self.MAX_SENTENCES_PER_BATCH]
                 batch_num = i//self.MAX_SENTENCES_PER_BATCH + 1
-                print(f"Translating batch {batch_num}: {len(batch)} sentences")
+                self.logger.info(f"Translating batch {batch_num}: {len(batch)} sentences")
                 
                 try:
                     # Pass difficulty level to translation
@@ -115,16 +117,16 @@ class ListeningService:
                     all_translations.extend(batch_translations)
                     # Store confidence for each sentence in this batch
                     all_confidences.extend(batch_confidences)
-                    print(f"Batch {batch_num} completed. Total translations so far: {len(all_translations)}. Confidences: {batch_confidences}")
+                    self.logger.debug(f"Batch {batch_num} completed. Total translations so far: {len(all_translations)}. Confidences: {batch_confidences}")
                 except Exception as e:
-                    print(f"Error in batch {batch_num}: {e}")
+                    self.logger.warning(f"Error in batch {batch_num}: {e}")
                     # Fallback: create placeholder translations for this batch
                     fallback_translations = [f"[Translation for: {sentence}]" for sentence in batch]
                     all_translations.extend(fallback_translations)
                     # Low confidence for fallback
                     fallback_confidences = [0.3] * len(fallback_translations)
                     all_confidences.extend(fallback_confidences)
-                    print(f"Using fallback translations for batch {batch_num}")
+                    self.logger.warning(f"Using fallback translations for batch {batch_num}")
             
             # Create sentences with translation
             sentences = []
@@ -176,19 +178,18 @@ class ListeningService:
     async def _determine_difficulty(self, title: str, srt_content: str) -> str:
         """Determine difficulty level using AI agent"""
         try:
-            
             runner = Runner(
                 agent=difficulty_agent,
                 app_name="ListeningPractice",
                 session_service=self.session_service
             )
-            
+
             # Create session for difficulty analysis
             import time
             import uuid
             session_id = f"difficulty_{int(time.time())}_{str(uuid.uuid4())[:8]}"
-            
-            # Check if session already exists, if so, use it
+
+            # Ensure session exists
             try:
                 await self.session_service.create_session(
                     app_name="ListeningPractice",
@@ -196,39 +197,34 @@ class ListeningService:
                     session_id=session_id
                 )
             except Exception:
-                # Session already exists, that's fine
                 pass
-            
-            # Create content for the agent
-            content = types.Content(
-                role="user", 
-                parts=[types.Part(text=f"Analyze difficulty for lesson: '{title}'\n\nSRT Content:\n{srt_content[:2000]}...")]
+
+            query = (
+                f"Analyze difficulty for lesson: '{title}'\n\n"
+                f"SRT Content:\n{srt_content[:2000]}..."
             )
-            
-            # Run difficulty analysis
-            difficulty_result = None
-            async for event in runner.run_async(
+
+            # Use shared utils for consistent logging and event processing
+            response_text = await call_agent_with_logging(
+                runner=runner,
                 user_id="system",
                 session_id=session_id,
-                new_message=content
-            ):
-                if event.is_final_response() and event.content and event.content.parts:
-                    # The agent should return structured output
-                    response_text = event.content.parts[0].text.strip()
-                    try:
-                        import json
-                        difficulty_result = json.loads(response_text)
-                        break
-                    except json.JSONDecodeError:
-                        # If not JSON, try to extract level from text
-                        if "level" in response_text.lower():
-                            # Simple extraction - look for A1, A2, B1, etc.
-                            import re
-                            level_match = re.search(r'\b(A[12]|B[12]|C[12])\b', response_text)
-                            if level_match:
-                                difficulty_result = {"level": level_match.group(1)}
-                                break
-            
+                query=query,
+                logger=self.logger,
+            )
+
+            difficulty_result = None
+            if response_text:
+                try:
+                    import json
+                    difficulty_result = json.loads(response_text)
+                except Exception:
+                    # Try to extract CEFR level from plain text
+                    import re
+                    level_match = re.search(r'\b(A[12]|B[12]|C[12])\b', response_text)
+                    if level_match:
+                        difficulty_result = {"level": level_match.group(1)}
+
             if difficulty_result and isinstance(difficulty_result, dict):
                 level = difficulty_result.get("level", "B1")  # Default to B1
                 # Validate level
@@ -240,7 +236,7 @@ class ListeningService:
                 return "B1"  # Fallback
                 
         except Exception as e:
-            print(f"Difficulty analysis error: {e}")
+            self.logger.error(f"Difficulty analysis error: {e}")
             raise DifficultyAnalysisFailedException(f"Lỗi khi phân tích độ khó: {str(e)}")
     
     async def _translate_all_sentences(self, english_sentences: List[str], lesson_id: int, difficulty_level: str = "intermediate") -> tuple[List[str], List[float]]:
@@ -251,13 +247,13 @@ class ListeningService:
                 app_name="ListeningPractice",
                 session_service=self.session_service
             )
-            
+
             # Create session for translation
             import time
             import uuid
             session_id = f"batch_translation_{lesson_id}_{int(time.time())}_{str(uuid.uuid4())[:8]}"
-            
-            # Check if session already exists, if so, use it
+
+            # Ensure session exists
             try:
                 await self.session_service.create_session(
                     app_name="ListeningPractice",
@@ -265,10 +261,9 @@ class ListeningService:
                     session_id=session_id
                 )
             except Exception:
-                # Session already exists, that's fine
                 pass
-            
-            # Create content for batch translation with difficulty level
+
+            # Build input text for batch translation with difficulty level
             sentences_text = "\n".join([f"{i+1}. {sentence}" for i, sentence in enumerate(english_sentences)])
             
             # Map difficulty levels to Vietnamese descriptions
@@ -280,81 +275,69 @@ class ListeningService:
             
             level_desc = difficulty_descriptions.get(difficulty_level, "trình độ trung cấp")
             
-            content = types.Content(
-                role="user", 
-                parts=[types.Part(text=f"""Dịch các câu tiếng Anh sau sang tiếng Việt với trình độ {level_desc}:
-
-{sentences_text}""")]
+            query = (
+                f"Dịch các câu tiếng Anh sau sang tiếng Việt với trình độ {level_desc}:\n\n"
+                f"{sentences_text}"
             )
-            
-            # Run translation
-            translation_result = None
-            print(f"Starting batch translation for {len(english_sentences)} sentences")
-            print(f"Sentences to translate: {english_sentences}")
-            
-            async for event in runner.run_async(
+
+            # Run translation using shared utils
+            self.logger.info(f"Starting batch translation for {len(english_sentences)} sentences")
+            self.logger.debug(f"Sentences to translate: {english_sentences}")
+
+            response_text = await call_agent_with_logging(
+                runner=runner,
                 user_id="system",
                 session_id=session_id,
-                new_message=content
-            ):
-                print(f"Translation agent event: {event}")
-                if event.is_final_response() and event.content and event.content.parts:
-                    response_text = event.content.parts[0].text.strip()
-                    print(f"Agent response text: {response_text}")
-                    
-                    try:
-                        import json
-                        translation_result = json.loads(response_text)
-                        print(f"Parsed JSON result: {translation_result}")
-                        # Extract translations and confidence from structured output
-                        if isinstance(translation_result, dict):
-                            # Preferred new format: { "items": [{"translation": str, "confidence_score": float}, ...] }
-                            if "items" in translation_result and isinstance(translation_result["items"], list):
-                                items = translation_result["items"]
-                                translations = []
-                                confidence_scores = []
-                                for item in items:
-                                    if isinstance(item, dict):
-                                        translations.append(item.get("translation", ""))
-                                        confidence_scores.append(float(item.get("confidence_score", 0.9)))
-                                return translations[:len(english_sentences)], confidence_scores[:len(english_sentences)]
-                            # Backward compatibility: translations + confidence_scores arrays
-                            if "translations" in translation_result:
-                                translations = translation_result["translations"]
-                                confidence_scores = translation_result.get("confidence_scores", [0.9] * len(translations))
-                                return translations[:len(english_sentences)], confidence_scores[:len(english_sentences)]
-                        break
-                    except json.JSONDecodeError:
-                        print("Not JSON format, trying line-by-line parsing")
-                        # If not JSON, try to parse line by line
-                        lines = response_text.split('\n')
-                        translations = []
-                        for line in lines:
-                            line = line.strip()
-                            if line and not line.startswith('#'):
-                                # Remove numbering if present (1. 2. etc.)
-                                if line[0].isdigit() and '. ' in line:
-                                    line = line.split('. ', 1)[1]
-                                # Remove any remaining numbering patterns
-                                if line[0].isdigit() and ')' in line:
-                                    line = line.split(')', 1)[1].strip()
-                                # Skip empty lines or lines that are just numbers
-                                if line and not line.isdigit():
-                                    translations.append(line)
-                        
-                        print(f"Parsed {len(translations)} translations from {len(english_sentences)} sentences")
-                        print(f"Translations: {translations}")
-                        
-                        if translations and len(translations) >= len(english_sentences):
-                            confidence_scores = [0.8] * len(english_sentences)  # Default confidence for each sentence
-                            return translations[:len(english_sentences)], confidence_scores
-                        elif translations:
-                            # If we have fewer translations than sentences, pad with placeholders
-                            while len(translations) < len(english_sentences):
-                                translations.append(f"[Translation for: {english_sentences[len(translations)]}]")
-                            confidence_scores = [0.8] * len(english_sentences)  # Default confidence for each sentence
-                            return translations[:len(english_sentences)], confidence_scores
-                        break
+                query=query,
+                logger=self.logger,
+            )
+
+            translation_result = None
+            if response_text:
+                try:
+                    import json
+                    translation_result = json.loads(response_text)
+                    self.logger.debug(f"Parsed JSON result: {translation_result}")
+                    if isinstance(translation_result, dict):
+                        if "items" in translation_result and isinstance(translation_result["items"], list):
+                            items = translation_result["items"]
+                            translations = []
+                            confidence_scores = []
+                            for item in items:
+                                if isinstance(item, dict):
+                                    translations.append(item.get("translation", ""))
+                                    confidence_scores.append(float(item.get("confidence_score", 0.9)))
+                            return translations[:len(english_sentences)], confidence_scores[:len(english_sentences)]
+                        if "translations" in translation_result:
+                            translations = translation_result["translations"]
+                            confidence_scores = translation_result.get("confidence_scores", [0.9] * len(translations))
+                            return translations[:len(english_sentences)], confidence_scores[:len(english_sentences)]
+                except Exception:
+                    # Not JSON; try line-by-line parsing
+                    self.logger.debug("Not JSON format, trying line-by-line parsing")
+                    lines = response_text.split('\n')
+                    translations = []
+                    for line in lines:
+                        line = line.strip()
+                        if line and not line.startswith('#'):
+                            if line[0].isdigit() and '. ' in line:
+                                line = line.split('. ', 1)[1]
+                            if line and line[0].isdigit() and ')' in line:
+                                line = line.split(')', 1)[1].strip()
+                            if line and not line.isdigit():
+                                translations.append(line)
+
+                    self.logger.debug(f"Parsed {len(translations)} translations from {len(english_sentences)} sentences")
+                    self.logger.debug(f"Translations: {translations}")
+
+                    if translations and len(translations) >= len(english_sentences):
+                        confidence_scores = [0.8] * len(english_sentences)
+                        return translations[:len(english_sentences)], confidence_scores
+                    elif translations:
+                        while len(translations) < len(english_sentences):
+                            translations.append(f"[Translation for: {english_sentences[len(translations)]}]")
+                        confidence_scores = [0.8] * len(english_sentences)
+                        return translations[:len(english_sentences)], confidence_scores
             
             # Try to get structured output from session state
             try:
@@ -363,12 +346,12 @@ class ListeningService:
                     user_id="system",
                     session_id=session_id
                 )
-                print(f"Agent session state: {agent_session.state}")
+                self.logger.debug(f"Agent session state: {agent_session.state}")
                 
                 # Look for structured output in session state
                 if 'translation_result' in agent_session.state:
                     structured_result = agent_session.state['translation_result']
-                    print(f"Found structured result: {structured_result}")
+                    self.logger.debug(f"Found structured result: {structured_result}")
                     
                     if isinstance(structured_result, dict):
                         # Preferred new format via session state
@@ -376,23 +359,23 @@ class ListeningService:
                             items = structured_result['items']
                             translations = [it.get('translation', '') for it in items if isinstance(it, dict)]
                             confidence_scores = [float(it.get('confidence_score', 0.9)) for it in items if isinstance(it, dict)]
-                            print(f"Using structured translations (items): {translations}")
+                            self.logger.debug(f"Using structured translations (items): {translations}")
                             return translations[:len(english_sentences)], confidence_scores[:len(english_sentences)]
                         if 'translations' in structured_result:
                             translations = structured_result['translations']
-                            print(f"Using structured translations: {translations}")
+                            self.logger.debug(f"Using structured translations: {translations}")
                             confidence_scores = [0.9] * len(english_sentences)  # High confidence for structured output
                             return translations[:len(english_sentences)], confidence_scores
                         elif 'translation' in structured_result:
                             # Single translation, create individual ones
                             single_translation = structured_result['translation']
                             translations = [f"{single_translation} (câu {i+1})" for i in range(len(english_sentences))]
-                            print(f"Using single translation for all: {translations}")
+                            self.logger.debug(f"Using single translation for all: {translations}")
                             confidence_scores = [0.7] * len(english_sentences)  # Medium confidence for single translation
                             return translations, confidence_scores
                 
             except Exception as e:
-                print(f"Error getting session state: {e}")
+                self.logger.debug(f"Error getting session state: {e}")
             
             if translation_result and isinstance(translation_result, dict):
                 # Handle structured response
@@ -423,30 +406,28 @@ class ListeningService:
                     return [f"{translation_result['translation']} (câu {i+1})" for i in range(len(english_sentences))], 0.7  # Medium confidence for single translation
             
             # Fallback: return placeholder translations
-            print(f"Using fallback translations for {len(english_sentences)} sentences")
+            self.logger.warning(f"Using fallback translations for {len(english_sentences)} sentences")
             return [f"[Translation for: {sentence}]" for sentence in english_sentences], 0.5  # Low confidence for fallback
                 
         except Exception as e:
-            print(f"Batch translation error: {e}")
+            self.logger.error(f"Batch translation error: {e}")
             # Return placeholder translations on error
             return [f"[Translation for: {sentence}]" for sentence in english_sentences], 0.3  # Very low confidence for error
 
     async def _translate_sentence(self, english_text: str, lesson_id: int) -> str:
         """Translate English sentence to Vietnamese using AI agent"""
         try:
-            
             runner = Runner(
                 agent=translation_agent,
                 app_name="ListeningPractice",
                 session_service=self.session_service
             )
-            
+
             # Create session for translation
             import time
             import uuid
             session_id = f"translation_{lesson_id}_{int(time.time())}_{str(uuid.uuid4())[:8]}"
-            
-            # Check if session already exists, if so, use it
+
             try:
                 await self.session_service.create_session(
                     app_name="ListeningPractice",
@@ -454,41 +435,30 @@ class ListeningService:
                     session_id=session_id
                 )
             except Exception:
-                # Session already exists, that's fine
                 pass
-            
-            # Create content for the agent
-            content = types.Content(
-                role="user", 
-                parts=[types.Part(text=f"Translate this English sentence to Vietnamese: '{english_text}'")]
-            )
-            
-            # Run translation
-            translation_result = None
-            async for event in runner.run_async(
+
+            query = f"Translate this English sentence to Vietnamese: '{english_text}'"
+
+            response_text = await call_agent_with_logging(
+                runner=runner,
                 user_id="system",
                 session_id=session_id,
-                new_message=content
-            ):
-                if event.is_final_response() and event.content and event.content.parts:
-                    # The agent should return structured output
-                    response_text = event.content.parts[0].text.strip()
-                    try:
-                        import json
-                        translation_result = json.loads(response_text)
-                        break
-                    except json.JSONDecodeError:
-                        # If not JSON, use the text directly as translation
-                        translation_result = {"translation": response_text}
-                        break
-            
-            if translation_result and isinstance(translation_result, dict):
-                return translation_result.get("translation", english_text)
-            else:
-                return english_text  # Fallback
-                
+                query=query,
+                logger=self.logger,
+            )
+
+            if response_text:
+                try:
+                    import json
+                    translation_result = json.loads(response_text)
+                    if isinstance(translation_result, dict):
+                        return translation_result.get("translation", english_text)
+                except Exception:
+                    return response_text  # Use raw text if not JSON
+            return english_text  # Fallback
+
         except Exception as e:
-            print(f"Translation error: {e}")
+            self.logger.error(f"Translation error: {e}")
             raise TranslationFailedException(f"Lỗi khi dịch câu: {str(e)}")
     
     def get_lessons(self, filters: LessonFilter, pagination: PaginationParams, db: Session) -> PaginatedResponse:

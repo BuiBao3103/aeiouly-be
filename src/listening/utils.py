@@ -94,11 +94,32 @@ class SRTParser:
         
         return hours * 3600 + minutes * 60 + seconds
 
-def sanitize_subtitle_text(text: str) -> str:
-    """Collapse all whitespace/newlines inside subtitle text to single spaces."""
+def _strip_speaker_label(text: str) -> str:
+    """Remove leading speaker labels like 'Feifei:' or 'A:' if present."""
     if not text:
         return ""
-    return re.sub(r'\s+', ' ', text.strip())
+    candidate = text.strip()
+    patterns = [
+        # Names like Feifei:, Rob:, "BBC Host:", including spaces, dots, hyphens, apostrophes
+        r"^\s*[\[\(]?\s*[A-Za-z][A-Za-z .'-]{0,30}\s*[\]\)]?\s*:\s*",
+        # Single-letter speakers like A:, B:, C:
+        r"^\s*[A-Z]\s*:\s*",
+    ]
+    for pat in patterns:
+        if re.match(pat, candidate):
+            candidate = re.sub(pat, '', candidate).lstrip()
+            break
+    return candidate or text
+
+
+def sanitize_subtitle_text(text: str) -> str:
+    """Normalize subtitle text: strip speaker labels and collapse whitespace."""
+    if not text:
+        return ""
+    # First, remove leading speaker labels
+    no_speaker = _strip_speaker_label(text)
+    # Then collapse whitespace
+    return re.sub(r'\s+', ' ', no_speaker.strip())
 
 def is_non_speech_subtitle(text: str) -> bool:
     """Return True if the subtitle is a non-speech annotation like (Silence)."""
