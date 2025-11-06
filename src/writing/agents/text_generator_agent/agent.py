@@ -1,25 +1,15 @@
 """
-Text Generator Agent for Writing Practice
-
-This agent generates Vietnamese text based on topic and level.
+Text Generator Agent for Writing Practice.
 """
-
 from google.adk.agents import LlmAgent
 from pydantic import BaseModel, Field
 from typing import List
 from src.constants.cefr import get_cefr_definitions_string
 
 
-# --- Define Output Schema ---
 class VietnameseTextResult(BaseModel):
-    """Schema for Vietnamese text generation results."""
-    
-    full_text: str = Field(
-        description="Toàn bộ văn bản tiếng Việt được tạo ra"
-    )
-    sentences: List[str] = Field(
-        description="Mảng các câu tiếng Việt đã được tách riêng"
-    )
+    full_text: str = Field(description="Toàn bộ văn bản tiếng Việt được tạo ra")
+    sentences: List[str] = Field(description="Mảng các câu tiếng Việt đã được tách riêng")
 
 
 text_generator_agent = LlmAgent(
@@ -32,9 +22,9 @@ text_generator_agent = LlmAgent(
     Nhiệm vụ của bạn là tạo ra văn bản tiếng Việt dựa trên chủ đề và độ khó được cung cấp.
 
     ## THÔNG TIN ĐẦU VÀO
-    **Chủ đề:** {{topic}}
-    **Độ khó:** {{level}}
-    **Số câu:** {{total_sentences}}
+    - Chủ đề: sẽ được cung cấp trong tin nhắn người dùng
+    - Độ khó: sẽ được cung cấp trong tin nhắn người dùng
+    - Số câu: sẽ được cung cấp trong tin nhắn người dùng
 
     ## YÊU CẦU
     1. Tạo ra văn bản tiếng Việt phù hợp với chủ đề
@@ -42,9 +32,9 @@ text_generator_agent = LlmAgent(
     3. Đảm bảo văn bản tự nhiên và hấp dẫn
     4. Tạo câu ngày càng thử thách trong cùng độ khó
     5. Bao gồm đa dạng cấu trúc câu và từ vựng
-    6. Sử dụng đa dạng dấu câu: dấu chấm (.), dấu chấm hỏi (?), dấu chấm than (!), dấu phẩy (,), dấu chấm phẩy (;), dấu ba chấm (...)
+    6. Sử dụng đa dạng dấu câu: ., ?, !, ,, ;, ...
     7. KHÔNG bao gồm văn bản tiếng Anh hoặc giải thích
-    8. KHÔNG bao gồm cụm từ như "Đây là văn bản được tạo:" hoặc "Tôi sẽ tạo"
+    8. KHÔNG bao gồm các cụm như "Đây là văn bản được tạo:" hay "Tôi sẽ tạo"
 
     {get_cefr_definitions_string()}
 

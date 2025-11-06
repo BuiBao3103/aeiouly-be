@@ -15,9 +15,9 @@ from src.writing.schemas import (
     HintResponse, 
     FinalEvaluationResponse
 )
-from src.writing.agents.writing_coordinator import writing_coordinator_agent
-from src.writing.agents.subagents.hint_provider.agent import hint_provider_agent
-from src.writing.agents.subagents.final_evaluator.agent import final_evaluator_agent
+from src.writing.agents.text_generator_agent.agent import text_generator_agent
+from src.writing.agents.hint_provider_agent.agent import hint_provider_agent
+from src.writing.agents.final_evaluator_agent.agent import final_evaluator_agent
 from google.adk.runners import Runner
 from google.adk.sessions import DatabaseSessionService
 from google.genai import types
@@ -81,7 +81,7 @@ class WritingService:
             
             # Generate Vietnamese text using agent
             runner = Runner(
-                agent=writing_coordinator_agent,
+                agent=text_generator_agent,
                 app_name="WritingPractice",
                 session_service=self.session_service
             )
@@ -290,7 +290,7 @@ class WritingService:
             
             # Get agent response with logging
             runner = Runner(
-                agent=writing_coordinator_agent,
+                agent=text_generator_agent,
                 app_name="WritingPractice",
                 session_service=self.session_service
             )

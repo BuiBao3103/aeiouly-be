@@ -1,7 +1,6 @@
 """
 Hint Provider Agent for Writing Practice
 """
-
 from google.adk.agents import Agent
 from google.adk.tools.tool_context import ToolContext
 from typing import Dict, Any
@@ -9,7 +8,6 @@ from src.constants.cefr import get_cefr_definitions_string
 
 
 def provide_translation_hint(vietnamese_sentence: str, level: str, tool_context: ToolContext) -> Dict[str, Any]:
-    """Provide translation hint and track hint history."""
     current_sentence_index = tool_context.state.get("current_sentence_index", 0)
     hint_history = tool_context.state.get("hint_history", [])
     hint_history.append(

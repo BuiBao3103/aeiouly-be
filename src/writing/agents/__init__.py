@@ -1,9 +1,8 @@
 """
 Writing agents package
-
-Subpackages:
-- subagents.text_generator
-- subagents.translation_evaluator
-- subagents.hint_provider
-- subagents.final_evaluator
 """
+
+from .text_generator_agent import text_generator_agent
+from .hint_provider_agent import hint_provider_agent
+from .final_evaluator_agent import final_evaluator_agent
+from .translation_evaluator_agent import translation_evaluator_agent
