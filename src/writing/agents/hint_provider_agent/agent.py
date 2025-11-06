@@ -7,23 +7,29 @@ from typing import Dict, Any
 from src.constants.cefr import get_cefr_definitions_string
 
 
-def provide_translation_hint(vietnamese_sentence: str, level: str, tool_context: ToolContext) -> Dict[str, Any]:
+def provide_translation_hint(hint_text: str, vietnamese_sentence: str, level: str, tool_context: ToolContext) -> Dict[str, Any]:
     current_sentence_index = tool_context.state.get("current_sentence_index", 0)
+    # Append to history
     hint_history = tool_context.state.get("hint_history", [])
-    hint_history.append(
-        {
-            "sentence_index": current_sentence_index,
-            "vietnamese_sentence": vietnamese_sentence,
-            "level": level,
-        }
-    )
+    hint_entry = {
+        "sentence_index": current_sentence_index,
+        "vietnamese_sentence": vietnamese_sentence,
+        "level": level,
+        "hint_text": hint_text,
+    }
+    hint_history.append(hint_entry)
     tool_context.state["hint_history"] = hint_history
+    # Cache by sentence index for fast retrieval
+    hint_cache = tool_context.state.get("hint_cache", {})
+    hint_cache[str(current_sentence_index)] = hint_text
+    tool_context.state["hint_cache"] = hint_cache
     return {
         "action": "provide_hint",
         "sentence_index": current_sentence_index,
         "vietnamese_sentence": vietnamese_sentence,
         "level": level,
-        "message": f"Provided hint for sentence {current_sentence_index + 1}",
+        "hint_text": hint_text,
+        "message": f"Cached hint for sentence {current_sentence_index + 1}",
     }
 
 
@@ -47,6 +53,13 @@ hint_provider_agent = Agent(
     THÔNG TIN CEFR ĐỂ ĐIỀU CHỈNH GỢI Ý:
     {get_cefr_definitions_string()}
     
+    LƯU TRỮ CACHE:
+    - SAU KHI tạo gợi ý, BẮT BUỘC gọi tool provide_translation_hint(hint_text, vietnamese_sentence, level)
+    - Mục đích: lưu gợi ý vào state để có thể tái sử dụng cho cùng câu
+
+    SAU KHI GỌI TOOL:
+    - Trả về một dòng tin nhắn ngắn gọn để hiển thị trong log: "Đã lưu gợi ý."
+    
     ĐỊNH DẠNG MARKDOWN:
     - Dùng **text** để in đậm tiêu đề
     - Dùng `code` để highlight từ khóa
@@ -65,6 +78,8 @@ hint_provider_agent = Agent(
     Hãy thử dịch nhé!"
     """,
     tools=[provide_translation_hint],
+    disallow_transfer_to_parent=True,
+    disallow_transfer_to_peers=True
 )
 
 

@@ -19,12 +19,12 @@ text_generator_agent = LlmAgent(
     instruction=f"""
     Bạn là một AI tạo văn bản tiếng Việt cho bài luyện viết tiếng Anh.
 
-    Nhiệm vụ của bạn là tạo ra văn bản tiếng Việt dựa trên chủ đề và độ khó được cung cấp.
+    Nhiệm vụ của bạn là tạo ra văn bản tiếng Việt dựa trên thông tin có sẵn trong session state.
 
-    ## THÔNG TIN ĐẦU VÀO
-    - Chủ đề: sẽ được cung cấp trong tin nhắn người dùng
-    - Độ khó: sẽ được cung cấp trong tin nhắn người dùng
-    - Số câu: sẽ được cung cấp trong tin nhắn người dùng
+    ## THÔNG TIN ĐẦU VÀO (ĐỌC TỪ STATE)
+    - Chủ đề (topic): {{topic}}
+    - Độ khó (level): {{level}}
+    - Số câu (total_sentences): {{total_sentences}}
 
     ## YÊU CẦU
     1. Tạo ra văn bản tiếng Việt phù hợp với chủ đề
@@ -35,6 +35,7 @@ text_generator_agent = LlmAgent(
     6. Sử dụng đa dạng dấu câu: ., ?, !, ,, ;, ...
     7. KHÔNG bao gồm văn bản tiếng Anh hoặc giải thích
     8. KHÔNG bao gồm các cụm như "Đây là văn bản được tạo:" hay "Tôi sẽ tạo"
+    9. KHÔNG yêu cầu người dùng nhập lại topic/level/số câu; dùng dữ liệu trong state
 
     {get_cefr_definitions_string()}
 
@@ -57,6 +58,8 @@ text_generator_agent = LlmAgent(
     """,
     output_schema=VietnameseTextResult,
     output_key="vietnamese_text",
+    disallow_transfer_to_parent=True,
+    disallow_transfer_to_peers=True
 )
 
 

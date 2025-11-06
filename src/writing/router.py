@@ -37,6 +37,8 @@ async def create_writing_session(
     """Tạo phiên luyện viết mới"""
     try:
         return await service.create_writing_session(current_user.id, session_data, db)
+    except HTTPException as e:
+        raise e
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -73,6 +75,8 @@ async def get_writing_sessions(
         offset = get_offset(pagination.page, pagination.size)
         items = sessions[offset: offset + pagination.size]
         return paginate(items, total, pagination.page, pagination.size)
+    except HTTPException as e:
+        raise e
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -121,6 +125,8 @@ async def send_chat_message(
     """Gửi tin nhắn và nhận phản hồi từ chatbot"""
     try:
         return await service.send_chat_message(session_id, current_user.id, message_data, db)
+    except HTTPException as e:
+        raise e
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -137,6 +143,8 @@ async def get_chat_history(
     """Lấy lịch sử chat của phiên"""
     try:
         return service.get_chat_history(session_id, current_user.id, db)
+    except HTTPException as e:
+        raise e
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -153,6 +161,8 @@ async def get_translation_hint(
     """Lấy gợi ý dịch cho câu hiện tại"""
     try:
         return await service.get_translation_hint(session_id, current_user.id, db)
+    except HTTPException as e:
+        raise e
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -169,6 +179,8 @@ async def get_final_evaluation(
     """Lấy đánh giá tổng thể của phiên"""
     try:
         return await service.get_final_evaluation(session_id, current_user.id, db)
+    except HTTPException as e:
+        raise e
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

@@ -42,6 +42,8 @@ final_evaluator_agent = LlmAgent(
     """,
     output_schema=FinalEvaluationResult,
     output_key="final_evaluation",
+     disallow_transfer_to_parent=True,
+    disallow_transfer_to_peers=True
 )
 
 

@@ -1,7 +1,7 @@
 """
 Translation Evaluator Agent for Writing Practice
 """
-from google.adk.agents import Agent
+from google.adk.agents import LlmAgent
 from google.adk.tools.tool_context import ToolContext
 from typing import Dict, Any
 
@@ -84,7 +84,7 @@ def get_next_sentence(tool_context: ToolContext) -> Dict[str, Any]:
     }
 
 
-translation_evaluator_agent = Agent(
+translation_evaluator_agent = LlmAgent(
     name="translation_evaluator",
     model="gemini-2.0-flash",
     description="Evaluates user translations and provides detailed feedback",
@@ -96,6 +96,8 @@ translation_evaluator_agent = Agent(
     - Trả lời rõ ràng người dùng: đúng hay sai, chỉ lỗi cụ thể khi sai
     """,
     tools=[evaluate_translation, get_next_sentence],
+    disallow_transfer_to_parent=True,
+    disallow_transfer_to_peers=True
 )
 
 

@@ -26,9 +26,11 @@ import json
 from src.config import get_database_url
 from src.utils.agent_utils import call_agent_with_logging
 import logging
+import random
+from fastapi import HTTPException
 
 # Constants
-SESSION_NOT_FOUND_MSG = "Session not found"
+SESSION_NOT_FOUND_MSG = "Không tìm thấy phiên luyện viết"
 
 # Logger for writing service
 logger = logging.getLogger(__name__)
@@ -75,7 +77,6 @@ class WritingService:
                     "current_sentence": "",
                     "evaluation_history": [],
                     "hint_history": [],
-                    "current_time": datetime.now().isoformat()
                 }
             )
             
@@ -89,7 +90,8 @@ class WritingService:
             # Run agent to generate text with logging
             generated_text = ""
             try:
-                query = f"Generate Vietnamese text for topic: {session_data.topic}, level: {session_data.level.value}, sentences: {session_data.total_sentences}"
+                # Ask agent to generate using values in session state (topic/level/total_sentences)
+                query = "Generate Vietnamese text using session state."
                 
                 generated_text = await call_agent_with_logging(
                     runner=runner,
@@ -139,11 +141,19 @@ class WritingService:
             db_session.current_sentence = self._get_sentence_by_index(vietnamese_sentences, 0)
             db.commit()
             
-            # create first assistant message
+            # create first assistant message (randomized prompt)
+            prompt_templates = [
+                "Hãy dịch câu tiếng Việt này sang tiếng Anh: {sentence}",
+                "Dịch sang tiếng Anh câu sau: {sentence}",
+                "Bạn hãy viết bản dịch tiếng Anh cho câu: {sentence}",
+                "Hãy thử dịch câu này sang tiếng Anh: {sentence}",
+            ]
+            first_sentence = vietnamese_sentences[0]
+            assistant_prompt = random.choice(prompt_templates).format(sentence=first_sentence)
             assistant_message = WritingChatMessage(
                 session_id=db_session.id,
                 role="assistant",
-                content=f"Hãy dịch câu tiếng Việt này sang tiếng Anh: {vietnamese_sentences[0]}",
+                content=assistant_prompt,
                 sentence_index=0
             )
             db.add(assistant_message)
@@ -166,7 +176,7 @@ class WritingService:
             
         except Exception as e:
             db.rollback()
-            raise ValueError(f"Error creating writing session: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Lỗi khi tạo phiên luyện viết: {str(e)}")
     
     async def get_writing_session(self, session_id: int, user_id: int, db: Session) -> Optional[WritingSessionResponse]:
         """Get a specific writing session"""
@@ -276,7 +286,7 @@ class WritingService:
             ).first()
             
             if not session:
-                raise ValueError(SESSION_NOT_FOUND_MSG)
+                raise HTTPException(status_code=404, detail=SESSION_NOT_FOUND_MSG)
             
             # Save user message
             user_message = WritingChatMessage(
@@ -371,13 +381,85 @@ class WritingService:
             ).first()
             
             if not session:
-                raise ValueError(SESSION_NOT_FOUND_MSG)
+                raise HTTPException(status_code=404, detail=SESSION_NOT_FOUND_MSG)
             
             # Get current sentence from database
             current_sentence = session.current_sentence
             
             if not current_sentence:
-                raise ValueError("No current sentence available")
+                raise HTTPException(status_code=400, detail="Không có câu hiện tại để gợi ý")
+
+            # Ensure ADK agent session exists for this writing session
+            try:
+                await self.session_service.create_session(
+                    app_name="WritingPractice",
+                    user_id=str(user_id),
+                    session_id=str(session_id),
+                )
+            except Exception as e:
+                logger.debug(f"create_session (minimal) failed or already exists: {e}")
+
+            # Try to return cached hint from session state first; bootstrap ADK session if missing
+            try:
+                agent_session = await self.session_service.get_session(
+                    app_name="WritingPractice",
+                    user_id=str(user_id),
+                    session_id=str(session_id)
+                )
+            except Exception:
+                # Bootstrap a new ADK session with DB-backed state
+                try:
+                    await self.session_service.create_session(
+                        app_name="WritingPractice",
+                        user_id=str(user_id),
+                        session_id=str(session_id),
+                        state={
+                            "session_id": session.id,
+                            "topic": session.topic,
+                            "level": session.level.value if hasattr(session.level, "value") else str(session.level),
+                            "total_sentences": session.total_sentences,
+                            "current_sentence_index": session.current_sentence_index,
+                            "vietnamese_text": session.vietnamese_text or "",
+                            "current_sentence": session.current_sentence or "",
+                            "evaluation_history": [],
+                            "hint_history": [],
+                            "hint_cache": {},
+                            "current_time": datetime.now().isoformat(),
+                        },
+                    )
+                    # Retry fetch; if still not found, try minimal session then re-fetch
+                    try:
+                        agent_session = await self.session_service.get_session(
+                            app_name="WritingPractice",
+                            user_id=str(user_id),
+                            session_id=str(session_id)
+                        )
+                    except Exception:
+                        await self.session_service.create_session(
+                            app_name="WritingPractice",
+                            user_id=str(user_id),
+                            session_id=str(session_id),
+                        )
+                        agent_session = await self.session_service.get_session(
+                            app_name="WritingPractice",
+                            user_id=str(user_id),
+                            session_id=str(session_id)
+                        )
+                except Exception as e:
+                    # Map ADK 'Session not found' to 404 for clarity
+                    msg = str(e)
+                    if "Session not found" in msg:
+                        raise HTTPException(status_code=404, detail="Không tìm thấy phiên làm việc của agent")
+                    raise HTTPException(status_code=500, detail=f"Khởi tạo phiên làm việc của agent thất bại: {e}")
+
+            state = agent_session.state or {}
+            hint_cache = state.get("hint_cache", {})
+            cached = hint_cache.get(str(session.current_sentence_index))
+            if cached:
+                return HintResponse(
+                    hint=cached,
+                    sentence_index=session.current_sentence_index
+                )
             
             # Get hint from agent with logging
             runner = Runner(
@@ -390,17 +472,41 @@ class WritingService:
                 runner=runner,
                 user_id=str(user_id),
                 session_id=str(session_id),
-                query=f"Provide hint for: {current_sentence}",
+                query=f"Cung cấp gợi ý cho câu tiếng Việt sau (và lưu cache bằng tool): {current_sentence}",
                 logger=logger
             )
             
+            # Prefer reading from cache after agent finishes, to avoid empty final response
+            try:
+                agent_session_after = await self.session_service.get_session(
+                    app_name="WritingPractice",
+                    user_id=str(user_id),
+                    session_id=str(session_id)
+                )
+                state_after = agent_session_after.state or {}
+                hint_cache_after = state_after.get("hint_cache", {})
+                cached_after = hint_cache_after.get(str(session.current_sentence_index))
+            except Exception as e:
+                logger.debug(f"Error reading state after hint agent run: {e}")
+                cached_after = None
+
+            final_hint = cached_after or hint_response or ""
+            if not isinstance(final_hint, str) or not final_hint.strip():
+                raise HTTPException(status_code=502, detail="Không có gợi ý hợp lệ được tạo bởi AI")
+
             return HintResponse(
-                hint=hint_response,
+                hint=final_hint,
                 sentence_index=session.current_sentence_index
             )
             
+        except HTTPException:
+            raise
         except Exception as e:
-            raise ValueError(f"Error getting translation hint: {str(e)}")
+            # Map common ADK error to 404
+            msg = str(e)
+            if "Session not found" in msg:
+                raise HTTPException(status_code=404, detail="Không tìm thấy phiên làm việc của agent")
+            raise HTTPException(status_code=500, detail=f"Lỗi khi lấy gợi ý: {msg}")
     
     async def get_final_evaluation(self, session_id: int, user_id: int, db: Session) -> FinalEvaluationResponse:
         """Get final evaluation for completed session"""
@@ -412,7 +518,7 @@ class WritingService:
             ).first()
             
             if not session:
-                raise ValueError(SESSION_NOT_FOUND_MSG)
+                raise HTTPException(status_code=404, detail=SESSION_NOT_FOUND_MSG)
             
             # Get final evaluation from agent with logging
             runner = Runner(
@@ -487,7 +593,7 @@ class WritingService:
             )
             
         except Exception as e:
-            raise ValueError(f"Error getting final evaluation: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Lỗi khi lấy đánh giá: {str(e)}")
     
     
     def _get_sentence_by_index(self, sentences: List[str], index: int) -> Optional[str]:
