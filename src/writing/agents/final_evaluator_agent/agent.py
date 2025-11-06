@@ -33,7 +33,7 @@ final_evaluator_agent = LlmAgent(
     4. Gợi ý cải thiện cụ thể, thực thi được
     
     THÔNG TIN TRONG STATE:
-    - evaluation_history, total_sentences, current_sentence_index, topic, level, vietnamese_text
+    - evaluation_history, total_sentences, current_sentence_index, topic, level, sentences, full_text
     
     {get_cefr_definitions_string()}
     

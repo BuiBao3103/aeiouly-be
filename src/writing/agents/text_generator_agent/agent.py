@@ -60,7 +60,7 @@ text_generator_agent = LlmAgent(
     - Không có câu mở đầu/giới thiệu/chào hỏi.
     """,
     output_schema=VietnameseTextResult,
-    output_key="vietnamese_text",
+    output_key="vietnamese_sentences",
     disallow_transfer_to_parent=True,
     disallow_transfer_to_peers=True
 )

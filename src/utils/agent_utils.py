@@ -171,7 +171,7 @@ def process_agent_response(event, logger: logging.Logger = None):
                 # Log the final response as a single INFO entry (Option D)
                 boxed_message = (
                     f"\n{Colors.BG_BLUE}{Colors.WHITE}{Colors.BOLD}"
-                    f"╔══ AGENT RESPONSE ═════════════════════════════════════════\n"
+                    f"╔══ AGENT RESPONSE ═══════════════════════════════════════════\n"
                     f"{Colors.CYAN}{Colors.BOLD}{final_response}{Colors.RESET}\n"
                     f"{Colors.BG_BLUE}{Colors.WHITE}{Colors.BOLD}"
                     f"╚═════════════════════════════════════════════════════════════"
@@ -218,13 +218,19 @@ async def call_agent_with_logging(
     if logger:
         logger.info(
             f"\n{Colors.BG_GREEN}{Colors.BLACK}{Colors.BOLD}"
-            f"--- Running Query: {query} ---"
-            f"{Colors.RESET}"
+            f"╔══ RUNNING QUERY ════════════════════════════════════════════\n"
+            f"{Colors.CYAN}{Colors.BOLD}{query}{Colors.RESET}\n"
+            f"{Colors.BG_GREEN}{Colors.BLACK}{Colors.BOLD}"
+            f"╚═════════════════════════════════════════════════════════════"
+            f"{Colors.RESET}\n"
         )
     else:
         print(
             f"\n{Colors.BG_GREEN}{Colors.BLACK}{Colors.BOLD}"
-            f"--- Running Query: {query} ---"
+            f"╔══ RUNNING QUERY ════════════════════════════════════════════\n"
+            f"{Colors.CYAN}{Colors.BOLD}{query}{Colors.RESET}\n"
+            f"{Colors.BG_GREEN}{Colors.BLACK}{Colors.BOLD}"
+            f"╚═════════════════════════════════════════════════════════════"
             f"{Colors.RESET}"
         )
     
