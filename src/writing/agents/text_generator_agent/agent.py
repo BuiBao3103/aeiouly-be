@@ -19,7 +19,7 @@ text_generator_agent = LlmAgent(
     instruction=f"""
     Bạn là một AI tạo văn bản tiếng Việt cho bài luyện viết tiếng Anh.
 
-    Nhiệm vụ của bạn là tạo ra văn bản tiếng Việt dựa trên thông tin có sẵn trong session state.
+    Nhiệm vụ: TẠO văn bản tiếng Việt đúng theo CHỦ ĐỀ trong state, KHÔNG tự bịa/chuyển chủ đề.
 
     ## THÔNG TIN ĐẦU VÀO (ĐỌC TỪ STATE)
     - Chủ đề (topic): {{topic}}
@@ -27,14 +27,14 @@ text_generator_agent = LlmAgent(
     - Số câu (total_sentences): {{total_sentences}}
 
     ## YÊU CẦU
-    1. Tạo ra văn bản tiếng Việt phù hợp với chủ đề
-    2. Điều chỉnh độ phức tạp theo cấp độ CEFR
-    3. Đảm bảo văn bản tự nhiên và hấp dẫn
-    4. Tạo câu ngày càng thử thách trong cùng độ khó
-    5. Bao gồm đa dạng cấu trúc câu và từ vựng
-    6. Sử dụng đa dạng dấu câu: ., ?, !, ,, ;, ...
-    7. KHÔNG bao gồm văn bản tiếng Anh hoặc giải thích
-    8. KHÔNG bao gồm các cụm như "Đây là văn bản được tạo:" hay "Tôi sẽ tạo"
+    1. BÁM SÁT chủ đề: "{{topic}}". Không đổi/chuyển chủ đề sang nội dung khác.
+    2. Điều chỉnh độ phức tạp theo cấp độ CEFR "{{level}}".
+    3. Số câu PHẢI đúng bằng "{{total_sentences}}" (mỗi câu một phần tử trong mảng sentences).
+    4. Văn bản tự nhiên, mạch lạc, giàu nội dung, phù hợp chủ đề.
+    5. Đa dạng cấu trúc câu và từ vựng; sử dụng dấu câu: ., ?, !, ,, ;, ...
+    6. KHÔNG chào hỏi, KHÔNG hướng dẫn người dùng, KHÔNG đặt câu hỏi yêu cầu người dùng làm gì.
+    7. KHÔNG bao gồm tiếng Anh, KHÔNG thêm dấu trích dẫn "..." quanh câu.
+    8. KHÔNG có meta như: "Đây là văn bản được tạo:", "Tôi sẽ tạo", hay mô tả quy trình.
     9. KHÔNG yêu cầu người dùng nhập lại topic/level/số câu; dùng dữ liệu trong state
 
     {get_cefr_definitions_string()}
@@ -54,7 +54,10 @@ text_generator_agent = LlmAgent(
         ]
     }}
 
-    QUAN TRỌNG: Mỗi câu trong mảng sentences phải có dấu câu đầy đủ và được tách riêng biệt.
+    QUAN TRỌNG:
+    - Nội dung phải đúng chủ đề "{{topic}}".
+    - Mỗi câu trong mảng sentences phải có dấu câu đầy đủ và được tách riêng biệt.
+    - Không có câu mở đầu/giới thiệu/chào hỏi.
     """,
     output_schema=VietnameseTextResult,
     output_key="vietnamese_text",

@@ -18,6 +18,7 @@ from src.writing.schemas import (
 from src.writing.agents.text_generator_agent.agent import text_generator_agent
 from src.writing.agents.hint_provider_agent.agent import hint_provider_agent
 from src.writing.agents.final_evaluator_agent.agent import final_evaluator_agent
+from src.writing.agents.chat_writing_agent.agent import chat_writing_agent
 from google.adk.runners import Runner
 from google.adk.sessions import DatabaseSessionService
 from google.genai import types
@@ -39,6 +40,20 @@ class WritingService:
     def __init__(self):
         # Use application DB config so ADK session tables live in the same PostgreSQL database
         self.session_service = DatabaseSessionService(db_url=get_database_url())
+    
+    async def _log_state_keys(self, user_id: int, session_id: int, keys: list[str]) -> None:
+        """Debug: log selected keys from ADK session state to verify accessibility."""
+        try:
+            agent_session = await self.session_service.get_session(
+                app_name="WritingPractice",
+                user_id=str(user_id),
+                session_id=str(session_id)
+            )
+            state = agent_session.state or {}
+            snapshot = {k: state.get(k) for k in keys}
+            logger.info(f"[STATE CHECK] session={session_id} keys={snapshot}")
+        except Exception as e:
+            logger.debug(f"[STATE CHECK] Unable to read state for session {session_id}: {e}")
     
     async def create_writing_session(
         self, 
@@ -79,8 +94,12 @@ class WritingService:
                     "hint_history": [],
                 }
             )
+            # Verify agent can read essential state keys before generation
+            await self._log_state_keys(user_id, db_session.id, [
+                "topic", "level", "total_sentences", "current_sentence_index"
+            ])
             
-            # Generate Vietnamese text using agent
+            # Generate Vietnamese text using the dedicated generator agent
             runner = Runner(
                 agent=text_generator_agent,
                 app_name="WritingPractice",
@@ -128,6 +147,11 @@ class WritingService:
                     except Exception as e:
                         print(f"Error getting structured output: {e}")
                         vietnamese_sentences = [generated_text]
+                
+                # Verify agent updated state keys after generation
+                await self._log_state_keys(user_id, db_session.id, [
+                    "vietnamese_text", "current_sentence_index"
+                ])
                     
             except Exception as agent_error:
                 print(f"Agent error: {agent_error}")
