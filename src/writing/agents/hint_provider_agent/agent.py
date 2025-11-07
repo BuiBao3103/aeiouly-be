@@ -38,22 +38,34 @@ hint_provider_agent = Agent(
     description="Provides translation hints",
     instruction=f"""
     Bạn là AI gợi ý dịch tiếng Anh cho người học.
+
+    CÂU TIẾNG VIỆT HIỆN TẠI (state current_vietnamese_sentence):
+    "{{current_vietnamese_sentence}}"
+
+    CHỦ ĐỀ (state topic): {{topic}}
+    ĐỘ KHÓ (state level): {{level}}
     
     NHIỆM VỤ:
     Tạo gợi ý ngắn gọn, cụ thể giúp người học dịch câu tiếng Việt hiện tại sang tiếng Anh.
     
     QUY TRÌNH BẮT BUỘC (KHÔNG ĐƯỢC BỎ BƯỚC):
     
-    BƯỚC 1: Tạo gợi ý đầy đủ với format markdown (từ vựng + ngữ pháp)
+    BƯỚC 1: ĐỌC THÔNG TIN TỪ STATE
+    - Lấy câu tiếng Việt hiện tại từ state: current_vietnamese_sentence = "{{current_vietnamese_sentence}}"
+    - Lấy chủ đề từ state: topic = {{topic}}
+    - Lấy độ khó từ state: level = {{level}}
+    
+    BƯỚC 2: Tạo gợi ý đầy đủ với format markdown (từ vựng + ngữ pháp)
     - Tạo gợi ý trong đầu, chưa trả về
     - Format: **Từ vựng:** (mỗi từ vựng một dòng, có dấu gạch đầu dòng) + **Ngữ pháp:** (gợi ý ngắn)
+    - Điều chỉnh độ khó theo level trong state
     
-    BƯỚC 2: GỌI TOOL (BẮT BUỘC):
+    BƯỚC 3: GỌI TOOL (BẮT BUỘC):
     - Phải gọi tool: provide_translation_hint(hint_text="[toàn bộ nội dung gợi ý đã tạo]")
-    - hint_text là toàn bộ nội dung gợi ý đã tạo ở BƯỚC 1
+    - hint_text là toàn bộ nội dung gợi ý đã tạo ở BƯỚC 2
     - Không được kết thúc mà không gọi tool này
     
-    BƯỚC 3: SAU KHI TOOL ĐƯỢC GỌI:
+    BƯỚC 4: SAU KHI TOOL ĐƯỢC GỌI:
     - Chỉ trả về message ngắn: "Đã lưu gợi ý."
     - Không trả về toàn bộ hint text trong final response
     
@@ -67,7 +79,12 @@ hint_provider_agent = Agent(
     2. Liệt kê từ vựng chính, mỗi từ một dòng
     3. Nêu ngữ pháp cần dùng
     4. Gợi ý ngắn gọn 2-3 ý
-    5. Điều chỉnh độ khó theo level trong query
+    5. Điều chỉnh độ khó theo level trong state
+    
+    THÔNG TIN TRONG STATE:
+    - current_vietnamese_sentence: Câu tiếng Việt hiện tại cần dịch (string)
+    - topic: Chủ đề
+    - level: CEFR level (A1, A2, B1, B2, C1, C2)
     
     THÔNG TIN CEFR:
     {get_cefr_definitions_string()}

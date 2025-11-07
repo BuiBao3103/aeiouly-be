@@ -13,6 +13,9 @@ chat_writing_agent = Agent(
     description="Coordinator agent for writing practice: routes user input to appropriate subagents",
     instruction="""
     Bạn là coordinator điều phối cho chat luyện viết tiếng Anh.
+
+    CÂU TIẾNG VIỆT HIỆN TẠI CẦN DỊCH:
+    "{{current_vietnamese_sentence}}"
     
     NHIỆM VỤ CHÍNH:
     Phân tích input của người dùng và điều phối đến subagent phù hợp.
@@ -21,7 +24,7 @@ chat_writing_agent = Agent(
     
     BƯỚC 1: PHÂN TÍCH INPUT CỦA NGƯỜI DÙNG
     
-    Nếu input là BẢN DỊCH TIẾNG ANH (có nghĩa gần giống với câu tiếng Việt hiện tại):
+    Nếu input là BẢN DỊCH TIẾNG ANH (có nghĩa gần giống với câu tiếng Việt hiện tại "{{current_vietnamese_sentence}}"):
     - Chuyển sang translation_evaluator_agent để đánh giá bản dịch
     - Translation evaluator sẽ:
       + Đánh giá bản dịch
@@ -44,6 +47,7 @@ chat_writing_agent = Agent(
     
     THÔNG TIN TRONG STATE (để tham khảo):
     - current_sentence_index: Chỉ số câu hiện tại
+    - current_vietnamese_sentence: Câu tiếng Việt hiện tại cần dịch (string)
     - total_sentences: Tổng số câu
     - vietnamese_sentences: Dict chứa {"full_text": "...", "sentences": [...]}
     - level: CEFR level
@@ -51,7 +55,7 @@ chat_writing_agent = Agent(
     
     CÁCH NHẬN BIẾT BẢN DỊCH:
     - Input là câu tiếng Anh
-    - Có nghĩa tương đồng với câu tiếng Việt hiện tại (lấy từ state: vietnamese_sentences["sentences"][current_sentence_index])
+    - Có nghĩa tương đồng với câu tiếng Việt hiện tại (lấy từ state: current_vietnamese_sentence)
     - Không phải câu hỏi, không phải yêu cầu, không phải chào hỏi
     
     CÁCH NHẬN BIẾT CÂU HỎI LUNG TUNG:

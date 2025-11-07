@@ -7,18 +7,16 @@ from typing import Dict, Any
 from src.constants.cefr import get_cefr_definitions_string
 
 
-def evaluate_translation(
-    vietnamese_sentence: str,
-    user_translation: str,
-    level: str,
+def save_evaluation_result(
+    evaluation_result: str,
+    accuracy_score: float,
     tool_context: ToolContext,
 ) -> Dict[str, Any]:
-    """Save translation evaluation to session state.
+    """Save evaluation result to session state.
     
     Args:
-        vietnamese_sentence: The Vietnamese sentence being translated
-        user_translation: The user's English translation
-        level: CEFR level for evaluation
+        evaluation_result: The evaluation result text from agent (description of evaluation)
+        accuracy_score: Accuracy score (0-100) for this translation
         tool_context: Context for accessing and updating session state
         
     Returns:
@@ -29,20 +27,17 @@ def evaluate_translation(
     evaluation_history.append(
         {
             "sentence_index": current_sentence_index,
-            "vietnamese": vietnamese_sentence,
-            "user_translation": user_translation,
-            "level": level,
+            "evaluation_result": evaluation_result,
+            "accuracy_score": accuracy_score,
         }
     )
     tool_context.state["evaluation_history"] = evaluation_history
 
     return {
-        "action": "evaluate_translation",
+        "action": "save_evaluation",
         "sentence_index": current_sentence_index,
-        "vietnamese_sentence": vietnamese_sentence,
-        "user_translation": user_translation,
-        "level": level,
-        "message": f"Evaluated translation for sentence {current_sentence_index + 1}",
+        "accuracy_score": accuracy_score,
+        "message": f"Saved evaluation for sentence {current_sentence_index + 1}",
     }
 
 
@@ -82,6 +77,14 @@ def get_next_sentence(tool_context: ToolContext) -> Dict[str, Any]:
 
     next_index = current_index + 1
     tool_context.state["current_sentence_index"] = next_index
+    
+    # Update current_vietnamese_sentence in state
+    vietnamese_sentences_data = tool_context.state.get("vietnamese_sentences", {})
+    if isinstance(vietnamese_sentences_data, dict) and "sentences" in vietnamese_sentences_data:
+        sentences_list = vietnamese_sentences_data.get("sentences", [])
+        if 0 <= next_index < len(sentences_list):
+            tool_context.state["current_vietnamese_sentence"] = sentences_list[next_index]
+    
     try:
         from src.database import SessionLocal
         from src.writing.models import WritingSession, SessionStatus
@@ -110,23 +113,30 @@ translation_evaluator_agent = Agent(
     description="Evaluates user's English translation of Vietnamese sentences",
     instruction=f"""
     Bạn là AI chuyên đánh giá bản dịch tiếng Anh của người học.
+
+    CÂU TIẾNG VIỆT HIỆN TẠI (state current_vietnamese_sentence):
+    "{{current_vietnamese_sentence}}"
+
+    MỨC ĐỘ KHÓ (state level): {{level}}
     
     NHIỆM VỤ:
     Đánh giá bản dịch tiếng Anh của người học cho câu tiếng Việt hiện tại, xác định mức độ đúng/sai và quyết định có chuyển sang câu tiếp theo hay không.
     
     QUY TRÌNH BẮT BUỘC:
-    1. Phân tích bản dịch của người học so với câu tiếng Việt gốc (lấy từ state: vietnamese_sentences["sentences"][current_sentence_index])
-    2. Đánh giá theo các tiêu chí: nghĩa, ngữ pháp, từ vựng
-    3. Xác định mức độ đúng (tỷ lệ phần trăm)
-    4. GỌI tool evaluate_translation(vietnamese_sentence, user_translation, level) để lưu kết quả đánh giá vào state
-    5. Nếu đạt ≥ 90%:
+    1. Lấy câu tiếng Việt hiện tại từ state: current_vietnamese_sentence = "{{current_vietnamese_sentence}}"
+    2. Phân tích bản dịch của người học so với câu tiếng Việt gốc
+    3. Đánh giá theo các tiêu chí: nghĩa, ngữ pháp, từ vựng
+    4. Xác định mức độ đúng (tỷ lệ phần trăm, 0-100)
+    5. Tạo đánh giá chi tiết (text mô tả đánh giá)
+    6. GỌI tool save_evaluation_result(evaluation_result, accuracy_score) để lưu đánh giá vào state
+    7. Nếu đạt ≥ 90%:
        - BẮT ĐẦU bằng một câu khen ngắn gọn (1 câu)
        - GỌI tool get_next_sentence() để chuyển sang câu tiếp theo
-       - Hiển thị câu tiếp theo (lấy từ state: vietnamese_sentences["sentences"][next_index])
-       - Yêu cầu dịch câu mới
-    6. Nếu chưa đạt < 90%:
-       - Trả về đánh giá chi tiết với các lỗi cụ thể
-       - Không gọi get_next_sentence
+       - Yêu cầu dịch câu tiếp theo (KHÔNG cần nói đó là câu gì, chỉ yêu cầu dịch câu tiếp theo)
+    8. Nếu chưa đạt < 90%:
+       - Chỉ ra lỗi sai cụ thể (1-3 lỗi chính)
+       - Yêu cầu dịch lại câu hiện tại
+       - KHÔNG gọi get_next_sentence
     
     TIÊU CHÍ ĐÁNH GIÁ (tham chiếu CEFR):
     {get_cefr_definitions_string()}
@@ -137,29 +147,36 @@ translation_evaluator_agent = Agent(
     - Từ vựng: Dùng từ phù hợp ngữ cảnh; chấp nhận từ đồng nghĩa hợp lý
     - Lỗi chính tả nhỏ: CHO PHÉP và KHÔNG ngăn cản nếu tổng thể đạt ≥ 90%
     
-    OUTPUT FORMAT:
-    - Đánh giá tổng quan: Đúng/Chưa đúng, tỷ lệ phần trăm
-    - Chi tiết: Liệt kê các điểm đúng và các lỗi (nếu có)
-    - Kết luận: Đạt ≥ 90% hay chưa đạt
-    
-    GỢI Ý CÂU KHEN (khi đạt ≥ 90%):
+    GỢI Ý CÂU KHEN (khi đạt ≥ 90%, chọn 1 câu):
     - "Rất tốt, bản dịch của bạn khá tự nhiên!"
     - "Tuyệt vời, bạn đã truyền tải đúng ý chính!"
     - "Làm tốt lắm, ngữ pháp nhìn chung ổn định!"
     - "Nice work! Cách dùng từ rất phù hợp ngữ cảnh."
     
+    VÍ DỤ PHẢN HỒI KHI ĐẠT ≥ 90%:
+    "Rất tốt, bản dịch của bạn khá tự nhiên! Hãy dịch câu tiếp theo."
+    
+    VÍ DỤ PHẢN HỒI KHI CHƯA ĐẠT < 90%:
+    "Bản dịch của bạn có một số lỗi:
+    - Thiếu mạo từ 'the' trước 'world'
+    - Dùng sai thì (nên dùng present simple)
+    Hãy thử dịch lại câu hiện tại."
+    
     QUAN TRỌNG:
-    - PHẢI gọi tool evaluate_translation() trước khi kết thúc
+    - PHẢI gọi tool save_evaluation_result() để lưu đánh giá vào state
     - Nếu đạt ≥ 90%, PHẢI gọi tool get_next_sentence() để chuyển câu
+    - Khi đạt ≥ 90%, chỉ yêu cầu dịch câu tiếp theo, KHÔNG cần nói đó là câu gì
+    - Khi chưa đạt, chỉ ra lỗi cụ thể và yêu cầu dịch lại
     - Đánh giá khách quan, công bằng
     - Cho phép lỗi chính tả nhỏ nếu nghĩa và ngữ pháp đúng
     
     THÔNG TIN TRONG STATE:
     - current_sentence_index: Chỉ số câu hiện tại
+    - current_vietnamese_sentence: Câu tiếng Việt hiện tại cần dịch (string)
     - vietnamese_sentences: Dict chứa {{"full_text": "...", "sentences": [...]}}
     - level: CEFR level
     """,
-    tools=[evaluate_translation, get_next_sentence],
+    tools=[save_evaluation_result, get_next_sentence],
     disallow_transfer_to_parent=True,
     disallow_transfer_to_peers=True
 )

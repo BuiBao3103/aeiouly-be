@@ -122,6 +122,16 @@ class WritingService:
                         raise ValueError("AI text generation failed: No structured output from agent")
                     generated_text = vietnamese_sentences_data.get("full_text", "")
                     sentences = vietnamese_sentences_data.get("sentences", [])
+                    
+                    # Update current_vietnamese_sentence in state
+                    if sentences and len(sentences) > 0:
+                        agent_session.state["current_vietnamese_sentence"] = sentences[0]
+                        await self.session_service.update_session(
+                            app_name="WritingPractice",
+                            user_id=str(user_id),
+                            session_id=str(db_session.id),
+                            state=agent_session.state
+                        )
 
                 except Exception as e:
                     print(f"Error getting structured output: {e}")
@@ -313,7 +323,7 @@ class WritingService:
             db.add(user_message)
             db.commit()
             
-            # Get current Vietnamese sentence from state
+            # Ensure current_vietnamese_sentence is in state
             try:
                 agent_session = await self.session_service.get_session(
                     app_name="WritingPractice",
@@ -321,25 +331,45 @@ class WritingService:
                     session_id=str(session_id)
                 )
                 state = agent_session.state or {}
-                vietnamese_sentences_data = state.get("vietnamese_sentences", {})
-                current_sentence_index = state.get("current_sentence_index", session.current_sentence_index)
                 
-                if isinstance(vietnamese_sentences_data, dict) and "sentences" in vietnamese_sentences_data:
-                    sentences_list = vietnamese_sentences_data.get("sentences", [])
-                    current_vietnamese_sentence = self._get_sentence_by_index(sentences_list, current_sentence_index)
+                # Update current_vietnamese_sentence in state if not present or index changed
+                current_sentence_index = state.get("current_sentence_index", session.current_sentence_index)
+                current_vietnamese_sentence = state.get("current_vietnamese_sentence")
+                
+                # Check if we need to update current_vietnamese_sentence
+                need_update = False
+                if not current_vietnamese_sentence:
+                    need_update = True
                 else:
-                    current_vietnamese_sentence = None
+                    # Verify it matches current index
+                    vietnamese_sentences_data = state.get("vietnamese_sentences", {})
+                    if isinstance(vietnamese_sentences_data, dict) and "sentences" in vietnamese_sentences_data:
+                        sentences_list = vietnamese_sentences_data.get("sentences", [])
+                        expected_sentence = self._get_sentence_by_index(sentences_list, current_sentence_index)
+                        if expected_sentence and expected_sentence != current_vietnamese_sentence:
+                            need_update = True
+                            current_vietnamese_sentence = expected_sentence
+                
+                if need_update:
+                    if not current_vietnamese_sentence:
+                        vietnamese_sentences_data = state.get("vietnamese_sentences", {})
+                        if isinstance(vietnamese_sentences_data, dict) and "sentences" in vietnamese_sentences_data:
+                            sentences_list = vietnamese_sentences_data.get("sentences", [])
+                            current_vietnamese_sentence = self._get_sentence_by_index(sentences_list, current_sentence_index)
+                    
+                    if current_vietnamese_sentence:
+                        state["current_vietnamese_sentence"] = current_vietnamese_sentence
+                        await self.session_service.update_session(
+                            app_name="WritingPractice",
+                            user_id=str(user_id),
+                            session_id=str(session_id),
+                            state=state
+                        )
             except Exception as e:
-                logger.warning(f"Error getting current sentence from state: {e}")
-                current_vietnamese_sentence = None
+                logger.warning(f"Error updating current_vietnamese_sentence in state: {e}")
             
-            # Build query with current Vietnamese sentence
-            if current_vietnamese_sentence:
-                query = f"""Câu tiếng Việt hiện tại cần dịch: {current_vietnamese_sentence}
-
-Người dùng gửi: {message_data.content}"""
-            else:
-                query = message_data.content
+            # Query is just the user's message, agent will read current_vietnamese_sentence from state
+            query = message_data.content
             
             # Get agent response with logging (chat agent)
             runner = Runner(
@@ -436,26 +466,38 @@ Người dùng gửi: {message_data.content}"""
             state = agent_session.state or {}
             hint_history = state.get("hint_history", {})
             current_sentence_index = state.get("current_sentence_index", session.current_sentence_index)
-            level = state.get("level", session.level.value if hasattr(session.level, "value") else str(session.level))
-            topic = state.get("topic", session.topic)
             
-            # Get current Vietnamese sentence from vietnamese_sentences (dict)
-            vietnamese_sentences_data = state.get("vietnamese_sentences")
-            if isinstance(vietnamese_sentences_data, dict) and "sentences" in vietnamese_sentences_data:
-                sentences_list = vietnamese_sentences_data.get("sentences", [])
-                current_sentence = self._get_sentence_by_index(sentences_list, current_sentence_index)
-            else:
-                # Fallback: try old format (separate sentences key)
-                sentences = state.get("sentences", [])
-                if sentences and isinstance(sentences, list):
-                    current_sentence = self._get_sentence_by_index(sentences, current_sentence_index)
+            # Get current Vietnamese sentence from state (prefer current_vietnamese_sentence)
+            current_sentence = state.get("current_vietnamese_sentence")
+            
+            # Fallback: get from vietnamese_sentences dict if current_vietnamese_sentence not in state
+            if not current_sentence:
+                vietnamese_sentences_data = state.get("vietnamese_sentences")
+                if isinstance(vietnamese_sentences_data, dict) and "sentences" in vietnamese_sentences_data:
+                    sentences_list = vietnamese_sentences_data.get("sentences", [])
+                    current_sentence = self._get_sentence_by_index(sentences_list, current_sentence_index)
                 else:
-                    # Fallback: get from database
-                    db_sentences = self._parse_sentences_from_db(session.vietnamese_sentences)
-                    current_sentence = self._get_sentence_by_index(db_sentences, current_sentence_index)
+                    # Fallback: try old format (separate sentences key)
+                    sentences = state.get("sentences", [])
+                    if sentences and isinstance(sentences, list):
+                        current_sentence = self._get_sentence_by_index(sentences, current_sentence_index)
+                    else:
+                        # Fallback: get from database
+                        db_sentences = self._parse_sentences_from_db(session.vietnamese_sentences)
+                        current_sentence = self._get_sentence_by_index(db_sentences, current_sentence_index)
             
             if not current_sentence:
                 raise HTTPException(status_code=400, detail="Không có câu hiện tại để gợi ý")
+            
+            # Update current_vietnamese_sentence in state if not present
+            if not state.get("current_vietnamese_sentence"):
+                state["current_vietnamese_sentence"] = current_sentence
+                await self.session_service.update_session(
+                    app_name="WritingPractice",
+                    user_id=str(user_id),
+                    session_id=str(session_id),
+                    state=state
+                )
             
             # Check if hint already exists in history
             cached_hint = hint_history.get(str(current_sentence_index))
@@ -472,11 +514,8 @@ Người dùng gửi: {message_data.content}"""
                 session_service=self.session_service
             )
             
-            # Build query with all necessary information
-            query = f"""Tạo gợi ý dịch cho câu tiếng Việt sau:
-Câu tiếng Việt: {current_sentence}
-Chủ đề: {topic}
-Độ khó (CEFR level): {level}"""
+            # Query is simple, agent will read current_vietnamese_sentence, topic, level from state
+            query = "Tạo gợi ý dịch cho câu tiếng Việt hiện tại."
             
             try:
                 hint_response = await call_agent_with_logging(
