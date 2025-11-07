@@ -1,4 +1,5 @@
 from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey, Enum
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from src.database import Base
@@ -20,8 +21,7 @@ class WritingSession(Base, SoftDeleteMixin, TimestampMixin):
     total_sentences = Column(Integer, nullable=False)
     current_sentence_index = Column(Integer, default=0)
     status = Column(Enum(SessionStatus), default=SessionStatus.ACTIVE)
-    vietnamese_text = Column(Text, nullable=False)  # Full Vietnamese text
-    current_sentence = Column(Text, nullable=True)  # Current sentence being translated
+    vietnamese_sentences = Column(ARRAY(Text), nullable=True)  # Array of Vietnamese sentences
     
     # Relationships
     user = relationship("User", back_populates="writing_sessions")
