@@ -186,3 +186,21 @@ async def get_final_evaluation(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Lỗi khi lấy đánh giá: {str(e)}"
         )
+
+@router.post("/{session_id}/skip", response_model=WritingSessionResponse)
+async def skip_current_sentence(
+    session_id: int,
+    current_user: User = Depends(get_current_active_user),
+    service: WritingService = Depends(get_writing_service),
+    db: Session = Depends(get_db)
+):
+    """Bỏ qua câu hiện tại và chuyển sang câu tiếp theo"""
+    try:
+        return await service.skip_current_sentence(session_id, current_user.id, db)
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Lỗi khi bỏ qua câu: {str(e)}"
+        )

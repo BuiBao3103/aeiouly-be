@@ -45,7 +45,7 @@ class ChatMessageResponse(CustomModel):
     created_at: datetime
 
 class HintResponse(CustomModel):
-    hint: str = Field(..., description="Gợi ý dịch cho câu hiện tại")
+    hint: str = Field(..., description="Gợi ý dịch cho câu hiện tại (format Markdown: **Từ vựng:** và **Ngữ pháp:**, mỗi mục là một dòng bắt đầu bằng '-')")
     sentence_index: int = Field(..., description="Chỉ số câu hiện tại")
 
 class FinalEvaluationResponse(CustomModel):

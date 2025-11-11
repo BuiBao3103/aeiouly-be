@@ -3,8 +3,11 @@ Utility functions for AI Agent logging and event processing
 """
 
 from google.genai import types
+from google.adk.events import Event, EventActions
 import logging
-
+import time
+from typing import Optional, List, Dict, Any
+logging.getLogger('google_genai.types').setLevel(logging.ERROR)
 # ANSI color codes for terminal output
 class Colors:
     RESET = "\033[0m"
@@ -168,10 +171,13 @@ def process_agent_response(event, logger: logging.Logger = None):
             if hasattr(first_part, "text") and first_part.text:
                 final_response = first_part.text.strip()
                 
-                # Log the final response as a single INFO entry (Option D)
+                # Get agent name from event author
+                agent_name = event.author if event.author else "unknown"
+                
+                # Log the final response as a single INFO entry with agent name
                 boxed_message = (
                     f"\n{Colors.BG_BLUE}{Colors.WHITE}{Colors.BOLD}"
-                    f"╔══ AGENT RESPONSE ═══════════════════════════════════════════\n"
+                    f"╔══ AGENT RESPONSE ({agent_name}) ════════════════════════════\n"
                     f"{Colors.CYAN}{Colors.BOLD}{final_response}{Colors.RESET}\n"
                     f"{Colors.BG_BLUE}{Colors.WHITE}{Colors.BOLD}"
                     f"╚═════════════════════════════════════════════════════════════"
@@ -179,12 +185,8 @@ def process_agent_response(event, logger: logging.Logger = None):
                 )
                 log_func(boxed_message)
                 return final_response
-        else:
-            log_func(
-                f"{Colors.BG_RED}{Colors.WHITE}{Colors.BOLD}"
-                f"==> Final Agent Response: [No text content in final event]"
-                f"{Colors.RESET}"
-            )
+        # Skip logging final response without text content (usually from coordinator)
+        # This avoids duplicate logs when coordinator routes to subagents
     
     return None
 
@@ -311,3 +313,78 @@ def log_session_state(session_service, app_name: str, user_id: str, session_id: 
     except Exception as e:
         log_func(f"Error logging session state: {e}")
 
+
+async def update_session_state(
+    session_service,
+    app_name: str,
+    user_id: str,
+    session_id: str,
+    state_delta: Dict[str, Any],
+    author: str = "system",
+    invocation_id_prefix: str = "state_update",
+    logger: logging.Logger = None
+) -> Optional[Any]:
+    """
+    Update session state using append_event (correct ADK way).
+    
+    This function properly updates state by creating an Event with state_delta
+    and appending it to the session, rather than directly modifying state.
+    
+    Args:
+        session_service: Session service instance (DatabaseSessionService or InMemorySessionService)
+        app_name: Application name
+        user_id: User ID
+        session_id: Session ID
+        state_delta: Dictionary of state fields to update (only changed fields)
+        author: Author of the event (default: "system")
+        invocation_id_prefix: Prefix for invocation_id (default: "state_update")
+        logger: Optional logger instance
+        
+    Returns:
+        Updated session object, or None if error occurred
+        
+    Example:
+        await update_session_state(
+            session_service=self.session_service,
+            app_name="WritingPractice",
+            user_id=str(user_id),
+            session_id=str(session_id),
+            state_delta={
+                "current_sentence_index": 1,
+                "current_vietnamese_sentence": "Câu mới"
+            },
+            author="system",
+            invocation_id_prefix="skip_sentence"
+        )
+    """
+    log_func = logger.error if logger else print
+    
+    try:
+        # Get current session
+        agent_session = await session_service.get_session(
+            app_name=app_name,
+            user_id=user_id,
+            session_id=session_id
+        )
+        
+        # Create event with state delta
+        event = Event(
+            invocation_id=f"{invocation_id_prefix}_{int(time.time())}",
+            author=author,
+            actions=EventActions(state_delta=state_delta),
+            timestamp=time.time()
+        )
+        
+        # Append event to update state
+        await session_service.append_event(agent_session, event)
+        
+        # Return updated session
+        return await session_service.get_session(
+            app_name=app_name,
+            user_id=user_id,
+            session_id=session_id
+        )
+        
+    except Exception as e:
+        log_func(f"Error updating session state: {e}")
+        return None
