@@ -28,6 +28,13 @@ class VocabularyService:
     def __init__(self):
         """Initialize VocabularyService"""
         pass
+    
+    def ensure_default_vocabulary_set(self, user_id: int, db: Session) -> VocabularySet:
+        """
+        Ensure that the user has a default vocabulary set.
+        Creates it if missing and returns the VocabularySet instance.
+        """
+        return self._get_or_create_default_vocabulary_set(user_id, db)
 
     def _get_or_create_default_vocabulary_set(self, user_id: int, db: Session) -> VocabularySet:
         """Get or create default vocabulary set for user"""
