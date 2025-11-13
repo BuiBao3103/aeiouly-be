@@ -12,6 +12,7 @@ class AuthorResponse(CustomModel):
     id: int = Field(..., description="ID của tác giả")
     username: str = Field(..., min_length=3, max_length=50, description="Tên đăng nhập")
     full_name: Optional[str] = Field(None, max_length=100, description="Họ và tên đầy đủ")
+    avatar_url: Optional[str] = Field(None, max_length=500, description="URL hình đại diện")
 
 class PostBase(CustomModel):
     content: str = Field(..., min_length=1, max_length=10000, description=CONTENT_DESCRIPTION)

@@ -121,7 +121,8 @@ class PostService:
                 author={
                     "id": post.author.id,
                     "username": post.author.username,
-                    "full_name": post.author.full_name
+                    "full_name": post.author.full_name,
+                    "avatar_url": post.author.avatar_url
                 },
                 likes_count=likes_count,
                 is_liked_by_user=is_liked,
@@ -184,7 +185,8 @@ class PostService:
                 author={
                     "id": post.author.id,
                     "username": post.author.username,
-                    "full_name": post.author.full_name
+                    "full_name": post.author.full_name,
+                    "avatar_url": post.author.avatar_url
                 },
                 likes_count=likes_count,
                 is_liked_by_user=is_liked,
@@ -232,7 +234,8 @@ class PostService:
             author={
                 "id": post.author.id,
                 "username": post.author.username,
-                "full_name": post.author.full_name
+                "full_name": post.author.full_name,
+                "avatar_url": post.author.avatar_url
             },
             likes_count=likes_count,
             is_liked_by_user=is_liked,
@@ -259,7 +262,8 @@ class PostService:
                 author={
                     "id": post.author.id,
                     "username": post.author.username,
-                    "full_name": post.author.full_name
+                    "full_name": post.author.full_name,
+                    "avatar_url": post.author.avatar_url
                 },
                 likes_count=likes_count,
                 is_liked_by_user=is_liked,
@@ -292,7 +296,8 @@ class PostService:
                 author={
                     "id": post.author.id,
                     "username": post.author.username,
-                    "full_name": post.author.full_name
+                    "full_name": post.author.full_name,
+                    "avatar_url": post.author.avatar_url
                 },
                 likes_count=likes_count,
                 is_liked_by_user=is_liked,
@@ -332,7 +337,8 @@ class PostService:
                 author={
                     "id": post.author.id,
                     "username": post.author.username,
-                    "full_name": post.author.full_name
+                    "full_name": post.author.full_name,
+                    "avatar_url": post.author.avatar_url
                 },
                 likes_count=likes_count,
                 is_liked_by_user=is_liked,
@@ -396,7 +402,8 @@ class PostService:
             author={
                 "id": post.author.id,
                 "username": post.author.username,
-                "full_name": post.author.full_name
+                "full_name": post.author.full_name,
+                "avatar_url": post.author.avatar_url
             },
             likes_count=likes_count,
             is_liked_by_user=is_liked,
