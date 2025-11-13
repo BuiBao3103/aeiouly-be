@@ -7,7 +7,7 @@ from google.adk.agents import Agent
 guidance_agent = Agent(
     name="guidance",
     model="gemini-2.0-flash",
-    description="Provides guidance to help users understand what to do",
+    description="Hướng dẫn người dùng khi họ không biết làm gì, hỏi lung tung hoặc cần hỗ trợ",
     instruction="""
     Bạn là AI hướng dẫn luyện viết tiếng Anh.
     

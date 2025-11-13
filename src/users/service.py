@@ -15,6 +15,7 @@ from src.users.exceptions import (
     UserValidationException
 )
 from src.pagination import PaginationParams, PaginatedResponse, paginate
+from src.vocabulary.models import VocabularySet
 from src.config import settings
 
 
@@ -62,6 +63,19 @@ class UsersService:
             )
 
             db.add(db_user)
+
+            # Flush to assign ID without committing the transaction yet
+            db.flush()
+
+            # Create default vocabulary set for the new user
+            default_vocabulary_set = VocabularySet(
+                user_id=db_user.id,
+                name="Từ vựng của tôi",
+                description="Bộ từ vựng mặc định của bạn",
+                is_default=True
+            )
+            db.add(default_vocabulary_set)
+
             db.commit()
             db.refresh(db_user)
 

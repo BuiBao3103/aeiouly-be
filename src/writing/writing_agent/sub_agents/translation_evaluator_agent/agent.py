@@ -110,7 +110,7 @@ def get_next_sentence(tool_context: ToolContext) -> Dict[str, Any]:
 translation_evaluator_agent = Agent(
     name="translation_evaluator",
     model="gemini-2.0-flash",
-    description="Evaluates user's English translation of Vietnamese sentences",
+    description="Đánh giá bản dịch tiếng Anh của người dùng, lưu kết quả và chuyển câu tiếp theo nếu đạt ≥90%",
     instruction=f"""
     Bạn là AI chuyên đánh giá bản dịch tiếng Anh của người học.
 

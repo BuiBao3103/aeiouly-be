@@ -2,8 +2,10 @@
 Text Generator Agent for Writing Practice.
 """
 from google.adk.agents import LlmAgent
+from google.adk.agents.callback_context import CallbackContext
 from pydantic import BaseModel, Field
-from typing import List
+from typing import List, Optional
+from google.genai import types
 from src.constants.cefr import get_cefr_definitions_string
 
 
@@ -12,10 +14,40 @@ class VietnameseTextResult(BaseModel):
     sentences: List[str] = Field(description="Mảng các câu tiếng Việt đã được tách riêng")
 
 
+def after_text_generator_callback(callback_context: CallbackContext) -> Optional[types.Content]:
+    """
+    Callback that automatically updates current_vietnamese_sentence in state
+    after text_generator_agent generates Vietnamese text.
+    
+    This is the CORRECT way to update state - using callback_context.state
+    instead of directly modifying session.state from get_session().
+    
+    Args:
+        callback_context: Contains state and context information
+        
+    Returns:
+        None to continue with normal agent processing
+    """
+    state = callback_context.state
+    
+    # Get vietnamese_sentences from state (set by output_key)
+    vietnamese_sentences_data = state.get("vietnamese_sentences", {})
+    
+    # Update current_vietnamese_sentence to first sentence if available
+    if isinstance(vietnamese_sentences_data, dict):
+        sentences = vietnamese_sentences_data.get("sentences", [])
+        if sentences and isinstance(sentences, list) and len(sentences) > 0:
+            # Update state using callback_context.state (CORRECT way)
+            state["current_vietnamese_sentence"] = sentences[0]
+            state["current_sentence_index"] = 0
+    
+    return None  # Continue with normal agent processing
+
+
 text_generator_agent = LlmAgent(
     name="text_generator",
     model="gemini-2.0-flash",
-    description="Generates Vietnamese text for writing practice based on topic and level",
+    description="Tạo văn bản tiếng Việt dựa trên topic, level và số câu từ session state",
     instruction=f"""
     Bạn là một AI tạo văn bản tiếng Việt cho bài luyện viết tiếng Anh.
 
@@ -61,6 +93,7 @@ text_generator_agent = LlmAgent(
     """,
     output_schema=VietnameseTextResult,
     output_key="vietnamese_sentences",
+    after_agent_callback=after_text_generator_callback,
     disallow_transfer_to_parent=True,
     disallow_transfer_to_peers=True
 )

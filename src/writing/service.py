@@ -15,17 +15,14 @@ from src.writing.schemas import (
     HintResponse, 
     FinalEvaluationResponse
 )
-from src.writing.agents.text_generator_agent.agent import text_generator_agent
-from src.writing.agents.hint_provider_agent.agent import hint_provider_agent
-from src.writing.agents.final_evaluator_agent.agent import final_evaluator_agent
-from src.writing.agents.chat_writing_agent.agent import chat_writing_agent
+from src.writing.writing_agent.agent import writing_agent
 from google.adk.runners import Runner
 from google.adk.sessions import DatabaseSessionService
 from google.genai import types
 from datetime import datetime
 import json
 from src.config import get_database_url
-from src.utils.agent_utils import call_agent_with_logging
+from src.utils.agent_utils import call_agent_with_logging, update_session_state
 import logging
 import random
 from fastapi import HTTPException
@@ -40,6 +37,27 @@ class WritingService:
     def __init__(self):
         # Use application DB config so ADK session tables live in the same PostgreSQL database
         self.session_service = DatabaseSessionService(db_url=get_database_url())
+        
+        # Initialize runner with writing_agent (coordinator)
+        self.runner = Runner(
+            agent=writing_agent,
+            app_name="WritingPractice",
+            session_service=self.session_service
+        )
+    
+    def _build_agent_query(self, source: str, message: str) -> str:
+        """
+        Build standardized query string for writing_agent with source metadata.
+        
+        Args:
+            source: Origin of the action (e.g., chat_input, hint_button, generate_button, final_evaluation_button)
+            message: The natural language message or trigger phrase
+        
+        Returns:
+            Formatted string consumed by writing_agent:
+                SOURCE:<source>\nMESSAGE:<message>
+        """
+        return f"SOURCE:{source}\nMESSAGE:{message}"
     
     async def create_writing_session(
         self, 
@@ -77,28 +95,28 @@ class WritingService:
                     "current_sentence_index": 0,
                     "evaluation_history": [],
                     "hint_history": {},
-                    "vietnamese_sentences": {}
+                    "vietnamese_sentences": {},
+                    "current_vietnamese_sentence": None # Will be set by after_text_generator_callback
                 }
             )
             
-            # Generate Vietnamese text using the dedicated generator agent
-            runner = Runner(
-                agent=text_generator_agent,
-                app_name="WritingPractice",
-                session_service=self.session_service
-            )
+            # Generate Vietnamese text using writing_agent (will route to text_generator_agent)
             generated_text = None
             sentences = None
             # Run agent to generate text with logging
             try:
-                # Ask agent to generate using values in session state (topic/level/total_sentences)
-                query = "Generate Vietnamese text using session state."
+                # Query for writing_agent to route to text_generator_agent
+                # Using trigger phrase that matches writing_agent instruction
+                query = self._build_agent_query(
+                    source="generate_button",
+                    message="tạo văn bản"
+                )
                 
                 # call_agent_with_logging returns final_response_text (string), NOT the structured dict
                 # The structured output (dict) is automatically stored in state by ADK via output_key
                 # We don't need the response text, only the structured output in state
                 await call_agent_with_logging(
-                    runner=runner,
+                    runner=self.runner,
                     user_id=str(user_id),
                     session_id=str(db_session.id),
                     query=query,
@@ -116,6 +134,7 @@ class WritingService:
                     
                     # Agent has output_key="vietnamese_sentences", so ADK automatically creates this key
                     # and stores the dict {full_text: "...", sentences: [...]} in state after agent runs
+                    # The after_agent_callback automatically updates current_vietnamese_sentence
                     # We keep vietnamese_sentences as-is in state (no normalization needed)
                     vietnamese_sentences_data = agent_session.state.get("vietnamese_sentences", {})
                     if not isinstance(vietnamese_sentences_data, dict) or not vietnamese_sentences_data:
@@ -123,15 +142,8 @@ class WritingService:
                     generated_text = vietnamese_sentences_data.get("full_text", "")
                     sentences = vietnamese_sentences_data.get("sentences", [])
                     
-                    # Update current_vietnamese_sentence in state
-                    if sentences and len(sentences) > 0:
-                        agent_session.state["current_vietnamese_sentence"] = sentences[0]
-                        await self.session_service.update_session(
-                            app_name="WritingPractice",
-                            user_id=str(user_id),
-                            session_id=str(db_session.id),
-                            state=agent_session.state
-                        )
+                    # Get current_vietnamese_sentence from state (set by after_agent_callback)
+                    current_sentence = agent_session.state.get("current_vietnamese_sentence")
 
                 except Exception as e:
                     print(f"Error getting structured output: {e}")
@@ -162,8 +174,7 @@ class WritingService:
                 "Bạn hãy viết bản dịch tiếng Anh cho câu: {sentence}",
                 "Hãy thử dịch câu này sang tiếng Anh: {sentence}",
             ]
-            first_sentence = sentences[0]
-            assistant_prompt = random.choice(prompt_templates).format(sentence=first_sentence)
+            assistant_prompt = random.choice(prompt_templates).format(sentence=current_sentence)
             assistant_message = WritingChatMessage(
                 session_id=db_session.id,
                 role="assistant",
@@ -172,11 +183,7 @@ class WritingService:
             )
             db.add(assistant_message)
             db.commit()
-            
-            # Generate full text from sentences for response
-            full_text = " ".join(sentences) if sentences else ""
-            current_sentence = self._get_sentence_by_index(sentences, db_session.current_sentence_index)
-            
+
             return WritingSessionResponse(
                 id=db_session.id,
                 user_id=db_session.user_id,
@@ -185,7 +192,7 @@ class WritingService:
                 total_sentences=db_session.total_sentences,
                 current_sentence_index=db_session.current_sentence_index,
                 status=db_session.status,
-                vietnamese_text=full_text,
+                vietnamese_text=generated_text,
                 vietnamese_sentences=sentences,
                 current_sentence=current_sentence,
                 created_at=db_session.created_at,
@@ -206,7 +213,7 @@ class WritingService:
         if not session:
             return None
         
-        # Get sentences from session state if available, otherwise use fallback
+        # Get data from session state if available, otherwise use fallback
         try:
             agent_session = await self.session_service.get_session(
                 app_name="WritingPractice",
@@ -214,24 +221,33 @@ class WritingService:
                 session_id=str(session_id)
             )
             
-            # Read from vietnamese_sentences (dict with full_text and sentences)
-            vietnamese_sentences_data = agent_session.state.get("vietnamese_sentences")
+            state = agent_session.state or {}
+            
+            # Get sentences from state
+            vietnamese_sentences_data = state.get("vietnamese_sentences")
             if isinstance(vietnamese_sentences_data, dict):
                 vietnamese_sentences = vietnamese_sentences_data.get("sentences", [])
+                full_text = vietnamese_sentences_data.get("full_text", "")
             elif isinstance(vietnamese_sentences_data, list):
                 vietnamese_sentences = vietnamese_sentences_data
+                full_text = " ".join(vietnamese_sentences) if vietnamese_sentences else ""
             else:
                 # Fallback: use from database
                 vietnamese_sentences = self._parse_sentences_from_db(session.vietnamese_sentences)
+                full_text = " ".join(vietnamese_sentences) if vietnamese_sentences else ""
+            
+            # Get current sentence directly from state
+            current_sentence = state.get("current_vietnamese_sentence")
+            if not current_sentence and vietnamese_sentences:
+                # Fallback: get from sentences array
+                current_sentence = self._get_sentence_by_index(vietnamese_sentences, session.current_sentence_index)
                 
         except Exception as e:
-            print(f"Error getting sentences from state: {e}")
-            # Try to get from database with parsing
+            print(f"Error getting data from state: {e}")
+            # Fallback: use from database
             vietnamese_sentences = self._parse_sentences_from_db(session.vietnamese_sentences)
-        
-        # Generate full text from sentences for response
-        full_text = " ".join(vietnamese_sentences) if vietnamese_sentences else ""
-        current_sentence = self._get_sentence_by_index(vietnamese_sentences, session.current_sentence_index)
+            full_text = " ".join(vietnamese_sentences) if vietnamese_sentences else ""
+            current_sentence = self._get_sentence_by_index(vietnamese_sentences, session.current_sentence_index)
         
         return WritingSessionResponse(
             id=session.id,
@@ -323,63 +339,21 @@ class WritingService:
             db.add(user_message)
             db.commit()
             
-            # Ensure current_vietnamese_sentence is in state
-            try:
-                agent_session = await self.session_service.get_session(
-                    app_name="WritingPractice",
-                    user_id=str(user_id),
-                    session_id=str(session_id)
-                )
-                state = agent_session.state or {}
-                
-                # Update current_vietnamese_sentence in state if not present or index changed
-                current_sentence_index = state.get("current_sentence_index", session.current_sentence_index)
-                current_vietnamese_sentence = state.get("current_vietnamese_sentence")
-                
-                # Check if we need to update current_vietnamese_sentence
-                need_update = False
-                if not current_vietnamese_sentence:
-                    need_update = True
-                else:
-                    # Verify it matches current index
-                    vietnamese_sentences_data = state.get("vietnamese_sentences", {})
-                    if isinstance(vietnamese_sentences_data, dict) and "sentences" in vietnamese_sentences_data:
-                        sentences_list = vietnamese_sentences_data.get("sentences", [])
-                        expected_sentence = self._get_sentence_by_index(sentences_list, current_sentence_index)
-                        if expected_sentence and expected_sentence != current_vietnamese_sentence:
-                            need_update = True
-                            current_vietnamese_sentence = expected_sentence
-                
-                if need_update:
-                    if not current_vietnamese_sentence:
-                        vietnamese_sentences_data = state.get("vietnamese_sentences", {})
-                        if isinstance(vietnamese_sentences_data, dict) and "sentences" in vietnamese_sentences_data:
-                            sentences_list = vietnamese_sentences_data.get("sentences", [])
-                            current_vietnamese_sentence = self._get_sentence_by_index(sentences_list, current_sentence_index)
-                    
-                    if current_vietnamese_sentence:
-                        state["current_vietnamese_sentence"] = current_vietnamese_sentence
-                        await self.session_service.update_session(
-                            app_name="WritingPractice",
-                            user_id=str(user_id),
-                            session_id=str(session_id),
-                            state=state
-                        )
-            except Exception as e:
-                logger.warning(f"Error updating current_vietnamese_sentence in state: {e}")
+            # Note: current_vietnamese_sentence is managed by callbacks/tools
+            # We don't need to manually update it here (that would be the WRONG way)
+            # The get_next_sentence tool automatically updates it when moving to next sentence
             
-            # Query is just the user's message, agent will read current_vietnamese_sentence from state
-            query = message_data.content
-            
-            # Get agent response with logging (chat agent)
-            runner = Runner(
-                agent=chat_writing_agent,
-                app_name="WritingPractice",
-                session_service=self.session_service
+            # Query for writing_agent to route to appropriate subagent
+            # If it's a translation, it will route to translation_evaluator_agent
+            # If it's a question, it will route to guidance_agent
+            query = self._build_agent_query(
+                source="chat_input",
+                message=message_data.content
             )
             
+            # Get agent response with logging (writing_agent will route appropriately)
             agent_response = await call_agent_with_logging(
-                runner=runner,
+                runner=self.runner,
                 user_id=str(user_id),
                 session_id=str(session_id),
                 query=query,
@@ -467,37 +441,19 @@ class WritingService:
             hint_history = state.get("hint_history", {})
             current_sentence_index = state.get("current_sentence_index", session.current_sentence_index)
             
-            # Get current Vietnamese sentence from state (prefer current_vietnamese_sentence)
+            # Get current Vietnamese sentence directly from state
             current_sentence = state.get("current_vietnamese_sentence")
             
-            # Fallback: get from vietnamese_sentences dict if current_vietnamese_sentence not in state
+            # Fallback: get from database if not in state
             if not current_sentence:
-                vietnamese_sentences_data = state.get("vietnamese_sentences")
-                if isinstance(vietnamese_sentences_data, dict) and "sentences" in vietnamese_sentences_data:
-                    sentences_list = vietnamese_sentences_data.get("sentences", [])
-                    current_sentence = self._get_sentence_by_index(sentences_list, current_sentence_index)
-                else:
-                    # Fallback: try old format (separate sentences key)
-                    sentences = state.get("sentences", [])
-                    if sentences and isinstance(sentences, list):
-                        current_sentence = self._get_sentence_by_index(sentences, current_sentence_index)
-                    else:
-                        # Fallback: get from database
-                        db_sentences = self._parse_sentences_from_db(session.vietnamese_sentences)
-                        current_sentence = self._get_sentence_by_index(db_sentences, current_sentence_index)
+                db_sentences = self._parse_sentences_from_db(session.vietnamese_sentences)
+                current_sentence = self._get_sentence_by_index(db_sentences, current_sentence_index)
             
             if not current_sentence:
                 raise HTTPException(status_code=400, detail="Không có câu hiện tại để gợi ý")
             
-            # Update current_vietnamese_sentence in state if not present
-            if not state.get("current_vietnamese_sentence"):
-                state["current_vietnamese_sentence"] = current_sentence
-                await self.session_service.update_session(
-                    app_name="WritingPractice",
-                    user_id=str(user_id),
-                    session_id=str(session_id),
-                    state=state
-                )
+            # Note: We don't update state here - that should be done via callbacks/tools
+            # If current_vietnamese_sentence is missing, it will be set by the callback
             
             # Check if hint already exists in history
             cached_hint = hint_history.get(str(current_sentence_index))
@@ -507,19 +463,16 @@ class WritingService:
                     sentence_index=current_sentence_index
                 )
             
-            # Get hint from agent
-            runner = Runner(
-                agent=hint_provider_agent,
-                app_name="WritingPractice",
-                session_service=self.session_service
+            # Get hint from writing_agent (will route to hint_provider_agent)
+            # Using trigger phrase that matches writing_agent instruction
+            query = self._build_agent_query(
+                source="hint_button",
+                message="gợi ý"
             )
-            
-            # Query is simple, agent will read current_vietnamese_sentence, topic, level from state
-            query = "Tạo gợi ý dịch cho câu tiếng Việt hiện tại."
             
             try:
                 hint_response = await call_agent_with_logging(
-                    runner=runner,
+                    runner=self.runner,
                     user_id=str(user_id),
                     session_id=str(session_id),
                     query=query,
@@ -530,21 +483,32 @@ class WritingService:
                 raise HTTPException(status_code=500, detail=f"Lỗi khi gọi agent tạo gợi ý: {str(agent_error)}")
             
             # Read hint from state after agent finishes
+            # Agent has output_key="hint_result", so ADK automatically stores it in state
+            # The after_agent_callback automatically saves it to hint_history
             try:
                 agent_session_after = await self.session_service.get_session(
                     app_name="WritingPractice",
                     user_id=str(user_id),
                     session_id=str(session_id)
                 )
-                state_after = agent_session_after.state or {}
-                hint_history_after = state_after.get("hint_history", {})
                 
+                state_after = agent_session_after.state or {}
+                
+                # First try: get from hint_history (saved by callback)
+                hint_history_after = state_after.get("hint_history", {})
                 final_hint = hint_history_after.get(str(current_sentence_index))
                 
                 if not final_hint:
                     # Try with int key as fallback
                     final_hint = hint_history_after.get(current_sentence_index)
                 
+                # Second try: get directly from hint_result (output_key)
+                if not final_hint:
+                    hint_result_data = state_after.get("hint_result", {})
+                    if isinstance(hint_result_data, dict):
+                        final_hint = hint_result_data.get("hint_text", "")
+                
+                # Third try: use response text as fallback
                 if not final_hint:
                     final_hint = hint_response or ""
             except Exception as state_error:
@@ -583,18 +547,16 @@ class WritingService:
             if not session:
                 raise HTTPException(status_code=404, detail=SESSION_NOT_FOUND_MSG)
             
-            # Get final evaluation from agent with logging
-            runner = Runner(
-                agent=final_evaluator_agent,
-                app_name="WritingPractice",
-                session_service=self.session_service
-            )
-            
+            # Get final evaluation from writing_agent (will route to final_evaluator_agent)
+            # Using trigger phrase that matches writing_agent instruction
             evaluation_response = await call_agent_with_logging(
-                runner=runner,
+                runner=self.runner,
                 user_id=str(user_id),
                 session_id=str(session_id),
-                query="Generate final evaluation for this writing session",
+                query=self._build_agent_query(
+                    source="final_evaluation_button",
+                    message="đánh giá cuối"
+                ),
                 logger=logger
             )
             
@@ -659,12 +621,6 @@ class WritingService:
             raise HTTPException(status_code=500, detail=f"Lỗi khi lấy đánh giá: {str(e)}")
     
     
-    def _get_sentence_by_index(self, sentences: List[str], index: int) -> Optional[str]:
-        """Get sentence at specific index from sentences array"""
-        if 0 <= index < len(sentences):
-            return sentences[index]
-        return None
-    
     def _parse_sentences_from_db(self, db_sentences) -> List[str]:
         """Parse sentences from database (handles both list and JSON string for backward compatibility)"""
         if not db_sentences:
@@ -688,4 +644,120 @@ class WritingService:
     def _get_sentences_from_db(self, session: WritingSession) -> List[str]:
         """Get sentences array from database session"""
         return self._parse_sentences_from_db(session.vietnamese_sentences)
+    
+    def _get_sentence_by_index(self, sentences: List[str], index: int) -> Optional[str]:
+        """
+        Get sentence at specific index from sentences array.
+        
+        Args:
+            sentences: List of sentences
+            index: Sentence index
+            
+        Returns:
+            Sentence at index, or None if index is out of range
+        """
+        if sentences and isinstance(sentences, list) and 0 <= index < len(sentences):
+            return sentences[index]
+        return None
+    
+    async def skip_current_sentence(self, session_id: int, user_id: int, db: Session) -> WritingSessionResponse:
+        """Skip current sentence and move to next one"""
+        try:
+            # Get session
+            session = db.query(WritingSession).filter(
+                WritingSession.id == session_id,
+                WritingSession.user_id == user_id
+            ).first()
+            
+            if not session:
+                raise HTTPException(status_code=404, detail=SESSION_NOT_FOUND_MSG)
+            
+            # Check if already completed
+            if session.status == SessionStatus.COMPLETED:
+                raise HTTPException(status_code=400, detail="Phiên luyện viết đã hoàn thành")
+            
+            current_index = session.current_sentence_index
+            total_sentences = session.total_sentences
+            
+            # Check if already at last sentence
+            if current_index >= total_sentences - 1:
+                # Complete the session
+                session.current_sentence_index = total_sentences
+                session.status = SessionStatus.COMPLETED
+                db.commit()
+                db.refresh(session)
+                
+                # Update state using append_event
+                await update_session_state(
+                    session_service=self.session_service,
+                    app_name="WritingPractice",
+                    user_id=str(user_id),
+                    session_id=str(session_id),
+                    state_delta={
+                        "current_sentence_index": total_sentences,
+                        "current_vietnamese_sentence": None
+                    },
+                    author="system",
+                    invocation_id_prefix="skip_sentence",
+                    logger=logger
+                )
+                
+                return await self.get_writing_session(session_id, user_id, db)
+            
+            # Move to next sentence
+            next_index = current_index + 1
+            session.current_sentence_index = next_index
+            
+            # Determine next sentence before updating state
+            next_sentence = None
+            try:
+                agent_session = await self.session_service.get_session(
+                    app_name="WritingPractice",
+                    user_id=str(user_id),
+                    session_id=str(session_id)
+                )
+                state = agent_session.state or {}
+                
+                vietnamese_sentences_data = state.get("vietnamese_sentences", {})
+                if isinstance(vietnamese_sentences_data, dict) and "sentences" in vietnamese_sentences_data:
+                    sentences_list = vietnamese_sentences_data.get("sentences", [])
+                    if 0 <= next_index < len(sentences_list):
+                        next_sentence = sentences_list[next_index]
+                else:
+                    # Fallback: get from database
+                    db_sentences = self._parse_sentences_from_db(session.vietnamese_sentences)
+                    next_sentence = self._get_sentence_by_index(db_sentences, next_index)
+            except Exception as e:
+                logger.error(f"Error getting next sentence: {e}")
+            
+            # Check if completed
+            if next_index >= total_sentences:
+                next_sentence = None
+                session.status = SessionStatus.COMPLETED
+            
+            # Update state using append_event
+            await update_session_state(
+                session_service=self.session_service,
+                app_name="WritingPractice",
+                user_id=str(user_id),
+                session_id=str(session_id),
+                state_delta={
+                    "current_sentence_index": next_index,
+                    "current_vietnamese_sentence": next_sentence
+                },
+                author="system",
+                invocation_id_prefix="skip_sentence",
+                logger=logger
+            )
+            
+            db.commit()
+            db.refresh(session)
+            
+            return await self.get_writing_session(session_id, user_id, db)
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            db.rollback()
+            raise HTTPException(status_code=500, detail=f"Lỗi khi bỏ qua câu: {str(e)}")
     
