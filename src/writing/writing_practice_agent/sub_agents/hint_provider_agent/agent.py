@@ -10,7 +10,7 @@ from src.constants.cefr import get_cefr_definitions_string
 
 
 class HintResult(BaseModel):
-    hint_text: str = Field(description="Gợi ý dịch tiếng Anh dạng Markdown (từ vựng và ngữ pháp), dùng danh sách - cho mỗi dòng")
+    hint_text: str = Field(description="Vietnamese Markdown hint (vocabulary + grammar) using '- ' list syntax per line")
 
 
 def after_hint_provider_callback(callback_context: CallbackContext) -> Optional[types.Content]:
@@ -48,38 +48,36 @@ def after_hint_provider_callback(callback_context: CallbackContext) -> Optional[
 hint_provider_agent = LlmAgent(
     name="hint_provider",
     model="gemini-2.0-flash",
-    description="Tạo gợi ý dịch cho câu tiếng Việt hiện tại (từ vựng và ngữ pháp)",
+    description="Generate Vietnamese translation hints (vocabulary + grammar) for the current sentence.",
     instruction=f"""
-    Bạn là AI gợi ý dịch tiếng Anh. Tạo gợi ý ngắn gọn cho câu: "{{current_vietnamese_sentence}}"
-    
-    NHIỆM VỤ:
-    Tạo gợi ý Markdown với format CÓ DẤU CHẤM ĐẦU DÒNG:
-    
+    You provide concise translation hints in Vietnamese for sentence "{{current_vietnamese_sentence}}".
+    All hints MUST be written in Vietnamese using Markdown lists (no HTML).
+
+    ### OUTPUT STRUCTURE (IN VIETNAMESE)
     **Từ vựng:**
-    - `từ 1` → translation 1
-    - `từ 2` → translation 2
-    
+    - `từ vựng 1` → English meaning
+    - `từ vựng 2` → English meaning
+
     **Ngữ pháp:**
-    - Gợi ý ngữ pháp ngắn
-    
-    QUY TẮC QUAN TRỌNG:
-    - BẮT BUỘC dùng danh sách Markdown: mỗi mục bắt đầu bằng "- "
-    - Mỗi mục ở một dòng RIÊNG
-    - Giữa các phần (Từ vựng và Ngữ pháp) có MỘT dòng trống
-    - KHÔNG dùng thẻ HTML (<br>, <strong>); chỉ dùng Markdown
-    - Điều chỉnh độ khó theo level: {{level}}
-    - Chủ đề: {{topic}}
-    - Gợi ý ngắn gọn, cụ thể, dễ hiểu
-    
-    VÍ DỤ OUTPUT (Markdown hợp lệ):
+    - Short grammar reminder in Vietnamese
+
+    ### RULES
+    - Every bullet begins with "- " and occupies its own line.
+    - Leave exactly one blank line between the vocabulary and grammar sections.
+    - Do NOT use HTML tags (<br>, <strong>, etc.).
+    - Tailor difficulty to CEFR level {{level}} and keep content relevant to topic {{topic}}.
+    - Stay concise, actionable, and supportive.
+
+    ### EXAMPLE (FOR REFERENCE ONLY)
     **Từ vựng:**
     - `đi chợ` → go to the market
-    - `mua` → buy
-    
+    - `vội vàng` → in a hurry
+
     **Ngữ pháp:**
-    - Dùng thì hiện tại đơn cho hành động thường xuyên
-    
-    CEFR: {get_cefr_definitions_string()}
+    - Nhắc dùng thì hiện tại đơn cho thói quen hằng ngày.
+
+    CEFR guidance:
+    {get_cefr_definitions_string()}
     """,
     output_schema=HintResult,
     output_key="hint_result",

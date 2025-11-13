@@ -15,7 +15,7 @@ from src.writing.schemas import (
     HintResponse, 
     FinalEvaluationResponse
 )
-from src.writing.writing_agent.agent import writing_agent
+from src.writing.writing_practice_agent.agent import writing_practice
 from google.adk.runners import Runner
 from google.adk.sessions import DatabaseSessionService
 from google.genai import types
@@ -38,23 +38,23 @@ class WritingService:
         # Use application DB config so ADK session tables live in the same PostgreSQL database
         self.session_service = DatabaseSessionService(db_url=get_database_url())
         
-        # Initialize runner with writing_agent (coordinator)
+        # Initialize runner with writing_practice (coordinator)
         self.runner = Runner(
-            agent=writing_agent,
+            agent=writing_practice,
             app_name="WritingPractice",
             session_service=self.session_service
         )
     
     def _build_agent_query(self, source: str, message: str) -> str:
         """
-        Build standardized query string for writing_agent with source metadata.
+        Build standardized query string for writing_practice with source metadata.
         
         Args:
             source: Origin of the action (e.g., chat_input, hint_button, generate_button, final_evaluation_button)
             message: The natural language message or trigger phrase
         
         Returns:
-            Formatted string consumed by writing_agent:
+            Formatted string consumed by writing_practice:
                 SOURCE:<source>\nMESSAGE:<message>
         """
         return f"SOURCE:{source}\nMESSAGE:{message}"
@@ -100,13 +100,13 @@ class WritingService:
                 }
             )
             
-            # Generate Vietnamese text using writing_agent (will route to text_generator_agent)
+            # Generate Vietnamese text using writing_practice (will call text_generator tool)
             generated_text = None
             sentences = None
             # Run agent to generate text with logging
             try:
-                # Query for writing_agent to route to text_generator_agent
-                # Using trigger phrase that matches writing_agent instruction
+                # Query for writing_practice to call text_generator tool
+                # Using trigger phrase that matches writing_practice instruction
                 query = self._build_agent_query(
                     source="generate_button",
                     message="tạo văn bản"
@@ -343,7 +343,7 @@ class WritingService:
             # We don't need to manually update it here (that would be the WRONG way)
             # The get_next_sentence tool automatically updates it when moving to next sentence
             
-            # Query for writing_agent to route to appropriate subagent
+            # Query for writing_practice to route to appropriate tool/subagent
             # If it's a translation, it will route to translation_evaluator_agent
             # If it's a question, it will route to guidance_agent
             query = self._build_agent_query(
@@ -351,7 +351,7 @@ class WritingService:
                 message=message_data.content
             )
             
-            # Get agent response with logging (writing_agent will route appropriately)
+            # Get agent response with logging (writing_practice will route appropriately)
             agent_response = await call_agent_with_logging(
                 runner=self.runner,
                 user_id=str(user_id),
@@ -463,8 +463,8 @@ class WritingService:
                     sentence_index=current_sentence_index
                 )
             
-            # Get hint from writing_agent (will route to hint_provider_agent)
-            # Using trigger phrase that matches writing_agent instruction
+            # Get hint from writing_practice (will call hint_provider tool)
+            # Using trigger phrase that matches writing_practice instruction
             query = self._build_agent_query(
                 source="hint_button",
                 message="gợi ý"
@@ -547,8 +547,8 @@ class WritingService:
             if not session:
                 raise HTTPException(status_code=404, detail=SESSION_NOT_FOUND_MSG)
             
-            # Get final evaluation from writing_agent (will route to final_evaluator_agent)
-            # Using trigger phrase that matches writing_agent instruction
+            # Get final evaluation from writing_practice (will call final_evaluator tool)
+            # Using trigger phrase that matches writing_practice instruction
             evaluation_response = await call_agent_with_logging(
                 runner=self.runner,
                 user_id=str(user_id),
