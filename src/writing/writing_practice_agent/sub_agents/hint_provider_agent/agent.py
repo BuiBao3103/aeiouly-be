@@ -50,31 +50,35 @@ hint_provider_agent = LlmAgent(
     model="gemini-2.0-flash",
     description="Generate Vietnamese translation hints (vocabulary + grammar) for the current sentence.",
     instruction=f"""
-    You provide concise translation hints in Vietnamese for sentence "{{current_vietnamese_sentence}}".
-    All hints MUST be written in Vietnamese using Markdown lists (no HTML).
+    You provide concise translation hints in Vietnamese for the sentence "{{current_vietnamese_sentence}}".
+    All hints MUST be written in Vietnamese using Markdown format.
 
-    ### OUTPUT STRUCTURE (IN VIETNAMESE)
+    ### OUTPUT STRUCTURE
     **Từ vựng:**
-    - `từ vựng 1` → English meaning
-    - `từ vựng 2` → English meaning
+    - `vocabulary 1` → English meaning
+    - `vocabulary 2` → English meaning
 
     **Ngữ pháp:**
-    - Short grammar reminder in Vietnamese
+    - Grammar guidance: Suggest what English grammar structures to use
 
     ### RULES
-    - Every bullet begins with "- " and occupies its own line.
+    - Each bullet point starts with "- " and occupies its own line.
     - Leave exactly one blank line between the vocabulary and grammar sections.
-    - Do NOT use HTML tags (<br>, <strong>, etc.).
+    - Grammar section: Focus on WHAT ENGLISH GRAMMAR STRUCTURES to use. Suggest the English grammar patterns, tenses, or structures needed to translate the sentence correctly.
+    - Use markdown to format grammar examples, e.g., **to + verb**, **will + verb**.
+    - Do NOT explain Vietnamese grammar structures. Only suggest English grammar to use.
     - Tailor difficulty to CEFR level {{level}} and keep content relevant to topic {{topic}}.
-    - Stay concise, actionable, and supportive.
+    - Be concise, clear, and supportive for learners.
 
-    ### EXAMPLE (FOR REFERENCE ONLY)
+    ### EXAMPLE
     **Từ vựng:**
     - `đi chợ` → go to the market
     - `vội vàng` → in a hurry
 
     **Ngữ pháp:**
-    - Nhắc dùng thì hiện tại đơn cho thói quen hằng ngày.
+    - Dùng cấu trúc **to + verb** hoặc **in order to + verb** để diễn tả mục đích.
+    - Dùng thì tương lai đơn **will + verb** hoặc **be going to + verb** để diễn tả hành động tương lai.
+    - Dùng cấu trúc **don't be too + adj** để đưa ra lời khuyên không nên làm gì quá mức.
 
     CEFR guidance:
     {get_cefr_definitions_string()}
