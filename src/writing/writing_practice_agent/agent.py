@@ -13,6 +13,7 @@ from .sub_agents.text_generator_agent.agent import text_generator_agent
 from .sub_agents.hint_provider_agent.agent import hint_provider_agent
 from .sub_agents.final_evaluator_agent.agent import final_evaluator_agent
 from .sub_agents.chat_agent.agent import chat_agent
+from src.writing.service import WritingService
 
 
 def skip_current_sentence(tool_context: ToolContext) -> Dict[str, Any]:
@@ -32,23 +33,21 @@ def skip_current_sentence(tool_context: ToolContext) -> Dict[str, Any]:
         # Complete the session
         tool_context.state["current_sentence_index"] = total_sentences
         tool_context.state["current_vietnamese_sentence"] = None
-        try:
-            from src.database import SessionLocal
-            from src.writing.models import WritingSession, SessionStatus
-            db = SessionLocal()
-            session = db.query(WritingSession).filter(WritingSession.id == session_id).first()
-            if session:
-                session.current_sentence_index = total_sentences
-                session.status = SessionStatus.COMPLETED
-                db.commit()
-            db.close()
-        except Exception as e:
-            print(f"Error updating database on completion: {e}")
+        if session_id:
+            persisted = WritingService.persist_skip_progress_to_db(
+                session_id=session_id,
+                next_index=total_sentences,
+                total_sentences=total_sentences,
+            )
+            if not persisted:
+                print(f"Could not persist skip completion for session {session_id}")
+        completion_message = "Đã bỏ qua câu cuối cùng. Phiên học kết thúc! Bạn có thể xem phần đánh giá tổng kết khi sẵn sàng."
         return {
             "action": "session_complete",
-            "message": "Đã bỏ qua câu cuối. Phiên học hoàn thành!",
+            "message": completion_message,
             "current_index": total_sentences,
             "total_sentences": total_sentences,
+            "next_sentence": None,
         }
 
     next_index = current_index + 1
@@ -63,25 +62,23 @@ def skip_current_sentence(tool_context: ToolContext) -> Dict[str, Any]:
         else:
             tool_context.state["current_vietnamese_sentence"] = None
     
-    try:
-        from src.database import SessionLocal
-        from src.writing.models import WritingSession, SessionStatus
-        db = SessionLocal()
-        session = db.query(WritingSession).filter(WritingSession.id == session_id).first()
-        if session:
-            session.current_sentence_index = next_index
-            if next_index >= total_sentences:
-                session.status = SessionStatus.COMPLETED
-            db.commit()
-        db.close()
-    except Exception as e:
-        print(f"Error updating database: {e}")
+    next_sentence_text = tool_context.state.get("current_vietnamese_sentence")
+
+    if session_id:
+        persisted = WritingService.persist_skip_progress_to_db(
+            session_id=session_id,
+            next_index=next_index,
+            total_sentences=total_sentences,
+        )
+        if not persisted:
+            print(f"Could not persist skip progress for session {session_id}")
 
     return {
         "action": "skip_sentence",
+        "skipped_index": current_index,
         "current_index": next_index,
         "total_sentences": total_sentences,
-        "message": f"Đã bỏ qua câu {current_index + 1}. Chuyển sang câu {next_index + 1} trong tổng số {total_sentences} câu",
+        "next_sentence": next_sentence_text,
     }
 
 
@@ -114,24 +111,31 @@ writing_practice = Agent(
     TOOL USAGE RULES:
     1. text_generator tool:
        - Trigger: SOURCE == generate_button
-       - Call with MESSAGE = “Generate the Vietnamese practice text based on the current session state.”
+       - Call with MESSAGE = "Generate the Vietnamese practice text based on the current session state."
+       - IMPORTANT: Do NOT generate any greeting or introductory message before or after calling this tool.
+       - The tool will generate the text silently and store it in state. No user-facing response is needed.
     
     2. hint_provider tool:
        - Trigger: SOURCE == hint_button
-       - Call with MESSAGE = “Create translation hints for the current Vietnamese sentence.”
+       - Call with MESSAGE = "Create translation hints for the current Vietnamese sentence."
+       - After receiving tool output, reply to the learner in clear Vietnamese with the hint.
     
     3. final_evaluator tool:
        - Trigger: SOURCE == final_evaluation_button
-       - Call with MESSAGE = “Produce the final evaluation summary for this session.”
+       - Call with MESSAGE = "Produce the final evaluation summary for this session."
+       - After receiving tool output, summarise and reply to the learner in clear Vietnamese.
     
     4. chat_agent tool:
        - Trigger: SOURCE == chat_input
        - Pass the full two-line payload exactly as received (both SOURCE and MESSAGE lines).
        - The chat_agent tool will determine whether the learner sent a translation or needs guidance.
+       - After receiving tool output, reply to the learner in clear Vietnamese.
     
     5. skip_current_sentence tool:
        - Trigger: SOURCE == skip_button OR MESSAGE explicitly asks to skip the sentence
        - Call the tool without modification to advance to the next sentence.
+       - The tool returns metadata (skipped_index, current_index, next_sentence). Use that information to craft a natural Vietnamese reply.
+       - Tell the learner the skip is done and encourage them to translate the new sentence, quoting it if available.
     
     STATE INFORMATION AVAILABLE:
     - current_vietnamese_sentence: the sentence the learner must translate.
@@ -143,7 +147,8 @@ writing_practice = Agent(
     IMPORTANT:
     - Always use tools; do not craft answers without tool output.
     - Study SOURCE and MESSAGE carefully before choosing a tool.
-    - After receiving tool output, summarise and reply to the learner in clear Vietnamese.
+    - For generate_button: Call the tool and do NOT generate any response text. The text generation is handled silently.
+    - For other sources: After receiving tool output, summarise and reply to the learner in clear Vietnamese.
     """,
     sub_agents=[chat_agent],  # chat_agent remains as a sub-agent to handle routing logic for chat messages
     tools=[

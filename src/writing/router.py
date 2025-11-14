@@ -187,7 +187,7 @@ async def get_final_evaluation(
             detail=f"Lỗi khi lấy đánh giá: {str(e)}"
         )
 
-@router.post("/{session_id}/skip", response_model=WritingSessionResponse)
+@router.post("/{session_id}/skip", response_model=ChatMessageResponse)
 async def skip_current_sentence(
     session_id: int,
     current_user: User = Depends(get_current_active_user),

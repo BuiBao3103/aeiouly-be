@@ -15,14 +15,14 @@ from src.writing.schemas import (
     HintResponse, 
     FinalEvaluationResponse
 )
-from src.writing.writing_practice_agent.agent import writing_practice
 from google.adk.runners import Runner
 from google.adk.sessions import DatabaseSessionService
 from google.genai import types
 from datetime import datetime
 import json
 from src.config import get_database_url
-from src.utils.agent_utils import call_agent_with_logging, update_session_state
+from src.database import SessionLocal
+from src.utils.agent_utils import call_agent_with_logging
 import logging
 import random
 from fastapi import HTTPException
@@ -33,17 +33,92 @@ SESSION_NOT_FOUND_MSG = "Không tìm thấy phiên luyện viết"
 # Logger for writing service
 logger = logging.getLogger(__name__)
 
+
+def persist_skip_progress_to_db(session_id: int, next_index: int, total_sentences: int) -> bool:
+    """
+    Persist skip progress into the database so API and agent stay in sync.
+
+    Args:
+        session_id: Writing session ID
+        next_index: The next sentence index after skipping
+        total_sentences: Total number of sentences for the session
+
+    Returns:
+        True if the session was found and updated, False otherwise.
+    """
+    db = SessionLocal()
+    try:
+        session = db.query(WritingSession).filter(WritingSession.id == session_id).first()
+        if not session:
+            return False
+
+        session.current_sentence_index = min(next_index, total_sentences)
+        if next_index >= total_sentences:
+            session.status = SessionStatus.COMPLETED
+
+        db.commit()
+        return True
+    except Exception as exc:
+        db.rollback()
+        logger.error(
+            "Error persisting skip progress for session %s: %s",
+            session_id,
+            exc,
+            exc_info=True,
+        )
+        return False
+    finally:
+        db.close()
+
 class WritingService:
     def __init__(self):
         # Use application DB config so ADK session tables live in the same PostgreSQL database
         self.session_service = DatabaseSessionService(db_url=get_database_url())
         
         # Initialize runner with writing_practice (coordinator)
+        from src.writing.writing_practice_agent.agent import writing_practice  # Local import to avoid circular dependency
         self.runner = Runner(
             agent=writing_practice,
             app_name="WritingPractice",
             session_service=self.session_service
         )
+
+    @staticmethod
+    def persist_skip_progress_to_db(session_id: int, next_index: int, total_sentences: int) -> bool:
+        """
+        Persist skip progress into the database so API and agent stay in sync.
+
+        Args:
+            session_id: Writing session ID
+            next_index: The next sentence index after skipping
+            total_sentences: Total number of sentences for the session
+
+        Returns:
+            True if the session was found and updated, False otherwise.
+        """
+        db = SessionLocal()
+        try:
+            session = db.query(WritingSession).filter(WritingSession.id == session_id).first()
+            if not session:
+                return False
+
+            session.current_sentence_index = min(next_index, total_sentences)
+            if next_index >= total_sentences:
+                session.status = SessionStatus.COMPLETED
+
+            db.commit()
+            return True
+        except Exception as exc:
+            db.rollback()
+            logger.error(
+                "Error persisting skip progress for session %s: %s",
+                session_id,
+                exc,
+                exc_info=True,
+            )
+            return False
+        finally:
+            db.close()
     
     def _build_agent_query(self, source: str, message: str) -> str:
         """
@@ -660,10 +735,9 @@ class WritingService:
             return sentences[index]
         return None
     
-    async def skip_current_sentence(self, session_id: int, user_id: int, db: Session) -> WritingSessionResponse:
-        """Skip current sentence and move to next one"""
+    async def skip_current_sentence(self, session_id: int, user_id: int, db: Session) -> ChatMessageResponse:
+        """Skip current sentence via agent tool and return a chat-style assistant response."""
         try:
-            # Get session
             session = db.query(WritingSession).filter(
                 WritingSession.id == session_id,
                 WritingSession.user_id == user_id
@@ -672,89 +746,52 @@ class WritingService:
             if not session:
                 raise HTTPException(status_code=404, detail=SESSION_NOT_FOUND_MSG)
             
-            # Check if already completed
             if session.status == SessionStatus.COMPLETED:
                 raise HTTPException(status_code=400, detail="Phiên luyện viết đã hoàn thành")
             
-            current_index = session.current_sentence_index
-            total_sentences = session.total_sentences
-            
-            # Check if already at last sentence
-            if current_index >= total_sentences - 1:
-                # Complete the session
-                session.current_sentence_index = total_sentences
-                session.status = SessionStatus.COMPLETED
-                db.commit()
-                db.refresh(session)
-                
-                # Update state using append_event
-                await update_session_state(
-                    session_service=self.session_service,
-                    app_name="WritingPractice",
-                    user_id=str(user_id),
-                    session_id=str(session_id),
-                    state_delta={
-                        "current_sentence_index": total_sentences,
-                        "current_vietnamese_sentence": None
-                    },
-                    author="system",
-                    invocation_id_prefix="skip_sentence",
-                    logger=logger
-                )
-                
-                return await self.get_writing_session(session_id, user_id, db)
-            
-            # Move to next sentence
-            next_index = current_index + 1
-            session.current_sentence_index = next_index
-            
-            # Determine next sentence before updating state
-            next_sentence = None
-            try:
-                agent_session = await self.session_service.get_session(
-                    app_name="WritingPractice",
-                    user_id=str(user_id),
-                    session_id=str(session_id)
-                )
-                state = agent_session.state or {}
-                
-                vietnamese_sentences_data = state.get("vietnamese_sentences", {})
-                if isinstance(vietnamese_sentences_data, dict) and "sentences" in vietnamese_sentences_data:
-                    sentences_list = vietnamese_sentences_data.get("sentences", [])
-                    if 0 <= next_index < len(sentences_list):
-                        next_sentence = sentences_list[next_index]
-                else:
-                    # Fallback: get from database
-                    db_sentences = self._parse_sentences_from_db(session.vietnamese_sentences)
-                    next_sentence = self._get_sentence_by_index(db_sentences, next_index)
-            except Exception as e:
-                logger.error(f"Error getting next sentence: {e}")
-            
-            # Check if completed
-            if next_index >= total_sentences:
-                next_sentence = None
-                session.status = SessionStatus.COMPLETED
-            
-            # Update state using append_event
-            await update_session_state(
-                session_service=self.session_service,
-                app_name="WritingPractice",
-                user_id=str(user_id),
-                session_id=str(session_id),
-                state_delta={
-                    "current_sentence_index": next_index,
-                    "current_vietnamese_sentence": next_sentence
-                },
-                author="system",
-                invocation_id_prefix="skip_sentence",
-                logger=logger
+            query = self._build_agent_query(
+                source="skip_button",
+                message="Skip current sentence"
             )
             
-            db.commit()
+            try:
+                agent_reply = await call_agent_with_logging(
+                    runner=self.runner,
+                    user_id=str(user_id),
+                    session_id=str(session_id),
+                    query=query,
+                    logger=logger
+                )
+            except Exception as agent_error:
+                logger.error("Agent skip error: %s", agent_error, exc_info=True)
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Lỗi khi bỏ qua câu qua agent: {agent_error}"
+                )
+            
             db.refresh(session)
+            final_text = agent_reply or "Đã bỏ qua câu hiện tại, hãy tiếp tục dịch câu tiếp theo nhé."
             
-            return await self.get_writing_session(session_id, user_id, db)
+            assistant_message = WritingChatMessage(
+                session_id=session_id,
+                role="assistant",
+                content=final_text,
+                sentence_index=session.current_sentence_index
+            )
+            db.add(assistant_message)
+            db.commit()
+            db.refresh(assistant_message)
             
+            return ChatMessageResponse(
+                id=assistant_message.id,
+                session_id=assistant_message.session_id,
+                role=assistant_message.role,
+                content=assistant_message.content,
+                sentence_index=assistant_message.sentence_index,
+                status=session.status,
+                created_at=assistant_message.created_at
+            )
+        
         except HTTPException:
             raise
         except Exception as e:
