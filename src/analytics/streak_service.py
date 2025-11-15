@@ -164,3 +164,34 @@ class LoginStreakService:
             }
             for streak in top_users
         ]
+
+    async def get_weekly_streak_status(self, db: Session, user_id: int) -> List[Dict]:
+        """Get streak status for all days in the current week (Monday to Sunday)"""
+        today = date.today()
+        
+        # Get Monday of current week (ISO calendar: Monday = 1)
+        monday = today - timedelta(days=today.weekday())
+        sunday = monday + timedelta(days=6)
+        
+        # Query all streaks for the week
+        streaks = db.query(LoginStreak).filter(
+            and_(
+                LoginStreak.user_id == user_id,
+                LoginStreak.date >= monday,
+                LoginStreak.date <= sunday
+            )
+        ).order_by(LoginStreak.date).all()
+        
+        # Build result for each day of the week
+        result = []
+        current_date = monday
+        
+        while current_date <= sunday:
+            day_streak = next((s for s in streaks if s.date == current_date), None)
+            result.append({
+                'date': current_date,
+                'logged_in': day_streak is not None
+            })
+            current_date += timedelta(days=1)
+        
+        return result
