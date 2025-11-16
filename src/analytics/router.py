@@ -203,6 +203,17 @@ async def get_login_streak_leaderboard(
     }
 
 
+@router.get("/streak/weekly")
+async def get_weekly_streak_status(
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+    service: LoginStreakService = Depends(get_login_streak_service)
+):
+    """Get streak status for all days in the current week"""
+    weekly_data = await service.get_weekly_streak_status(db, current_user.id)
+    return weekly_data
+
+
 # ===== USER ONLINE STATUS ENDPOINTS =====
 
 @router.get("/online/check/{user_id}")
