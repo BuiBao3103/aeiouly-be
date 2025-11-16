@@ -50,24 +50,22 @@ def get_next_sentence(tool_context: ToolContext) -> Dict[str, Any]:
     Returns:
         A confirmation message with next sentence information
     """
+    from src.writing.service import persist_skip_progress_to_db
+    
     current_index = tool_context.state.get("current_sentence_index", 0)
     total_sentences = tool_context.state.get("total_sentences", 0)
     session_id = tool_context.state.get("session_id")
 
     if current_index >= total_sentences - 1:
         tool_context.state["current_sentence_index"] = total_sentences
-        try:
-            from src.database import SessionLocal
-            from src.writing.models import WritingSession, SessionStatus
-            db = SessionLocal()
-            session = db.query(WritingSession).filter(WritingSession.id == session_id).first()
-            if session:
-                session.current_sentence_index = total_sentences
-                session.status = SessionStatus.COMPLETED
-                db.commit()
-            db.close()
-        except Exception as e:
-            print(f"Error updating database on completion: {e}")
+        if session_id:
+            persisted = persist_skip_progress_to_db(
+                session_id=session_id,
+                next_index=total_sentences,
+                total_sentences=total_sentences,
+            )
+            if not persisted:
+                print(f"Could not persist completion for session {session_id}")
         return {
             "action": "session_complete",
             "message": "Tất cả các câu đã được dịch xong. Phiên học hoàn thành!",
@@ -85,19 +83,14 @@ def get_next_sentence(tool_context: ToolContext) -> Dict[str, Any]:
         if 0 <= next_index < len(sentences_list):
             tool_context.state["current_vietnamese_sentence"] = sentences_list[next_index]
     
-    try:
-        from src.database import SessionLocal
-        from src.writing.models import WritingSession, SessionStatus
-        db = SessionLocal()
-        session = db.query(WritingSession).filter(WritingSession.id == session_id).first()
-        if session:
-            session.current_sentence_index = next_index
-            if next_index >= total_sentences:
-                session.status = SessionStatus.COMPLETED
-            db.commit()
-        db.close()
-    except Exception as e:
-        print(f"Error updating database: {e}")
+    if session_id:
+        persisted = persist_skip_progress_to_db(
+            session_id=session_id,
+            next_index=next_index,
+            total_sentences=total_sentences,
+        )
+        if not persisted:
+            print(f"Could not persist next sentence progress for session {session_id}")
 
     return {
         "action": "next_sentence",
@@ -110,71 +103,54 @@ def get_next_sentence(tool_context: ToolContext) -> Dict[str, Any]:
 translation_evaluator_agent = Agent(
     name="translation_evaluator",
     model="gemini-2.0-flash",
-    description="Đánh giá bản dịch tiếng Anh của người dùng, lưu kết quả và chuyển câu tiếp theo nếu đạt ≥90%",
+    description="Evaluate user's English translation, save result and move to next sentence if score ≥90%",
     instruction=f"""
-    Bạn là AI chuyên đánh giá bản dịch tiếng Anh của người học.
+    You are an AI that evaluates English translations from learners.
 
-    CÂU TIẾNG VIỆT HIỆN TẠI (state current_vietnamese_sentence):
-    "{{current_vietnamese_sentence}}"
+    CURRENT VIETNAMESE SENTENCE: "{{current_vietnamese_sentence}}"
+    DIFFICULTY LEVEL: {{level}}
+    HINT (if available): {{current_hint_result?}}
 
-    MỨC ĐỘ KHÓ (state level): {{level}}
-    
-    NHIỆM VỤ:
-    Đánh giá bản dịch tiếng Anh của người học cho câu tiếng Việt hiện tại, xác định mức độ đúng/sai và quyết định có chuyển sang câu tiếp theo hay không.
-    
-    QUY TRÌNH BẮT BUỘC:
-    1. Lấy câu tiếng Việt hiện tại từ state: current_vietnamese_sentence = "{{current_vietnamese_sentence}}"
-    2. Phân tích bản dịch của người học so với câu tiếng Việt gốc
-    3. Đánh giá theo các tiêu chí: nghĩa, ngữ pháp, từ vựng
-    4. Xác định mức độ đúng (tỷ lệ phần trăm, 0-100)
-    5. Tạo đánh giá chi tiết (text mô tả đánh giá)
-    6. GỌI tool save_evaluation_result(evaluation_result, accuracy_score) để lưu đánh giá vào state
-    7. Nếu đạt ≥ 90%:
-       - BẮT ĐẦU bằng một câu khen ngắn gọn (1 câu)
-       - GỌI tool get_next_sentence() để chuyển sang câu tiếp theo
-       - Yêu cầu dịch câu tiếp theo (KHÔNG cần nói đó là câu gì, chỉ yêu cầu dịch câu tiếp theo)
-    8. Nếu chưa đạt < 90%:
-       - Chỉ ra lỗi sai cụ thể (1-3 lỗi chính)
-       - Yêu cầu dịch lại câu hiện tại
-       - KHÔNG gọi get_next_sentence
-    
-    TIÊU CHÍ ĐÁNH GIÁ (tham chiếu CEFR):
+    TASK:
+    Evaluate the learner's English translation against the Vietnamese sentence, determine accuracy (0-100%), and decide whether to proceed to the next sentence.
+
+    REQUIRED PROCESS:
+    1. Analyze the translation against the Vietnamese sentence
+    2. Evaluate: meaning, grammar, vocabulary
+    3. Determine accuracy score (0-100%)
+    4. Create evaluation description
+    5. Call save_evaluation_result(evaluation_result, accuracy_score)
+    6. If score ≥ 90%:
+       - Start with brief praise (1 sentence)
+       - Call get_next_sentence()
+       - Ask to translate the next sentence (don't specify which sentence)
+    7. If score < 90%:
+       - Point out specific errors (1-3 main issues)
+       - Ask to retry the current sentence
+       - Do NOT call get_next_sentence
+
+    EVALUATION CRITERIA (CEFR reference):
     {get_cefr_definitions_string()}
-    
-    CÁCH ĐÁNH GIÁ CHI TIẾT:
-    - Nghĩa: So khớp với câu tiếng Việt gốc (ý chính, thông tin chính xác)
-    - Ngữ pháp: Thì, mạo từ, giới từ, số ít/số nhiều, cấu trúc động từ
-    - Từ vựng: Dùng từ phù hợp ngữ cảnh; chấp nhận từ đồng nghĩa hợp lý
-    - Lỗi chính tả nhỏ: CHO PHÉP và KHÔNG ngăn cản nếu tổng thể đạt ≥ 90%
-    
-    GỢI Ý CÂU KHEN (khi đạt ≥ 90%, chọn 1 câu):
+
+    EVALUATION DETAILS:
+    - Meaning: Match with Vietnamese sentence (main idea, accurate information)
+    - Grammar: Tenses, articles, prepositions, singular/plural, verb structures
+    - Vocabulary: Context-appropriate words; accept reasonable synonyms
+    - Minor spelling errors: ALLOWED and don't prevent ≥90% if overall is correct
+
+    PRAISE EXAMPLES (when ≥90%, choose one):
     - "Rất tốt, bản dịch của bạn khá tự nhiên!"
     - "Tuyệt vời, bạn đã truyền tải đúng ý chính!"
     - "Làm tốt lắm, ngữ pháp nhìn chung ổn định!"
-    - "Nice work! Cách dùng từ rất phù hợp ngữ cảnh."
-    
-    VÍ DỤ PHẢN HỒI KHI ĐẠT ≥ 90%:
-    "Rất tốt, bản dịch của bạn khá tự nhiên! Hãy dịch câu tiếp theo."
-    
-    VÍ DỤ PHẢN HỒI KHI CHƯA ĐẠT < 90%:
-    "Bản dịch của bạn có một số lỗi:
-    - Thiếu mạo từ 'the' trước 'world'
-    - Dùng sai thì (nên dùng present simple)
-    Hãy thử dịch lại câu hiện tại."
-    
-    QUAN TRỌNG:
-    - PHẢI gọi tool save_evaluation_result() để lưu đánh giá vào state
-    - Nếu đạt ≥ 90%, PHẢI gọi tool get_next_sentence() để chuyển câu
-    - Khi đạt ≥ 90%, chỉ yêu cầu dịch câu tiếp theo, KHÔNG cần nói đó là câu gì
-    - Khi chưa đạt, chỉ ra lỗi cụ thể và yêu cầu dịch lại
-    - Đánh giá khách quan, công bằng
-    - Cho phép lỗi chính tả nhỏ nếu nghĩa và ngữ pháp đúng
-    
-    THÔNG TIN TRONG STATE:
-    - current_sentence_index: Chỉ số câu hiện tại
-    - current_vietnamese_sentence: Câu tiếng Việt hiện tại cần dịch (string)
-    - vietnamese_sentences: Dict chứa {{"full_text": "...", "sentences": [...]}}
-    - level: CEFR level
+
+    IMPORTANT:
+    - MUST call save_evaluation_result() to save evaluation
+    - If ≥90%, MUST call get_next_sentence() to advance
+    - When ≥90%, only ask to translate next sentence (don't specify which)
+    - When <90%, point out specific errors and ask to retry
+    - Evaluate objectively and fairly
+    - Allow minor spelling errors if meaning and grammar are correct
+    - If hint is available (current_hint_result), consider it when evaluating to provide more appropriate feedback
     """,
     tools=[save_evaluation_result, get_next_sentence],
     disallow_transfer_to_parent=True,

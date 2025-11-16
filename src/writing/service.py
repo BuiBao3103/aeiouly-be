@@ -558,7 +558,7 @@ class WritingService:
                 raise HTTPException(status_code=500, detail=f"Lỗi khi gọi agent tạo gợi ý: {str(agent_error)}")
             
             # Read hint from state after agent finishes
-            # Agent has output_key="hint_result", so ADK automatically stores it in state
+            # Agent has output_key="current_hint_result", so ADK automatically stores it in state
             # The after_agent_callback automatically saves it to hint_history
             try:
                 agent_session_after = await self.session_service.get_session(
@@ -577,9 +577,9 @@ class WritingService:
                     # Try with int key as fallback
                     final_hint = hint_history_after.get(current_sentence_index)
                 
-                # Second try: get directly from hint_result (output_key)
+                # Second try: get directly from current_hint_result (output_key)
                 if not final_hint:
-                    hint_result_data = state_after.get("hint_result", {})
+                    hint_result_data = state_after.get("current_hint_result", {})
                     if isinstance(hint_result_data, dict):
                         final_hint = hint_result_data.get("hint_text", "")
                 

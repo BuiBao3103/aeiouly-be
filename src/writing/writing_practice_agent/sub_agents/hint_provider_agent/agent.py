@@ -29,8 +29,8 @@ def after_hint_provider_callback(callback_context: CallbackContext) -> Optional[
     """
     state = callback_context.state
     
-    # Get hint_result from state (set by output_key)
-    hint_result_data = state.get("hint_result", {})
+    # Get current_hint_result from state (set by output_key)
+    hint_result_data = state.get("current_hint_result", {})
     
     # Save hint to hint_history
     if isinstance(hint_result_data, dict):
@@ -84,7 +84,7 @@ hint_provider_agent = LlmAgent(
     {get_cefr_definitions_string()}
     """,
     output_schema=HintResult,
-    output_key="hint_result",
+    output_key="current_hint_result",
     after_agent_callback=after_hint_provider_callback,
     disallow_transfer_to_parent=True,
     disallow_transfer_to_peers=True
