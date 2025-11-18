@@ -1,15 +1,13 @@
 from google.adk.agents import LlmAgent
+from google.adk.agents.callback_context import CallbackContext
 from pydantic import BaseModel, Field
-from typing import List, Dict, Any
+from typing import Dict, Any, Optional
 from src.constants.cefr import CEFRLevel, get_cefr_definitions_string
 from src.reading.models import ReadingGenre
 
 # Use CEFRLevel from constants
 ReadingLevel = CEFRLevel
 
-class TextAnalysisRequest(BaseModel):
-    """Request schema for text analysis"""
-    text: str = Field(..., description="Text to analyze")
 
 class TextAnalysisResult(BaseModel):
     """Response schema for text analysis"""
@@ -17,12 +15,29 @@ class TextAnalysisResult(BaseModel):
     genre: ReadingGenre = Field(..., description="Detected genre")
     topic: str = Field(..., description="Detected topic")
 
+def after_text_analysis_callback(callback_context: CallbackContext) -> Optional[None]:
+    """Store analysis outputs into state for downstream use."""
+    state = callback_context.state or {}
+    result = state.get("analysis_result", {})
+    if isinstance(result, dict):
+        if result.get("level"):
+            state["level"] = result["level"]
+        if result.get("genre"):
+            state["genre"] = result["genre"]
+        if result.get("topic"):
+            state["topic"] = result["topic"]
+    return None
+
+
 text_analysis_agent = LlmAgent(
     name="text_analysis_agent",
     model="gemini-2.0-flash",
     description="Analyzes English reading texts to determine level, genre, and topic",
     instruction=f"""
     Bạn là AI chuyên phân tích bài đọc tiếng Anh để xác định level CEFR, genre và topic.
+    
+    DỮ LIỆU ĐẦU VÀO (TỪ STATE):
+    - content: {{content}}
     
     NHIỆM VỤ:
     - Phân tích độ khó của bài đọc và xác định level CEFR (A1-C2)
@@ -61,6 +76,7 @@ text_analysis_agent = LlmAgent(
     """,
     output_schema=TextAnalysisResult,
     output_key="analysis_result",
+    after_agent_callback=after_text_analysis_callback,
     disallow_transfer_to_parent=True,
     disallow_transfer_to_peers=True
 )

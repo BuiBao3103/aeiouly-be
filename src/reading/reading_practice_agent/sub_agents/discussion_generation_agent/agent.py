@@ -9,7 +9,6 @@ class DiscussionQuestion(BaseModel):
 
 class DiscussionGenerationRequest(BaseModel):
     """Request schema for discussion generation"""
-    content: str = Field(..., description="Reading text content")
     number_of_questions: int = Field(..., ge=1, le=10, description="Number of discussion questions")
 
 class DiscussionGenerationResult(BaseModel):
@@ -23,7 +22,12 @@ discussion_generation_agent = LlmAgent(
     instruction="""
     Bạn là AI chuyên tạo câu hỏi kiểm tra hiểu (comprehension questions) từ bài đọc tiếng Anh để đánh giá xem người đọc có hiểu nội dung hay không.
     
+    DATA AVAILABLE:
+    - Reading text content: {content}
+    - Requested number of questions: from the query message
+    
     NHIỆM VỤ:
+    - Đọc kỹ nội dung bài đọc từ state (content)
     - Tạo câu hỏi kiểm tra hiểu từ nội dung bài đọc tiếng Anh
     - Câu hỏi phải kiểm tra được độ hiểu của người đọc về bài đọc
     - Câu hỏi dạng mở (open-ended) để người đọc có thể trả lời bằng câu văn
@@ -62,8 +66,7 @@ discussion_generation_agent = LlmAgent(
     - MỖI câu hỏi PHẢI có CẢ HAI phiên bản: questionEn (tiếng Anh) và questionVi (tiếng Việt)
     - Câu hỏi tiếng Anh và tiếng Việt phải có cùng ý nghĩa, không chỉ dịch word-by-word
     - Câu hỏi phải là câu hỏi kiểm tra hiểu, có thể đánh giá được câu trả lời dựa trên nội dung bài đọc
-    - Câu hỏi phải liên quan trực tiếp đến nội dung bài đọc được cung cấp trong query
-    - Đọc kỹ nội dung bài đọc trước khi tạo câu hỏi
+    - Câu hỏi phải liên quan trực tiếp đến nội dung bài đọc trong state
     - Trả về JSON format
     """,
     output_schema=DiscussionGenerationResult,

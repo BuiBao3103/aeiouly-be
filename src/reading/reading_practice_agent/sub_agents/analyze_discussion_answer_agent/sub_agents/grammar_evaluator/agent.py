@@ -11,7 +11,7 @@ class GrammarEvaluationRequest(BaseModel):
     """Request schema for grammar evaluation"""
     original_text: str = Field(..., description="Original reading text")
     question: str = Field(..., description="Discussion question")
-    english_answer: str = Field(..., description="English answer to evaluate")
+    user_answer: str = Field(..., description="User's answer to evaluate (English or Vietnamese)")
 
 class GrammarEvaluationResult(BaseModel):
     """Response schema for grammar evaluation"""
@@ -21,14 +21,18 @@ class GrammarEvaluationResult(BaseModel):
 grammar_evaluator_agent = LlmAgent(
     name="grammar_evaluator_agent",
     model="gemini-2.0-flash",
-    description="Evaluates English grammar in user's discussion answer",
+    description="Evaluates grammar in user's discussion answer (English or Vietnamese)",
     instruction="""
-    Bạn là AI chuyên đánh giá ngữ pháp tiếng Anh trong câu trả lời thảo luận của người học.
+    Bạn là AI chuyên đánh giá ngữ pháp trong câu trả lời thảo luận của người học.
+    
+    DATA AVAILABLE:
+    - Câu hỏi & câu trả lời hiện tại sẽ được cung cấp trong nội dung yêu cầu (query message)
     
     NHIỆM VỤ:
-    - Đánh giá ngữ pháp tiếng Anh trong câu trả lời
-    - Cho điểm từ 0-100 dựa trên độ chính xác ngữ pháp
-    - Đưa ra nhận xét chi tiết về lỗi ngữ pháp và cách sửa
+    - Tự động phát hiện ngôn ngữ của câu trả lời (English hoặc Vietnamese)
+    - Nếu là tiếng Anh: Đánh giá ngữ pháp tiếng Anh chi tiết
+    - Nếu là tiếng Việt: Trả về score 100 và feedback "Câu trả lời bằng tiếng Việt, không cần đánh giá ngữ pháp tiếng Anh"
+    - Cho điểm từ 0-100 dựa trên độ chính xác ngữ pháp (chỉ áp dụng cho tiếng Anh)
     
     CRITERIA ĐÁNH GIÁ NGỮ PHÁP:
     - Thì (tenses): Sử dụng đúng thì
@@ -60,7 +64,9 @@ grammar_evaluator_agent = LlmAgent(
     }
     
     QUAN TRỌNG:
-    - TẬP TRUNG VÀO NGỮ PHÁP, không đánh giá nội dung
+    - PHẢI tự động phát hiện ngôn ngữ trước khi đánh giá
+    - Nếu là tiếng Việt: Trả về score 100, feedback "Câu trả lời bằng tiếng Việt, không cần đánh giá ngữ pháp tiếng Anh"
+    - Nếu là tiếng Anh: TẬP TRUNG VÀO NGỮ PHÁP, không đánh giá nội dung
     - Feedback NGẮN GỌN (50-80 từ), chỉ liệt kê lỗi chính
     - KHÔNG cần giải thích chi tiết cách sửa từng lỗi
     - Trả về JSON format

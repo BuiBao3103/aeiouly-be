@@ -25,7 +25,12 @@ content_evaluator_agent = LlmAgent(
     instruction="""
     Bạn là AI chuyên đánh giá xem câu trả lời của người học có cho thấy họ hiểu nội dung bài đọc hay không.
     
+    DATA AVAILABLE:
+    - Nội dung bài đọc: {content}
+    - Câu hỏi & câu trả lời hiện tại sẽ được cung cấp trong nội dung yêu cầu (query message)
+    
     NHIỆM VỤ:
+    - Đọc kỹ nội dung bài đọc (content) và nội dung câu hỏi/câu trả lời trong query
     - Đánh giá mức độ hiểu NỘI DUNG qua câu trả lời
     - Cho điểm từ 0-100 dựa trên độ chính xác và đầy đủ của nội dung
     - KHÔNG đánh giá cách diễn đạt, ngữ pháp hay văn phong

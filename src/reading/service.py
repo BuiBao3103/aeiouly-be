@@ -17,11 +17,7 @@ from src.reading.schemas import (
     AnswerFeedback, QuizGenerationRequest, QuizResponse,
     DiscussionGenerationRequest, DiscussionResponse
 )
-from src.reading.agents.text_generation_agent.agent import text_generation_agent
-from src.reading.agents.text_analysis_agent.agent import text_analysis_agent
-from src.reading.agents.quiz_generation_agent.agent import quiz_generation_agent
-from src.reading.agents.discussion_generation_agent.agent import discussion_generation_agent
-from src.reading.agents.analyze_answer_agent.agent import analyze_answer_agent
+from src.reading.reading_practice_agent.agent import reading_practice
 from src.reading.exceptions import (
     ReadingSessionNotFoundException, TextGenerationFailedException,
     TextAnalysisFailedException, QuizGenerationFailedException
@@ -38,59 +34,44 @@ DEFAULT_FEEDBACK = "Đánh giá tự động dựa trên nội dung tóm tắt."
 
 class ReadingService:
     def __init__(self):
+        # Use application DB config so ADK session tables live in the same PostgreSQL database
         self.session_service = DatabaseSessionService(db_url=get_database_url())
         self.logger = logging.getLogger(__name__)
+        
+        self.runner = Runner(
+            agent=reading_practice,
+            app_name="ReadingPractice",
+            session_service=self.session_service
+        )
+    
+    def _build_agent_query(self, source: str, message: str) -> str:
+        """
+        Build standardized query string for reading_practice with source metadata.
+        
+        Args:
+            source: Origin of the action (e.g., generate_text, analyze_text, generate_quiz, etc.)
+            message: The natural language message or parameters
+        
+        Returns:
+            Formatted string consumed by reading_practice:
+                SOURCE:<source>\nMESSAGE:<message>
+        """
+        return f"SOURCE:{source}\nMESSAGE:{message}"
     
     async def create_reading_session(self, user_id: int, session_data: ReadingSessionCreate, db: Session) -> ReadingSessionResponse:
         """Create a new reading session"""
         try:
-            if session_data.custom_text:
-                # Custom text - analyze with AI
-                analysis_result = await self._analyze_custom_text(session_data.custom_text)
-                
-                content = session_data.custom_text
-                
-                # Handle both dict and object responses
-                if isinstance(analysis_result, dict):
-                    level = ReadingLevel(analysis_result.get("level", "B1"))
-                    genre = ReadingGenre(analysis_result.get("genre", "Bài báo"))
-                    topic = analysis_result.get("topic", "General")
-                else:
-                    level = ReadingLevel(analysis_result.level)
-                    genre = ReadingGenre(analysis_result.genre)
-                    topic = analysis_result.topic
-                
-                # Count words in service
-                word_count = self._count_words(content)
-                
-                is_custom = True
-                
-            else:
-                # AI generation - generate text
-                if not session_data.level or not session_data.genre:
-                    raise ValueError("Level and genre are required for AI generation")
-                
-                generation_result = await self._generate_reading_text(
-                    level=session_data.level,
-                    genre=session_data.genre,
-                    topic=session_data.topic or "General",
-                    word_count=session_data.word_count
-                )
-                
-                # Agent now returns plain text content only
-                content = generation_result or ""
-                level = session_data.level
-                genre = session_data.genre
-                topic = session_data.topic or "General"
-                
-                word_count = self._count_words(content)
-                is_custom = False
+            is_custom = bool(session_data.custom_text)
+            content = session_data.custom_text or ""
+            requested_level = session_data.level or ReadingLevel.B1
+            requested_genre = session_data.genre or ReadingGenre.ARTICLE
+            topic = session_data.topic or "General"
+            word_count = self._count_words(content) if content else 0
             
-            # Create session in database
             db_session = ReadingSession(
                 user_id=user_id,
-                level=level.value,
-                genre=genre.value,
+                level=requested_level.value,
+                genre=requested_genre.value,
                 topic=topic,
                 content=content,
                 word_count=word_count,
@@ -100,6 +81,113 @@ class ReadingService:
             db.add(db_session)
             db.commit()
             db.refresh(db_session)
+            
+            agent_session_id = str(db_session.id)
+            base_state = {
+                "session_id": db_session.id,
+                "content": content,
+                "level": requested_level.value,
+                "genre": requested_genre.value,
+                "topic": topic,
+                "word_count": word_count,
+                "is_custom": is_custom,
+                "target_word_count": session_data.word_count or self._get_default_word_count(requested_level),
+                "quiz_result": {},
+                "discussion_result": {},
+                "synthesis_result": {},
+            }
+            try:
+                await self.session_service.create_session(
+                    app_name="ReadingPractice",
+                    user_id=str(user_id),
+                    session_id=agent_session_id,
+                    state=base_state
+                )
+            except Exception:
+                self.logger.warning(
+                    "Unable to initialize reading agent session %s",
+                    agent_session_id,
+                    exc_info=True
+                )
+            
+            if is_custom:
+                try:
+                    message = "Analyze the reading text available in state (key: content) and update analysis_result."
+                    await call_agent_with_logging(
+                        runner=self.runner,
+                        user_id=str(user_id),
+                        session_id=agent_session_id,
+                        query=self._build_agent_query(source="analyze_text", message=message),
+                        logger=self.logger
+                    )
+                    agent_session = await self.session_service.get_session(
+                        app_name="ReadingPractice",
+                        user_id=str(user_id),
+                        session_id=agent_session_id
+                    )
+                    analysis_result = (
+                        agent_session.state.get("analysis_result", {})
+                        if agent_session and agent_session.state
+                        else {}
+                    )
+                except Exception:
+                    self.logger.warning(
+                        "Unable to fetch analysis_result for session %s",
+                        agent_session_id,
+                        exc_info=True
+                    )
+                    analysis_result = {}
+                if not analysis_result:
+                    raise TextAnalysisFailedException("AI text analysis returned no data.")
+                
+                level = analysis_result.get("level", requested_level.value)
+                genre = analysis_result.get("genre", requested_genre.value)
+                topic = analysis_result.get("topic", topic)
+                word_count = self._count_words(content)
+            else:
+                try:
+                    message = "Generate the reading text using the parameters stored in state."
+                    await call_agent_with_logging(
+                        runner=self.runner,
+                        user_id=str(user_id),
+                        session_id=agent_session_id,
+                        query=self._build_agent_query(source="generate_text", message=message),
+                        logger=self.logger
+                    )
+                    agent_session = await self.session_service.get_session(
+                        app_name="ReadingPractice",
+                        user_id=str(user_id),
+                        session_id=agent_session_id
+                    )
+                    generation_result = (
+                        agent_session.state.get("text_generation_result", {})
+                        if agent_session and agent_session.state
+                        else {}
+                    )
+                except Exception:
+                    self.logger.warning(
+                        "Unable to fetch text_generation_result for session %s",
+                        agent_session_id,
+                        exc_info=True
+                    )
+                    generation_result = {}
+                
+                content = generation_result.get("content", "") if isinstance(generation_result, dict) else ""
+                if not content:
+                    raise TextGenerationFailedException("AI text generation returned no content.")
+                
+                level = requested_level.value
+                genre = requested_genre.value
+                topic = session_data.topic or "General"
+                word_count = self._count_words(content)
+            
+            db_session.content = content
+            db_session.level = level
+            db_session.genre = genre
+            db_session.topic = topic
+            db_session.word_count = word_count
+            db_session.is_custom = is_custom
+            db.commit()
             
             return ReadingSessionResponse(
                 id=db_session.id,
@@ -173,7 +261,6 @@ class ReadingService:
     
     async def evaluate_answer(self, session_id: int, user_id: int, answer_data: AnswerSubmission, db: Session) -> AnswerFeedback:
         """Evaluate discussion answer (Vietnamese or English)"""
-        # Get session
         session = db.query(ReadingSession).filter(
             and_(
                 ReadingSession.id == session_id,
@@ -184,86 +271,62 @@ class ReadingService:
         if not session:
             raise ReadingSessionNotFoundException()
         
+        agent_session_id = str(session_id)
         try:
-            # Evaluate answer with analyze_answer_agent
-            evaluation_result = await self._evaluate_answer_with_agent(
-                original_text=session.content,
-                question=answer_data.question,
-                user_answer=answer_data.answer
-            )
-            
-            # Handle both dict and object responses
-            if isinstance(evaluation_result, dict):
-                score = evaluation_result.get("score", 75)
-                feedback = evaluation_result.get("feedback", DEFAULT_FEEDBACK)
-            else:
-                score = evaluation_result.score
-                feedback = evaluation_result.feedback
-            
-            return AnswerFeedback(
-                score=score,
-                feedback=feedback
-            )
-            
-        except Exception as e:
-            raise Exception(f"Failed to evaluate answer: {str(e)}")
-    
-    async def _evaluate_answer_with_agent(self, original_text: str, question: str, user_answer: str) -> Any:
-        """Evaluate answer using analyze_answer_agent"""
-        try:
-            runner = Runner(
-                agent=analyze_answer_agent,
+            agent_session = await self.session_service.get_session(
                 app_name="ReadingPractice",
-                session_service=self.session_service
+                user_id=str(user_id),
+                session_id=agent_session_id
             )
-            session_id = f"analyze_answer_{int(time.time())}"
+        except Exception:
+            agent_session = None
+        
+        if not agent_session or not agent_session.state:
+            raise Exception("Reading agent session state is missing. Please recreate the reading session.")
+        
+        try:
+            message = (
+                "Evaluate the user's discussion answer. Use the reading content in state and the details below:\n\n"
+                f"Question: {answer_data.question}\n"
+                f"Answer: {answer_data.answer}"
+            )
+            query = self._build_agent_query(source="analyze_discussion_answer", message=message)
             
-            try:
-                await self.session_service.create_session(
-                    app_name="ReadingPractice",
-                    user_id="system",
-                    session_id=session_id,
-                    state={}
-                )
-            except Exception:
-                pass  # Session might already exist
-            
-            query = f"""
-            Evaluate this discussion answer:
-            
-            Original reading text: {original_text}
-            
-            Question: {question}
-            
-            User's answer: {user_answer}
-            
-            Please determine if the answer is in Vietnamese or English and provide appropriate evaluation.
-            """
-            
-            response_text = await call_agent_with_logging(
-                runner=runner,
-                user_id="system",
-                session_id=session_id,
+            await call_agent_with_logging(
+                runner=self.runner,
+                user_id=str(user_id),
+                session_id=agent_session_id,
                 query=query,
                 logger=self.logger
             )
             
-            if not response_text:
-                return {"score": 75, "feedback": DEFAULT_FEEDBACK}
-            
             try:
-                # Try to parse as JSON first
-                return json.loads(response_text)
-            except json.JSONDecodeError:
-                # Fallback to text response
-                return {"score": 75, "feedback": response_text}
+                agent_session = await self.session_service.get_session(
+                    app_name="ReadingPractice",
+                    user_id=str(user_id),
+                    session_id=agent_session_id
+                )
+                evaluation_result = (
+                    agent_session.state.get("synthesis_result", {})
+                    if agent_session and agent_session.state
+                    else {}
+                )
+            except Exception:
+                evaluation_result = {}
+            
+            if not evaluation_result:
+                return AnswerFeedback(score=75, feedback=DEFAULT_FEEDBACK)
+            
+            score = evaluation_result.get("score", 75)
+            feedback = evaluation_result.get("feedback", DEFAULT_FEEDBACK)
+            
+            return AnswerFeedback(score=score, feedback=feedback)
             
         except Exception as e:
-            raise Exception(f"Answer evaluation failed: {str(e)}")
+            raise Exception(f"Failed to evaluate answer: {str(e)}")
     
     async def generate_quiz(self, session_id: int, user_id: int, quiz_request: QuizGenerationRequest, db: Session) -> QuizResponse:
         """Generate quiz from reading session"""
-        # Get session
         session = db.query(ReadingSession).filter(
             and_(
                 ReadingSession.id == session_id,
@@ -274,19 +337,52 @@ class ReadingService:
         if not session:
             raise ReadingSessionNotFoundException()
         
+        agent_session_id = str(session_id)
         try:
-            # Generate quiz with AI
-            quiz_result = await self._generate_quiz(session.content, quiz_request.number_of_questions)
-            
-            # Handle both dict and object responses
-            if isinstance(quiz_result, dict):
-                questions = quiz_result.get("questions", [])
-            else:
-                questions = quiz_result.questions
-            
-            return QuizResponse(
-                questions=questions
+            agent_session = await self.session_service.get_session(
+                app_name="ReadingPractice",
+                user_id=str(user_id),
+                session_id=agent_session_id
             )
+        except Exception:
+            agent_session = None
+        
+        if not agent_session or not agent_session.state:
+            raise Exception("Reading agent session state is missing. Please recreate the reading session.")
+        
+        try:
+            message = f"Generate a quiz with {quiz_request.number_of_questions} questions. Each question must be provided in BOTH English and Vietnamese."
+            query = self._build_agent_query(source="generate_quiz", message=message)
+            
+            await call_agent_with_logging(
+                runner=self.runner,
+                user_id=str(user_id),
+                session_id=agent_session_id,
+                query=query,
+                logger=self.logger
+            )
+            
+            try:
+                agent_session = await self.session_service.get_session(
+                    app_name="ReadingPractice",
+                    user_id=str(user_id),
+                    session_id=agent_session_id
+                )
+                quiz_payload = (
+                    agent_session.state.get("quiz_result", {})
+                    if agent_session and agent_session.state
+                    else {}
+                )
+            except Exception:
+                self.logger.warning(
+                    "Unable to fetch quiz_result for session %s",
+                    agent_session_id,
+                    exc_info=True
+                )
+                quiz_payload = {}
+            
+            questions = quiz_payload.get("questions", []) if isinstance(quiz_payload, dict) else []
+            return QuizResponse(questions=questions)
             
         except Exception as e:
             raise QuizGenerationFailedException(f"Failed to generate quiz: {str(e)}")
@@ -311,153 +407,8 @@ class ReadingService:
         return True
     
     # Private helper methods
-    async def _generate_reading_text(self, level: ReadingLevel, genre: ReadingGenre, topic: str, word_count: Optional[int] = None) -> Any:
-        """Generate reading text using AI agent"""
-        try:
-            runner = Runner(
-                agent=text_generation_agent,
-                app_name="ReadingPractice",
-                session_service=self.session_service
-            )
-            session_id = f"text_gen_{int(time.time())}"
-            
-            try:
-                await self.session_service.create_session(
-                    app_name="ReadingPractice",
-                    user_id="system",
-                    session_id=session_id,
-                    state={}
-                )
-            except Exception:
-                pass  # Session might already exist
-            
-            # Use provided word_count or default based on level
-            target_word_count = word_count if word_count is not None else self._get_default_word_count(level)
-            
-            query = f"""
-            Generate an English reading text with the following requirements:
-            - Level: {level.value}
-            - Genre: {genre.value}
-            - Topic: {topic}
-            - Target word count: {target_word_count} (approximate ±10%)
-            - Use vocabulary and grammar appropriate to the level
-            
-            IMPORTANT:
-            - Return ONLY the reading content as plain text.
-            - Do NOT return JSON or any extra fields.
-            - No title or metadata; content only.
-            """
-            
-            response_text = await call_agent_with_logging(
-                runner=runner,
-                user_id="system",
-                session_id=session_id,
-                query=query,
-                logger=self.logger
-            )
-            
-            if not response_text:
-                raise TextGenerationFailedException(NO_AI_RESPONSE_ERROR)
-            
-            # Return plain text directly
-            return response_text
-            
-        except Exception as e:
-            raise TextGenerationFailedException(f"AI text generation failed: {str(e)}")
-    
-    async def _analyze_custom_text(self, text: str) -> Any:
-        """Analyze custom text using AI agent"""
-        try:
-            runner = Runner(
-                agent=text_analysis_agent,
-                app_name="ReadingPractice",
-                session_service=self.session_service
-            )
-            session_id = f"text_analysis_{int(time.time())}"
-            
-            try:
-                await self.session_service.create_session(
-                    app_name="ReadingPractice",
-                    user_id="system",
-                    session_id=session_id,
-                    state={}
-                )
-            except Exception:
-                pass
-            
-            query = f"Analyze this reading text:\n\n{text}"
-            
-            response_text = await call_agent_with_logging(
-                runner=runner,
-                user_id="system",
-                session_id=session_id,
-                query=query,
-                logger=self.logger
-            )
-            
-            if not response_text:
-                raise TextAnalysisFailedException(NO_AI_RESPONSE_ERROR)
-            
-            try:
-                return json.loads(response_text)
-            except json.JSONDecodeError:
-                # If not JSON, try to extract from text
-                return {"level": "B1", "genre": "Bài báo", "topic": "General", "word_count": len(text.split())}
-            
-        except Exception as e:
-            raise TextAnalysisFailedException(f"AI text analysis failed: {str(e)}")
-    
-    async def _generate_quiz(self, content: str, number_of_questions: int) -> Any:
-        """Generate quiz using AI agent"""
-        try:
-            runner = Runner(
-                agent=quiz_generation_agent,
-                app_name="ReadingPractice",
-                session_service=self.session_service
-            )
-            session_id = f"quiz_gen_{int(time.time())}"
-            
-            try:
-                await self.session_service.create_session(
-                    app_name="ReadingPractice",
-                    user_id="system",
-                    session_id=session_id,
-                    state={}
-                )
-            except Exception:
-                pass
-            
-            query = f"""
-            Generate a quiz with {number_of_questions} questions from this reading text.
-            Each question must be provided in BOTH English and Vietnamese.
-            
-            Reading text:
-            {content}
-            """
-            
-            response_text = await call_agent_with_logging(
-                runner=runner,
-                user_id="system",
-                session_id=session_id,
-                query=query,
-                logger=self.logger
-            )
-            
-            if not response_text:
-                raise QuizGenerationFailedException(NO_AI_RESPONSE_ERROR)
-            
-            try:
-                return json.loads(response_text)
-            except json.JSONDecodeError:
-                # If not JSON, create fallback quiz
-                return {"questions": []}
-            
-        except Exception as e:
-            raise QuizGenerationFailedException(f"AI quiz generation failed: {str(e)}")
-    
     async def generate_discussion(self, session_id: int, user_id: int, discussion_request: DiscussionGenerationRequest, db: Session) -> DiscussionResponse:
         """Generate discussion questions from reading session"""
-        # Get session
         session = db.query(ReadingSession).filter(
             and_(
                 ReadingSession.id == session_id,
@@ -468,70 +419,55 @@ class ReadingService:
         if not session:
             raise ReadingSessionNotFoundException()
         
+        agent_session_id = str(session_id)
         try:
-            # Generate discussion with AI
-            discussion_result = await self._generate_discussion(session.content, discussion_request.number_of_questions)
-            
-            # Handle both dict and object responses
-            if isinstance(discussion_result, dict):
-                questions = discussion_result.get("questions", [])
-            else:
-                questions = discussion_result.questions
-            
-            return DiscussionResponse(
-                questions=questions
-            )
-            
-        except Exception as e:
-            raise Exception(f"Failed to generate discussion: {str(e)}")
-    
-    async def _generate_discussion(self, content: str, number_of_questions: int) -> Any:
-        """Generate discussion questions using AI agent"""
-        try:
-            runner = Runner(
-                agent=discussion_generation_agent,
+            agent_session = await self.session_service.get_session(
                 app_name="ReadingPractice",
-                session_service=self.session_service
+                user_id=str(user_id),
+                session_id=agent_session_id
             )
-            session_id = f"discussion_gen_{int(time.time())}"
+        except Exception:
+            agent_session = None
+        
+        if not agent_session or not agent_session.state:
+            raise Exception("Reading agent session state is missing. Please recreate the reading session.")
+        
+        try:
+            message = f"Generate {discussion_request.number_of_questions} discussion questions. Provide each question in BOTH English and Vietnamese."
+            query = self._build_agent_query(source="generate_discussion", message=message)
             
-            try:
-                await self.session_service.create_session(
-                    app_name="ReadingPractice",
-                    user_id="system",
-                    session_id=session_id,
-                    state={}
-                )
-            except Exception:
-                pass
-            
-            query = f"""
-            Generate {number_of_questions} discussion questions from this reading text.
-            Each question must be provided in BOTH English and Vietnamese.
-            
-            Reading text:
-            {content}
-            """
-            
-            response_text = await call_agent_with_logging(
-                runner=runner,
-                user_id="system",
-                session_id=session_id,
+            await call_agent_with_logging(
+                runner=self.runner,
+                user_id=str(user_id),
+                session_id=agent_session_id,
                 query=query,
                 logger=self.logger
             )
             
-            if not response_text:
-                raise Exception(NO_AI_RESPONSE_ERROR)
-            
             try:
-                return json.loads(response_text)
-            except json.JSONDecodeError:
-                # If not JSON, create fallback
-                return {"questions": []}
+                agent_session = await self.session_service.get_session(
+                    app_name="ReadingPractice",
+                    user_id=str(user_id),
+                    session_id=agent_session_id
+                )
+                discussion_payload = (
+                    agent_session.state.get("discussion_result", {})
+                    if agent_session and agent_session.state
+                    else {}
+                )
+            except Exception:
+                self.logger.warning(
+                    "Unable to fetch discussion_result for session %s",
+                    agent_session_id,
+                    exc_info=True
+                )
+                discussion_payload = {}
+            
+            questions = discussion_payload.get("questions", []) if isinstance(discussion_payload, dict) else []
+            return DiscussionResponse(questions=questions)
             
         except Exception as e:
-            raise Exception(f"AI discussion generation failed: {str(e)}")
+            raise Exception(f"Failed to generate discussion: {str(e)}")
     
     def _count_words(self, text: str) -> int:
         """Count words in text"""
