@@ -126,26 +126,45 @@ translation_evaluator_agent = LlmAgent(
     Level: "{level}"
     Hint: "{current_hint_result?}"
 
-    PROCESS:
-    1. Evaluate meaning, grammar, and vocabulary
-    2. If translation is correct OR only has minor spelling errors:
-       - Call get_next_sentence() tool FIRST
-       - Then respond ONLY with JSON: {{"evaluation_text": "Brief praise in Vietnamese + ask to translate next sentence"}}
-    3. If translation has significant errors (grammar, vocabulary, meaning):
-       - Do NOT call get_next_sentence()
-       - Respond ONLY with JSON: {{"evaluation_text": "Point out 1-3 main errors in Vietnamese + ask to retry"}}
+    CRITICAL DECISION RULE - WHEN TO CALL get_next_sentence() TOOL:
+    You MUST call get_next_sentence() tool ONLY when the translation is COMPLETELY CORRECT or has ONLY minor spelling errors.
+    
+    DO NOT call get_next_sentence() if the translation has ANY of the following:
+    - Grammar errors (wrong tenses, missing articles, wrong prepositions, incorrect verb forms)
+    - Vocabulary errors (wrong word choice, incorrect word usage)
+    - Meaning errors (missing information, incorrect information, wrong interpretation)
+    - Structural errors (wrong sentence structure, missing words that affect meaning)
+    
+    EVALUATION PROCESS:
+    1. First, carefully evaluate the translation for:
+       - Meaning accuracy: Does it convey the same meaning as the Vietnamese sentence?
+       - Grammar correctness: Are tenses, articles, prepositions, verb forms correct?
+       - Vocabulary accuracy: Are words used correctly and appropriately?
+       - Spelling: Are there only minor spelling mistakes (typos) that don't affect understanding?
+    
+    2. DECISION:
+       - If translation is CORRECT or has ONLY minor spelling errors (typos):
+         → Call get_next_sentence() tool FIRST
+         → Then respond with JSON: {{"evaluation_text": "Brief praise in Vietnamese + ask to translate next sentence"}}
+       
+       - If translation has ANY grammar, vocabulary, or meaning errors:
+         → DO NOT call get_next_sentence() tool
+         → Respond with JSON: {{"evaluation_text": "Point out 1-3 main errors in Vietnamese + ask to retry"}}
 
     EVALUATION CRITERIA:
-    - Meaning: Match main idea and accurate information
-    - Grammar: Tenses, articles, prepositions, verb structures
-    - Vocabulary: Context-appropriate words; accept synonyms
-    - Minor spelling errors are acceptable and do not prevent moving to next sentence
+    - Meaning: Must match the main idea and all key information from Vietnamese sentence
+    - Grammar: Tenses, articles (a/an/the), prepositions, verb structures must be correct
+    - Vocabulary: Words must be context-appropriate and correctly used; accept synonyms
+    - Minor spelling errors: Only typos like "lanqure" instead of "language" are acceptable
+    - If ANY error affects meaning or grammar, the translation is NOT acceptable
 
     OUTPUT REQUIREMENTS:
-    - Your ENTIRE response must be ONLY a JSON object conforming to the output schema
-    - NO plain text, NO explanations, NO headers, NO markdown formatting
+    - Your ENTIRE response must be ONLY a raw JSON object, nothing else
+    - NO markdown code blocks (no ```json or ```)
+    - NO plain text, NO explanations, NO headers before or after JSON
+    - Start directly with {{ and end with }}
     - The JSON object must contain exactly one field: "evaluation_text" (string)
-    - Example format: {{"evaluation_text": "Bản dịch của bạn rất tốt! Hãy dịch câu tiếp theo."}}
+    - Example: {{"evaluation_text": "Bản dịch của bạn rất tốt! Hãy dịch câu tiếp theo."}}
     """,
     tools=[get_next_sentence],
     output_schema=EvaluationOutput,
