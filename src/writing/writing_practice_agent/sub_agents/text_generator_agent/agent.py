@@ -49,35 +49,28 @@ text_generator_agent = LlmAgent(
     model="gemini-2.0-flash",
     description="Generate Vietnamese practice text based on topic, CEFR level, and desired sentence count from state.",
     instruction=f"""
-    You are an AI writer that produces Vietnamese source text for translation drills.
-    Your entire output (full_text and sentences) MUST BE IN VIETNAMESE.
+    Generate Vietnamese source text for translation practice.
 
-    ## INPUT (READ FROM STATE)
+    INPUT (from state):
     - topic: {{topic}}
     - level: {{level}}
     - total_sentences: {{total_sentences}}
 
-    ## REQUIREMENTS
-    1. Stay strictly on the provided topic "{{topic}}".
-    2. Match vocabulary and structure to the CEFR level "{{level}}".
-    3. Produce exactly {{total_sentences}} sentences (one sentence per item in the list).
-    4. Ensure the text is coherent, content-rich, and sounds natural in Vietnamese.
-    5. Vary sentence structures and vocabulary; use proper punctuation (., ?, !, ,, ;, …).
-    6. Do NOT greet, instruct the learner, or ask them to take action.
-    7. Do NOT include English text, and do NOT wrap sentences in quotation marks.
-    8. Do NOT describe your process or mention that you are generating text.
-    9. Use only the data in state; never ask the learner to provide topic/level/count again.
+    REQUIREMENTS:
+    - Stay strictly on topic "{{topic}}"
+    - Match CEFR level "{{level}}" vocabulary and structure
+    - Produce exactly {{total_sentences}} sentences
+    - All text MUST BE IN VIETNAMESE
+    - Coherent, natural, content-rich
+    - Vary sentence structures; use proper punctuation
+    - Do NOT greet, instruct, or describe your process
+    - Do NOT include English text
 
     {get_cefr_definitions_string()}
 
-    ## OUTPUT FORMAT (JSON)
-    {{
-        "full_text": "<complete Vietnamese passage>",
-        "sentences": ["Sentence 1.", "Sentence 2.", ...]
-    }}
-
-    - full_text must be the concatenation of all sentences in natural order.
-    - sentences must be a list of standalone Vietnamese sentences with punctuation.
+    OUTPUT:
+    - full_text: Complete Vietnamese passage (concatenation of all sentences)
+    - sentences: List of standalone Vietnamese sentences with punctuation
     """,
     output_schema=VietnameseTextResult,
     output_key="vietnamese_sentences",

@@ -1,44 +1,19 @@
 """
 Translation Evaluator Agent for Writing Practice
 """
-from google.adk.agents import Agent
+from typing import Dict, Any, Optional
+
+from google.adk.agents import LlmAgent
+from google.adk.agents.callback_context import CallbackContext
 from google.adk.tools.tool_context import ToolContext
-from typing import Dict, Any
+from google.genai import types
+from pydantic import BaseModel, Field
+
 from src.constants.cefr import get_cefr_definitions_string
 
 
-def save_evaluation_result(
-    evaluation_result: str,
-    accuracy_score: float,
-    tool_context: ToolContext,
-) -> Dict[str, Any]:
-    """Save evaluation result to session state.
-    
-    Args:
-        evaluation_result: The evaluation result text from agent (description of evaluation)
-        accuracy_score: Accuracy score (0-100) for this translation
-        tool_context: Context for accessing and updating session state
-        
-    Returns:
-        A confirmation message
-    """
-    current_sentence_index = tool_context.state.get("current_sentence_index", 0)
-    evaluation_history = tool_context.state.get("evaluation_history", [])
-    evaluation_history.append(
-        {
-            "sentence_index": current_sentence_index,
-            "evaluation_result": evaluation_result,
-            "accuracy_score": accuracy_score,
-        }
-    )
-    tool_context.state["evaluation_history"] = evaluation_history
-
-    return {
-        "action": "save_evaluation",
-        "sentence_index": current_sentence_index,
-        "accuracy_score": accuracy_score,
-        "message": f"Saved evaluation for sentence {current_sentence_index + 1}",
-    }
+class EvaluationOutput(BaseModel):
+    evaluation_text: str = Field(description="Learner-facing evaluation feedback")
 
 
 def get_next_sentence(tool_context: ToolContext) -> Dict[str, Any]:
@@ -100,59 +75,82 @@ def get_next_sentence(tool_context: ToolContext) -> Dict[str, Any]:
     }
 
 
-translation_evaluator_agent = Agent(
+def after_translation_evaluator_callback(callback_context: CallbackContext) -> Optional[types.Content]:
+    """
+    Callback that automatically saves evaluation to evaluation_history in state
+    after translation_evaluator_agent generates evaluation.
+    
+    This is the CORRECT way to update state - using callback_context.state
+    instead of directly modifying session.state from get_session().
+    
+    Args:
+        callback_context: Contains state and context information
+        
+    Returns:
+        None to continue with normal agent processing
+    """
+    state = callback_context.state
+    
+    # Get evaluation_output from state (set by output_key)
+    evaluation_data = state.get("evaluation_output", {})
+    
+    # Save evaluation to evaluation_history
+    if isinstance(evaluation_data, dict):
+        evaluation_text = evaluation_data.get("evaluation_text", "")
+        if evaluation_text:
+            current_sentence_index = state.get("current_sentence_index", 0)
+            evaluation_history = state.get("evaluation_history", [])
+            # Store evaluation result in history list
+            evaluation_history.append(
+                {
+                    "sentence_index": current_sentence_index,
+                    "vietnamese_sentence": state.get("current_vietnamese_sentence"),
+                    "evaluation_result": evaluation_text.strip(),
+                }
+            )
+            state["evaluation_history"] = evaluation_history
+    
+    return None  # Continue with normal agent processing
+
+
+translation_evaluator_agent = LlmAgent(
     name="translation_evaluator",
-    model="gemini-2.0-flash",
-    description="Evaluate user's English translation, save result and move to next sentence if score ≥90%",
-    instruction=f"""
-    You are an AI that evaluates English translations from learners.
+    model="gemini-2.5-flash",
+    description="Evaluate user's English translation, save result and move to next sentence if correct or only has minor spelling errors",
+    instruction="""
+    You are a Translation Evaluator Agent. Evaluate the learner's English translation against the Vietnamese sentence: "{current_vietnamese_sentence}".
+    
+    Given the translation, respond ONLY with a JSON object containing the evaluation feedback. Format: {{"evaluation_text": "your_feedback_here"}}
+    
+    Response language: Vietnamese
+    Level: "{level}"
+    Hint: "{current_hint_result?}"
 
-    CURRENT VIETNAMESE SENTENCE: "{{current_vietnamese_sentence}}"
-    DIFFICULTY LEVEL: {{level}}
-    HINT (if available): {{current_hint_result?}}
+    PROCESS:
+    1. Evaluate meaning, grammar, and vocabulary
+    2. If translation is correct OR only has minor spelling errors:
+       - Call get_next_sentence() tool FIRST
+       - Then respond ONLY with JSON: {{"evaluation_text": "Brief praise in Vietnamese + ask to translate next sentence"}}
+    3. If translation has significant errors (grammar, vocabulary, meaning):
+       - Do NOT call get_next_sentence()
+       - Respond ONLY with JSON: {{"evaluation_text": "Point out 1-3 main errors in Vietnamese + ask to retry"}}
 
-    TASK:
-    Evaluate the learner's English translation against the Vietnamese sentence, determine accuracy (0-100%), and decide whether to proceed to the next sentence.
+    EVALUATION CRITERIA:
+    - Meaning: Match main idea and accurate information
+    - Grammar: Tenses, articles, prepositions, verb structures
+    - Vocabulary: Context-appropriate words; accept synonyms
+    - Minor spelling errors are acceptable and do not prevent moving to next sentence
 
-    REQUIRED PROCESS:
-    1. Analyze the translation against the Vietnamese sentence
-    2. Evaluate: meaning, grammar, vocabulary
-    3. Determine accuracy score (0-100%)
-    4. Create evaluation description
-    5. Call save_evaluation_result(evaluation_result, accuracy_score)
-    6. If score ≥ 90%:
-       - Start with brief praise (1 sentence)
-       - Call get_next_sentence()
-       - Ask to translate the next sentence (don't specify which sentence)
-    7. If score < 90%:
-       - Point out specific errors (1-3 main issues)
-       - Ask to retry the current sentence
-       - Do NOT call get_next_sentence
-
-    EVALUATION CRITERIA (CEFR reference):
-    {get_cefr_definitions_string()}
-
-    EVALUATION DETAILS:
-    - Meaning: Match with Vietnamese sentence (main idea, accurate information)
-    - Grammar: Tenses, articles, prepositions, singular/plural, verb structures
-    - Vocabulary: Context-appropriate words; accept reasonable synonyms
-    - Minor spelling errors: ALLOWED and don't prevent ≥90% if overall is correct
-
-    PRAISE EXAMPLES (when ≥90%, choose one):
-    - "Rất tốt, bản dịch của bạn khá tự nhiên!"
-    - "Tuyệt vời, bạn đã truyền tải đúng ý chính!"
-    - "Làm tốt lắm, ngữ pháp nhìn chung ổn định!"
-
-    IMPORTANT:
-    - MUST call save_evaluation_result() to save evaluation
-    - If ≥90%, MUST call get_next_sentence() to advance
-    - When ≥90%, only ask to translate next sentence (don't specify which)
-    - When <90%, point out specific errors and ask to retry
-    - Evaluate objectively and fairly
-    - Allow minor spelling errors if meaning and grammar are correct
-    - If hint is available (current_hint_result), consider it when evaluating to provide more appropriate feedback
+    OUTPUT REQUIREMENTS:
+    - Your ENTIRE response must be ONLY a JSON object conforming to the output schema
+    - NO plain text, NO explanations, NO headers, NO markdown formatting
+    - The JSON object must contain exactly one field: "evaluation_text" (string)
+    - Example format: {{"evaluation_text": "Bản dịch của bạn rất tốt! Hãy dịch câu tiếp theo."}}
     """,
-    tools=[save_evaluation_result, get_next_sentence],
+    tools=[get_next_sentence],
+    output_schema=EvaluationOutput,
+    output_key="evaluation_output",
+    after_agent_callback=after_translation_evaluator_callback,
     disallow_transfer_to_parent=True,
     disallow_transfer_to_peers=True
 )

@@ -85,78 +85,37 @@ def skip_current_sentence(tool_context: ToolContext) -> Dict[str, Any]:
 writing_practice = Agent(
     name="writing_practice",
     model="gemini-2.0-flash",
-    description="Coordinates the writing practice workflow, delegating work to specialised tools while replying to learners in Vietnamese.",
+    description="Coordinates Vietnamese→English translation practice by routing requests to specialized tools.",
     instruction="""
-    You orchestrate the Vietnamese→English translation practice module. Analyse each request and select the correct tool.
-    When you speak to the learner, ALWAYS respond in natural, supportive Vietnamese.
+    Orchestrate the translation practice workflow. Route requests based on SOURCE and respond in Vietnamese.
     
-    INPUT FORMAT:
-    - Every message arrives as two lines:
-      SOURCE:<origin>
-      MESSAGE:<raw content>
-    - SOURCE indicates which UI element triggered the request (button vs. chat box).
+    INPUT: Two-line format
+    SOURCE:<origin>
+    MESSAGE:<content>
     
-    SUPPORTED SOURCE VALUES:
-    - generate_button: learner pressed the “generate text” button.
-    - hint_button: learner pressed the “hint” button.
-    - final_evaluation_button: learner requested the final evaluation.
-    - chat_input: learner typed directly into the chat box.
-    - skip_button: learner asked to skip the current sentence.
+    ROUTING RULES from SOURCE:
+    - chat_input → chat tool (forward full payload, don't generate own response, even if message request skip current sentence)
+    - generate_button → text_generator tool (no response needed)
+    - hint_button → hint_provider tool (reply in Vietnamese with hint)
+    - final_evaluation_button → final_evaluator tool (summarize in Vietnamese)
+    - skip_button → skip_current_sentence tool (craft Vietnamese reply with metadata)
     
-    DECISION PROCESS:
-    1. Read SOURCE to understand the context.
-    2. Use the MESSAGE line (text after “MESSAGE:”) as the payload for the tool.
-    3. If SOURCE == chat_input, call the chat_agent tool to classify the message.
+    TOOL CALLS:
+    - text_generator: MESSAGE = "Generate Vietnamese practice text"
+    - hint_provider: MESSAGE = "Create translation hints"
+    - final_evaluator: MESSAGE = "Produce final evaluation"
+    - chat: Pass full two-line payload as-is, forward response
     
-    TOOL USAGE RULES:
-    1. text_generator tool:
-       - Trigger: SOURCE == generate_button
-       - Call with MESSAGE = "Generate the Vietnamese practice text based on the current session state."
-       - IMPORTANT: Do NOT generate any greeting or introductory message before or after calling this tool.
-       - The tool will generate the text silently and store it in state. No user-facing response is needed.
     
-    2. hint_provider tool:
-       - Trigger: SOURCE == hint_button
-       - Call with MESSAGE = "Create translation hints for the current Vietnamese sentence."
-       - After receiving tool output, reply to the learner in clear Vietnamese with the hint.
-    
-    3. final_evaluator tool:
-       - Trigger: SOURCE == final_evaluation_button
-       - Call with MESSAGE = "Produce the final evaluation summary for this session."
-       - After receiving tool output, summarise and reply to the learner in clear Vietnamese.
-    
-    4. chat_agent tool:
-       - Trigger: SOURCE == chat_input
-       - Pass the full two-line payload exactly as received (both SOURCE and MESSAGE lines).
-       - The chat_agent tool will determine whether the learner sent a translation or needs guidance.
-       - After receiving tool output, reply to the learner in clear Vietnamese.
-    
-    5. skip_current_sentence tool:
-       - Trigger: SOURCE == skip_button OR MESSAGE explicitly asks to skip the sentence
-       - Call the tool without modification to advance to the next sentence.
-       - The tool returns metadata (skipped_index, current_index, next_sentence). Use that information to craft a natural Vietnamese reply.
-       - Tell the learner the skip is done and encourage them to translate the new sentence, quoting it if available.
-    
-    STATE INFORMATION AVAILABLE:
-    - current_vietnamese_sentence: the sentence the learner must translate.
-    - current_sentence_index: current sentence position.
-    - total_sentences: number of sentences in the exercise.
-    - level: CEFR difficulty level.
-    - topic: practice topic.
-    
-    IMPORTANT:
-    - Always use tools; do not craft answers without tool output.
-    - Study SOURCE and MESSAGE carefully before choosing a tool.
-    - For generate_button: Call the tool and do NOT generate any response text. The text generation is handled silently.
-    - For other sources: After receiving tool output, summarise and reply to the learner in clear Vietnamese.
+    CRITICAL: For chat_input, call chat tool immediately without generating own response.
     """,
-    sub_agents=[chat_agent],  # chat_agent remains as a sub-agent to handle routing logic for chat messages
     tools=[
         AgentTool(agent=text_generator_agent, skip_summarization=True),
         AgentTool(agent=hint_provider_agent, skip_summarization=True),
         AgentTool(agent=final_evaluator_agent, skip_summarization=True),
         skip_current_sentence
     ],
+    sub_agents=[chat_agent],
     disallow_transfer_to_parent=True,
     disallow_transfer_to_peers=True
 )

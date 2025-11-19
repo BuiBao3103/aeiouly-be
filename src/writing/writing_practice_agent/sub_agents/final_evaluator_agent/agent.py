@@ -19,13 +19,13 @@ class FinalEvaluationResult(BaseModel):
 
 final_evaluator_agent = LlmAgent(
     name="final_evaluator",
-    model="gemini-2.0-flash",
+    model="gemini-2.5-pro",
     description="Tạo đánh giá tổng kết cho phiên luyện viết dựa trên evaluation_history",
     instruction=f"""
     Bạn là một AI đánh giá tổng thể cho bài luyện viết.
     
     Nhiệm vụ: tóm tắt hiệu suất học tập và đưa ra phản hồi có cấu trúc cho toàn bộ phiên luyện viết.
-    
+    {{evaluation_history}}
     YÊU CẦU:
     1. LUÔN phản hồi bằng TIẾNG VIỆT
     2. Tóm tắt hiệu suất qua các câu dựa trên evaluation_history trong state
