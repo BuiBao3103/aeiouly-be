@@ -1,8 +1,11 @@
-from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey, Enum
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from src.database import Base
 from src.orm_mixins import SoftDeleteMixin, TimestampMixin
+from src.constants.cefr import CEFRLevel
+import enum
+
 
 class SpeakingSession(Base, SoftDeleteMixin, TimestampMixin):
     """Speaking session model - Phiên học nói"""
@@ -10,9 +13,11 @@ class SpeakingSession(Base, SoftDeleteMixin, TimestampMixin):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    topic = Column(String(255), nullable=False)
-    level = Column(String(2), nullable=False, index=True)  # A1, A2, B1, B2, C1, C2
-    status = Column(String(20), default="active", nullable=False)  # active, completed
+    my_character = Column(String(255), nullable=False)  # Nhân vật của người dùng
+    ai_character = Column(String(255), nullable=False)  # Nhân vật AI
+    scenario = Column(Text, nullable=False)  # Tình huống giao tiếp
+    level = Column(String(10), nullable=False)
+    status = Column(String(20), default="active")
     
     # Relationships
     user = relationship("User", back_populates="speaking_sessions")
@@ -26,7 +31,7 @@ class SpeakingChatMessage(Base, SoftDeleteMixin, TimestampMixin):
     session_id = Column(Integer, ForeignKey("speaking_sessions.id"), nullable=False, index=True)
     role = Column(String(20), nullable=False)  # 'user' or 'assistant'
     content = Column(Text, nullable=False)  # English content
-    vietnamese_content = Column(Text, nullable=True)  # Vietnamese translation (only for assistant role)
+    is_audio = Column(Boolean, default=False, nullable=False)  # True if message was sent as audio
     
     # Relationships
     session = relationship("SpeakingSession", back_populates="chat_messages")
