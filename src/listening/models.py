@@ -33,7 +33,6 @@ class Sentence(Base, SoftDeleteMixin, TimestampMixin):
     translation = Column(Text, nullable=True)  # Vietnamese translation
     start_time = Column(Float, nullable=False)  # Start time in seconds
     end_time = Column(Float, nullable=False)  # End time in seconds
-    normalized_text = Column(Text, nullable=True)  # Normalized for comparison
     confidence = Column(Float, nullable=True)  # Confidence score per sentence (0-1)
     
     # Relationships

@@ -14,8 +14,7 @@
           "text": "Everyone, please think of your biggest personal goal.",
           "translation": "Mọi người, xin hãy nghĩ về mục tiêu cá nhân lớn nhất của bạn.",
           "start_time": 16.371,
-          "end_time": 19.386,
-          "normalized_text": "everyone, please think of your biggest personal goal."
+          "end_time": 19.386
         },
         {
           "id": 2,
@@ -24,8 +23,7 @@
           "text": "For real -- you can take a second. You've got to feel this to learn it.",
           "translation": "Thật đấy -- bạn có thể dành ra một giây. Bạn phải cảm nhận được điều này để học nó.",
           "start_time": 20.117,
-          "end_time": 23.665,
-          "normalized_text": "for real you can take a second. you have got to feel this to learn it."
+          "end_time": 23.665
         },
         {
           "id": 3,
@@ -34,8 +32,7 @@
           "text": "Take a few seconds and think of your personal biggest goal, okay?",
           "translation": "Hãy dành vài giây và nghĩ về mục tiêu cá nhân lớn nhất của bạn, được chứ?",
           "start_time": 23.689,
-          "end_time": 26.99,
-          "normalized_text": "take a few seconds and think of your personal biggest goal, okay?"
+          "end_time": 26.99
         },
         {
           "id": 4,
@@ -44,8 +41,7 @@
           "text": "Imagine deciding right now that you're going to do it.",
           "translation": "Hãy tưởng tượng bạn quyết định ngay bây giờ rằng bạn sẽ thực hiện nó.",
           "start_time": 27.427,
-          "end_time": 30.108,
-          "normalized_text": "imagine deciding right now that you are going to do it."
+          "end_time": 30.108
         },
         {
           "id": 5,
@@ -54,8 +50,7 @@
           "text": "Imagine telling someone that you meet today what you're going to do.",
           "translation": "Hãy tưởng tượng bạn kể cho một người bạn gặp hôm nay về điều bạn sẽ làm.",
           "start_time": 30.132,
-          "end_time": 33.401,
-          "normalized_text": "imagine telling someone that you meet today what you are going to do."
+          "end_time": 33.401
         },
         {
           "id": 6,
@@ -64,8 +59,7 @@
           "text": "Imagine their congratulations,",
           "translation": "Hãy tưởng tượng lời chúc mừng của họ,",
           "start_time": 33.425,
-          "end_time": 35.66,
-          "normalized_text": "imagine their congratulations,"
+          "end_time": 35.66
         },
         {
           "id": 7,
@@ -74,8 +68,7 @@
           "text": "and their high image of you.",
           "translation": "và hình ảnh tốt đẹp của họ về bạn.",
           "start_time": 35.684,
-          "end_time": 37.236,
-          "normalized_text": "and their high image of you."
+          "end_time": 37.236
         },
         {
           "id": 8,
@@ -84,8 +77,7 @@
           "text": "Doesn't it feel good to say it out loud?",
           "translation": "Nói ra thành lời có cảm thấy tuyệt vời không?",
           "start_time": 37.26,
-          "end_time": 39.609,
-          "normalized_text": "does not it feel good to say it out loud?"
+          "end_time": 39.609
         },
         {
           "id": 9,
@@ -94,8 +86,7 @@
           "text": "Don't you feel one step closer already,",
           "translation": "Bạn có cảm thấy mình đã tiến gần hơn một bước rồi không,",
           "start_time": 39.633,
-          "end_time": 42.099,
-          "normalized_text": "do not you feel one step closer already,"
+          "end_time": 42.099
         },
         {
           "id": 10,
@@ -104,8 +95,7 @@
           "text": "like it's already becoming part of your identity?",
           "translation": "giống như nó đã trở thành một phần con người của bạn?",
           "start_time": 42.123,
-          "end_time": 44.577,
-          "normalized_text": "like it is already becoming part of your identity?"
+          "end_time": 44.577
         },
         {
           "id": 11,
@@ -114,8 +104,7 @@
           "text": "Well, bad news: you should have kept your mouth shut,",
           "translation": "Chà, tin buồn đây: lẽ ra bạn nên giữ im lặng,",
           "start_time": 44.601,
-          "end_time": 48.597,
-          "normalized_text": "well, bad news you should have kept your mouth shut,"
+          "end_time": 48.597
         },
         {
           "id": 12,
@@ -124,8 +113,7 @@
           "text": "because that good feeling",
           "translation": "bởi vì cảm giác tốt đẹp đó",
           "start_time": 48.621,
-          "end_time": 50.05,
-          "normalized_text": "because that good feeling"
+          "end_time": 50.05
         },
         {
           "id": 13,
@@ -134,8 +122,7 @@
           "text": "now will make you less likely to do it.",
           "translation": "bây giờ sẽ khiến bạn ít có khả năng thực hiện nó hơn.",
           "start_time": 50.074,
-          "end_time": 52.145,
-          "normalized_text": "now will make you less likely to do it."
+          "end_time": 52.145
         },
         {
           "id": 14,
@@ -144,8 +131,7 @@
           "text": "The repeated psychology tests have proven",
           "translation": "Các bài kiểm tra tâm lý học được lặp lại đã chứng minh rằng",
           "start_time": 52.755,
-          "end_time": 55.081,
-          "normalized_text": "the repeated psychology tests have proven"
+          "end_time": 55.081
         },
         {
           "id": 15,
@@ -154,8 +140,7 @@
           "text": "that telling someone your goal makes it less likely to happen.",
           "translation": "việc nói cho ai đó biết mục tiêu của bạn sẽ khiến nó ít có khả năng xảy ra hơn.",
           "start_time": 55.105,
-          "end_time": 58.453,
-          "normalized_text": "that telling someone your goal makes it less likely to happen."
+          "end_time": 58.453
         },
         {
           "id": 16,
@@ -164,8 +149,7 @@
           "text": "Any time you have a goal,",
           "translation": "Bất cứ khi nào bạn có một mục tiêu,",
           "start_time": 59.366,
-          "end_time": 60.671,
-          "normalized_text": "any time you have a goal,"
+          "end_time": 60.671
         },
         {
           "id": 17,
@@ -174,8 +158,7 @@
           "text": "there are some steps that need to be done,",
           "translation": "sẽ có một vài bước cần phải được thực hiện,",
           "start_time": 60.695,
-          "end_time": 62.719,
-          "normalized_text": "there are some steps that need to be done,"
+          "end_time": 62.719
         },
         {
           "id": 18,
@@ -184,8 +167,7 @@
           "text": "some work that needs to be done in order to achieve it.",
           "translation": "một số công việc cần phải được hoàn thành để đạt được nó.",
           "start_time": 62.743,
-          "end_time": 65.324,
-          "normalized_text": "some work that needs to be done in order to achieve it."
+          "end_time": 65.324
         },
         {
           "id": 19,
@@ -194,8 +176,7 @@
           "text": "Ideally you would not be satisfied until you'd actually done the work.",
           "translation": "Lý tưởng nhất là bạn sẽ không hài lòng cho đến khi bạn thực sự hoàn thành công việc.",
           "start_time": 65.348,
-          "end_time": 68.644,
-          "normalized_text": "ideally you would not be satisfied until you would actually done the work."
+          "end_time": 68.644
         },
         {
           "id": 20,
@@ -204,8 +185,7 @@
           "text": "But when you tell someone your goal and they acknowledge it,",
           "translation": "Nhưng khi bạn nói cho ai đó về mục tiêu của mình và họ công nhận điều đó,",
           "start_time": 68.668,
-          "end_time": 71.53999999999999,
-          "normalized_text": "but when you tell someone your goal and they acknowledge it,"
+          "end_time": 71.53999999999999
         },
         {
           "id": 21,
@@ -214,8 +194,7 @@
           "text": "psychologists have found that it's called a \"social reality.\"",
           "translation": "các nhà tâm lý học đã phát hiện ra rằng nó được gọi là một \"thực tế xã hội.\"",
           "start_time": 71.564,
-          "end_time": 74.467,
-          "normalized_text": "psychologists have found that it is called a social reality."
+          "end_time": 74.467
         },
         {
           "id": 22,
@@ -224,8 +203,7 @@
           "text": "The mind is kind of tricked into feeling that it's already done.",
           "translation": "Tâm trí bị đánh lừa và cảm thấy rằng việc đó đã được hoàn thành rồi.",
           "start_time": 74.491,
-          "end_time": 77.501,
-          "normalized_text": "the mind is kind of tricked into feeling that it is already done."
+          "end_time": 77.501
         },
         {
           "id": 23,
@@ -234,8 +212,7 @@
           "text": "And then because you've felt that satisfaction,",
           "translation": "Và rồi bởi vì bạn đã cảm thấy sự thỏa mãn đó,",
           "start_time": 77.525,
-          "end_time": 79.78,
-          "normalized_text": "and then because you have felt that satisfaction,"
+          "end_time": 79.78
         },
         {
           "id": 24,
@@ -244,8 +221,7 @@
           "text": "you're less motivated to do the actual hard work necessary.",
           "translation": "bạn sẽ ít có động lực hơn để thực hiện công việc khó khăn cần thiết.",
           "start_time": 79.804,
-          "end_time": 82.752,
-          "normalized_text": "you are less motivated to do the actual hard work necessary."
+          "end_time": 82.752
         },
         {
           "id": 25,
@@ -254,8 +230,7 @@
           "text": "So this goes against conventional wisdom",
           "translation": "Vậy, điều này đi ngược lại với quan niệm thông thường",
           "start_time": 84.10900000000001,
-          "end_time": 86.14099999999999,
-          "normalized_text": "so this goes against conventional wisdom"
+          "end_time": 86.14099999999999
         },
         {
           "id": 26,
@@ -264,8 +239,7 @@
           "text": "that we should tell our friends our goals, right?",
           "translation": "rằng chúng ta nên nói cho bạn bè biết mục tiêu của mình, phải không?",
           "start_time": 86.16499999999999,
-          "end_time": 88.554,
-          "normalized_text": "that we should tell our friends our goals, right?"
+          "end_time": 88.554
         },
         {
           "id": 27,
@@ -274,8 +248,7 @@
           "text": "So they hold us to it.",
           "translation": "Để họ có thể nhắc nhở chúng ta thực hiện.",
           "start_time": 88.578,
-          "end_time": 91.10300000000001,
-          "normalized_text": "so they hold us to it."
+          "end_time": 91.10300000000001
         },
         {
           "id": 28,
@@ -284,8 +257,7 @@
           "text": "So, let's look at the proof.",
           "translation": "Vậy, chúng ta hãy xem xét bằng chứng.",
           "start_time": 91.127,
-          "end_time": 93.23599999999999,
-          "normalized_text": "so, lets look at the proof."
+          "end_time": 93.23599999999999
         },
         {
           "id": 29,
@@ -294,8 +266,7 @@
           "text": "1926: Kurt Lewin, founder of social psychology,",
           "translation": "Năm 1926: Kurt Lewin, người sáng lập ngành tâm lý học xã hội,",
           "start_time": 93.25999999999999,
-          "end_time": 96.086,
-          "normalized_text": "1926 kurt lewin, founder of social psychology,"
+          "end_time": 96.086
         },
         {
           "id": 30,
@@ -304,8 +275,7 @@
           "text": "called this \"substitution.\"",
           "translation": "đã gọi đây là \"sự thay thế.\"",
           "start_time": 96.11,
-          "end_time": 97.59,
-          "normalized_text": "called this substitution."
+          "end_time": 97.59
         },
         {
           "id": 31,
@@ -314,8 +284,7 @@
           "text": "1933: Wera Mahler found when it was acknowledged by others,",
           "translation": "Năm 1933: Wera Mahler phát hiện ra rằng khi được người khác công nhận,",
           "start_time": 97.614,
-          "end_time": 100.979,
-          "normalized_text": "1933 wera mahler found when it was acknowledged by others,"
+          "end_time": 100.979
         },
         {
           "id": 32,
@@ -324,8 +293,7 @@
           "text": "it felt real in the mind.",
           "translation": "nó có cảm giác như thật trong tâm trí.",
           "start_time": 101.003,
-          "end_time": 102.718,
-          "normalized_text": "it felt real in the mind."
+          "end_time": 102.718
         },
         {
           "id": 33,
@@ -334,8 +302,7 @@
           "text": "1982, Peter Gollwitzer wrote a whole book about this,",
           "translation": "Năm 1982, Peter Gollwitzer đã viết cả một cuốn sách về điều này,",
           "start_time": 102.74199999999999,
-          "end_time": 105.23599999999999,
-          "normalized_text": "1982, peter gollwitzer wrote a whole book about this,"
+          "end_time": 105.23599999999999
         },
         {
           "id": 34,
@@ -344,8 +311,7 @@
           "text": "and in 2009,",
           "translation": "và vào năm 2009,",
           "start_time": 105.25999999999999,
-          "end_time": 106.803,
-          "normalized_text": "and in 2009,"
+          "end_time": 106.803
         },
         {
           "id": 35,
@@ -354,8 +320,7 @@
           "text": "he did some new tests that were published.",
           "translation": "ông đã thực hiện một số bài kiểm tra mới đã được công bố.",
           "start_time": 106.827,
-          "end_time": 109.374,
-          "normalized_text": "he did some new tests that were published."
+          "end_time": 109.374
         },
         {
           "id": 36,
@@ -364,8 +329,7 @@
           "text": "It goes like this:",
           "translation": "Nó diễn ra như thế này:",
           "start_time": 109.398,
-          "end_time": 110.866,
-          "normalized_text": "it goes like this"
+          "end_time": 110.866
         },
         {
           "id": 37,
@@ -374,8 +338,7 @@
           "text": "163 people across four separate tests.",
           "translation": "163 người tham gia trong bốn bài kiểm tra riêng biệt.",
           "start_time": 110.89,
-          "end_time": 113.88900000000001,
-          "normalized_text": "163 people across four separate tests."
+          "end_time": 113.88900000000001
         },
         {
           "id": 38,
@@ -384,8 +347,7 @@
           "text": "Everyone wrote down their personal goal.",
           "translation": "Mọi người đều viết ra mục tiêu cá nhân của họ.",
           "start_time": 114.476,
-          "end_time": 116.77000000000001,
-          "normalized_text": "everyone wrote down their personal goal."
+          "end_time": 116.77000000000001
         },
         {
           "id": 39,
@@ -394,8 +356,7 @@
           "text": "Then half of them announced their commitment to this goal to the room,",
           "translation": "Sau đó, một nửa trong số họ công bố cam kết của mình đối với mục tiêu này cho cả phòng nghe,",
           "start_time": 116.794,
-          "end_time": 120.681,
-          "normalized_text": "then half of them announced their commitment to this goal to the room,"
+          "end_time": 120.681
         },
         {
           "id": 40,
@@ -404,8 +365,7 @@
           "text": "and half didn't.",
           "translation": "và nửa còn lại thì không.",
           "start_time": 120.705,
-          "end_time": 121.887,
-          "normalized_text": "and half did not."
+          "end_time": 121.887
         },
         {
           "id": 41,
@@ -414,8 +374,7 @@
           "text": "Then everyone was given 45 minutes of work",
           "translation": "Sau đó, mọi người được giao 45 phút làm việc",
           "start_time": 122.76,
-          "end_time": 124.791,
-          "normalized_text": "then everyone was given 45 minutes of work"
+          "end_time": 124.791
         },
         {
           "id": 42,
@@ -424,8 +383,7 @@
           "text": "that would directly lead them towards their goal,",
           "translation": "mà sẽ trực tiếp dẫn họ đến mục tiêu của mình,",
           "start_time": 124.815,
-          "end_time": 127.11,
-          "normalized_text": "that would directly lead them towards their goal,"
+          "end_time": 127.11
         },
         {
           "id": 43,
@@ -434,8 +392,7 @@
           "text": "but they were told that they could stop at any time.",
           "translation": "nhưng họ được cho biết rằng họ có thể dừng lại bất cứ lúc nào.",
           "start_time": 127.134,
-          "end_time": 129.578,
-          "normalized_text": "but they were told that they could stop at any time."
+          "end_time": 129.578
         },
         {
           "id": 44,
@@ -444,8 +401,7 @@
           "text": "Now, those who kept their mouths shut",
           "translation": "Giờ thì, những người đã giữ im lặng",
           "start_time": 129.602,
-          "end_time": 131.485,
-          "normalized_text": "now, those who kept their mouths shut"
+          "end_time": 131.485
         },
         {
           "id": 45,
@@ -454,8 +410,7 @@
           "text": "worked the entire 45 minutes on average,",
           "translation": "đã làm việc trung bình trọn vẹn 45 phút,",
           "start_time": 131.50900000000001,
-          "end_time": 134.236,
-          "normalized_text": "worked the entire 45 minutes on average,"
+          "end_time": 134.236
         },
         {
           "id": 46,
@@ -464,8 +419,7 @@
           "text": "and when asked afterward,",
           "translation": "và khi được hỏi sau đó,",
           "start_time": 134.26,
-          "end_time": 135.797,
-          "normalized_text": "and when asked afterward,"
+          "end_time": 135.797
         },
         {
           "id": 47,
@@ -474,8 +428,7 @@
           "text": "said that they felt that they had a long way to go still",
           "translation": "họ nói rằng họ cảm thấy mình vẫn còn một chặng đường dài phía trước",
           "start_time": 135.821,
-          "end_time": 138.485,
-          "normalized_text": "said that they felt that they had a long way to go still"
+          "end_time": 138.485
         },
         {
           "id": 48,
@@ -484,8 +437,7 @@
           "text": "to achieve their goal.",
           "translation": "để đạt được mục tiêu của mình.",
           "start_time": 138.50900000000001,
-          "end_time": 139.662,
-          "normalized_text": "to achieve their goal."
+          "end_time": 139.662
         },
         {
           "id": 49,
@@ -494,8 +446,7 @@
           "text": "But those who had announced it",
           "translation": "Nhưng những người đã công bố mục tiêu",
           "start_time": 139.686,
-          "end_time": 141.236,
-          "normalized_text": "but those who had announced it"
+          "end_time": 141.236
         },
         {
           "id": 50,
@@ -504,8 +455,7 @@
           "text": "quit after only 33 minutes, on average,",
           "translation": "đã bỏ cuộc trung bình chỉ sau 33 phút,",
           "start_time": 141.26,
-          "end_time": 144.102,
-          "normalized_text": "quit after only 33 minutes, on average,"
+          "end_time": 144.102
         },
         {
           "id": 51,
@@ -514,8 +464,7 @@
           "text": "and when asked afterward,",
           "translation": "và khi được hỏi sau đó,",
           "start_time": 144.126,
-          "end_time": 145.856,
-          "normalized_text": "and when asked afterward,"
+          "end_time": 145.856
         },
         {
           "id": 52,
@@ -524,8 +473,7 @@
           "text": "said that they felt much closer to achieving their goal.",
           "translation": "họ nói rằng họ cảm thấy gần hơn nhiều với việc đạt được mục tiêu của mình.",
           "start_time": 145.88,
-          "end_time": 148.591,
-          "normalized_text": "said that they felt much closer to achieving their goal."
+          "end_time": 148.591
         },
         {
           "id": 53,
@@ -534,8 +482,7 @@
           "text": "So if this is true, what can we do?",
           "translation": "Vậy nếu điều này là đúng, chúng ta có thể làm gì?",
           "start_time": 148.615,
-          "end_time": 151.272,
-          "normalized_text": "so if this is true, what can we do?"
+          "end_time": 151.272
         },
         {
           "id": 54,
@@ -544,8 +491,7 @@
           "text": "Well, you could resist the temptation to announce your goal.",
           "translation": "À, bạn có thể chống lại sự cám dỗ muốn công bố mục tiêu của mình.",
           "start_time": 151.899,
-          "end_time": 155.497,
-          "normalized_text": "well, you could resist the temptation to announce your goal."
+          "end_time": 155.497
         },
         {
           "id": 55,
@@ -554,8 +500,7 @@
           "text": "You can delay the gratification that the social acknowledgment brings,",
           "translation": "Bạn có thể trì hoãn sự thỏa mãn mà sự công nhận của xã hội mang lại,",
           "start_time": 156.26,
-          "end_time": 160.54399999999998,
-          "normalized_text": "you can delay the gratification that the social acknowledgment brings,"
+          "end_time": 160.54399999999998
         },
         {
           "id": 56,
@@ -564,8 +509,7 @@
           "text": "and you can understand that your mind mistakes the talking for the doing.",
           "translation": "và bạn có thể hiểu rằng tâm trí của bạn nhầm lẫn giữa việc nói và việc làm.",
           "start_time": 160.56799999999998,
-          "end_time": 164.348,
-          "normalized_text": "and you can understand that your mind mistakes the talking for the doing."
+          "end_time": 164.348
         },
         {
           "id": 57,
@@ -574,8 +518,7 @@
           "text": "But if you do need to talk about something,",
           "translation": "Nhưng nếu bạn thực sự cần nói về điều gì đó,",
           "start_time": 164.959,
-          "end_time": 167.308,
-          "normalized_text": "but if you do need to talk about something,"
+          "end_time": 167.308
         },
         {
           "id": 58,
@@ -584,8 +527,7 @@
           "text": "you can state it in a way that gives you no satisfaction,",
           "translation": "bạn có thể trình bày nó theo cách không mang lại cho bạn sự thỏa mãn nào,",
           "start_time": 167.332,
-          "end_time": 171.679,
-          "normalized_text": "you can state it in a way that gives you no satisfaction,"
+          "end_time": 171.679
         },
         {
           "id": 59,
@@ -594,8 +536,7 @@
           "text": "such as, \"I really want to run this marathon,",
           "translation": "chẳng hạn như, \"Tôi thực sự muốn chạy marathon,",
           "start_time": 171.703,
-          "end_time": 173.822,
-          "normalized_text": "such as, i really want to run this marathon,"
+          "end_time": 173.822
         },
         {
           "id": 60,
@@ -604,8 +545,7 @@
           "text": "so I need to train five times a week",
           "translation": "vì vậy tôi cần phải luyện tập năm lần một tuần",
           "start_time": 173.846,
-          "end_time": 175.576,
-          "normalized_text": "so i need to train five times a week"
+          "end_time": 175.576
         },
         {
           "id": 61,
@@ -614,8 +554,7 @@
           "text": "and kick my ass if I don't, okay?\"",
           "translation": "và hãy thúc ép tôi nếu tôi không làm vậy, được chứ?\"",
           "start_time": 175.6,
-          "end_time": 177.303,
-          "normalized_text": "and kick my ass if i do not, okay?"
+          "end_time": 177.303
         },
         {
           "id": 62,
@@ -624,8 +563,7 @@
           "text": "So audience, next time you're tempted to tell someone your goal,",
           "translation": "Vậy thưa quý vị khán giả, lần tới khi bạn muốn nói cho ai đó biết mục tiêu của mình,",
           "start_time": 177.97,
-          "end_time": 181.071,
-          "normalized_text": "so audience, next time you are tempted to tell someone your goal,"
+          "end_time": 181.071
         },
         {
           "id": 63,
@@ -634,8 +572,7 @@
           "text": "what will you say?",
           "translation": "bạn sẽ nói gì?",
           "start_time": 181.095,
-          "end_time": 182.245,
-          "normalized_text": "what will you say?"
+          "end_time": 182.245
         },
         {
           "id": 64,
@@ -644,8 +581,7 @@
           "text": "Exactly! Well done.",
           "translation": "Chính xác! Làm tốt lắm.",
           "start_time": 183.294,
-          "end_time": 184.546,
-          "normalized_text": "exactly! well done."
+          "end_time": 184.546
         }
       ],
       "created_at": "2025-11-07T21:47:03+0700",

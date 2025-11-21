@@ -113,8 +113,8 @@ def import_listening_lessons():
                     text(
                         """
                         INSERT INTO sentences
-                        (id, lesson_id, "index", text, translation, start_time, end_time, normalized_text, confidence, created_at, updated_at, deleted_at)
-                        VALUES (:id, :lesson_id, :index, :text, :translation, :start_time, :end_time, :normalized_text, :confidence, :created_at, :updated_at, NULL)
+                        (id, lesson_id, "index", text, translation, start_time, end_time, confidence, created_at, updated_at, deleted_at)
+                        VALUES (:id, :lesson_id, :index, :text, :translation, :start_time, :end_time, :confidence, :created_at, :updated_at, NULL)
                         """
                     ),
                     {
@@ -125,7 +125,6 @@ def import_listening_lessons():
                         "translation": sentence.get("translation"),
                         "start_time": sentence.get("start_time"),
                         "end_time": sentence.get("end_time"),
-                        "normalized_text": sentence.get("normalized_text"),
                         "confidence": sentence.get("confidence"),
                         "created_at": created_at,
                         "updated_at": updated_at,

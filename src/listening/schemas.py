@@ -26,7 +26,6 @@ class SentenceResponse(CustomModel):
     translation: Optional[str] = None
     start_time: float
     end_time: float
-    normalized_text: Optional[str] = None
 
 class LessonResponse(CustomModel):
     id: int
@@ -69,6 +68,18 @@ class SessionDetailResponse(CustomModel):
     status: SessionStatus
     attempts: int
     lesson: LessonResponse
+    current_sentence: Optional[SentenceResponse] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+class SessionNextResponse(CustomModel):
+    """Response for session next-sentence endpoint (no lesson payload)."""
+    id: int
+    user_id: int
+    lesson_id: int
+    current_sentence_index: int
+    status: SessionStatus
+    attempts: int
     current_sentence: Optional[SentenceResponse] = None
     created_at: datetime
     updated_at: Optional[datetime] = None

@@ -13,7 +13,7 @@ from src.users.models import User
 from src.listening.service import ListeningService
 from src.listening.schemas import (
     LessonUpload, LessonUpdate, LessonResponse, LessonDetailResponse,
-    SessionCreate, SessionResponse, SessionDetailResponse,
+    SessionCreate, SessionResponse, SessionDetailResponse, SessionNextResponse,
     ProgressSubmit, ProgressStats, SessionCompleteResponse,
     LessonFilter, UserSessionResponse
 )
@@ -198,7 +198,7 @@ def get_session(
         )
     return session
 
-@router.post("/listening-sessions/{session_id}/next", response_model=SessionDetailResponse)
+@router.post("/listening-sessions/{session_id}/next", response_model=SessionNextResponse)
 def get_next_sentence(
     session_id: int,
     current_user: User = Depends(get_current_active_user),

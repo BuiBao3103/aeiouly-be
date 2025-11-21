@@ -9,12 +9,12 @@ from src.constants.cefr import CEFRLevel
 from src.listening.models import ListenLesson, Sentence, ListeningSession, SessionStatus
 from src.listening.schemas import (
     LessonCreate, LessonUpload, LessonUpdate, LessonResponse, LessonDetailResponse,
-    SessionCreate, SessionResponse, SessionDetailResponse,
+    SessionCreate, SessionResponse, SessionDetailResponse, SessionNextResponse,
     ProgressSubmit, ProgressStats, SessionCompleteResponse,
     LessonFilter, UserSessionResponse
 )
 from src.pagination import PaginationParams, PaginatedResponse, paginate
-from src.listening.utils import SRTParser, TextNormalizer, sanitize_subtitle_text, is_non_speech_subtitle
+from src.listening.utils import SRTParser, sanitize_subtitle_text, is_non_speech_subtitle
 from src.listening.exceptions import (
     LessonNotFoundException, LessonCreationFailedException,
     SessionNotFoundException, SessionAlreadyCompletedException,
@@ -250,9 +250,6 @@ class ListeningService:
             # Create sentences with translation
             sentences = []
             for i, subtitle in enumerate(subtitles):
-                # Normalize text
-                normalized_text = TextNormalizer.normalize(subtitle.text)
-                
                 # Get translation from batch result
                 translation = all_translations[i] if i < len(all_translations) else f"[Translation for: {subtitle.text}]"
                 
@@ -266,7 +263,6 @@ class ListeningService:
                     translation=translation,
                     start_time=subtitle.start_time,
                     end_time=subtitle.end_time,
-                    normalized_text=normalized_text,
                     confidence=sentence_confidence
                 )
                 sentences.append(sentence)
@@ -484,7 +480,6 @@ class ListeningService:
                 "translation": sentence.translation,
                 "start_time": sentence.start_time,
                 "end_time": sentence.end_time,
-                "normalized_text": sentence.normalized_text,
             }
             for sentence in sentences
         ]
@@ -628,7 +623,7 @@ class ListeningService:
             updated_at=session.updated_at
         )
     
-    def get_next_sentence(self, session_id: int, user_id: int, db: Session) -> SessionDetailResponse:
+    def get_next_sentence(self, session_id: int, user_id: int, db: Session) -> SessionNextResponse:
         """Move to next sentence and return session detail with current sentence"""
         session = db.query(ListeningSession).filter(
             and_(
@@ -670,30 +665,17 @@ class ListeningService:
                 "translation": sentence.translation,
                 "start_time": sentence.start_time,
                 "end_time": sentence.end_time,
-                "normalized_text": sentence.normalized_text,
             } if sentence else None
         
         db.commit()
         
-        # Create lesson response
-        lesson_response = LessonResponse(
-            id=lesson.id,
-            title=lesson.title,
-            youtube_url=lesson.youtube_url,
-            level=lesson.level,
-            total_sentences=lesson.total_sentences,
-            created_at=lesson.created_at,
-            updated_at=lesson.updated_at
-        )
-        
-        return SessionDetailResponse(
+        return SessionNextResponse(
             id=session.id,
             user_id=session.user_id,
             lesson_id=session.lesson_id,
             current_sentence_index=session.current_sentence_index,
             status=session.status,
             attempts=session.attempts,
-            lesson=lesson_response,
             current_sentence=current_sentence,
             created_at=session.created_at,
             updated_at=session.updated_at
