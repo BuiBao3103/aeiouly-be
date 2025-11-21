@@ -73,13 +73,14 @@ class SessionDetailResponse(CustomModel):
     updated_at: Optional[datetime] = None
 
 class SessionNextResponse(CustomModel):
-    """Response for session next-sentence endpoint (no lesson payload)."""
+    """Response for session next-sentence endpoint."""
     id: int
     user_id: int
     lesson_id: int
     current_sentence_index: int
     status: SessionStatus
     attempts: int
+    lesson: LessonResponse
     current_sentence: Optional[SentenceResponse] = None
     created_at: datetime
     updated_at: Optional[datetime] = None

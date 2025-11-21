@@ -642,6 +642,15 @@ class ListeningService:
         
         # Get lesson info
         lesson = db.query(ListenLesson).filter(ListenLesson.id == session.lesson_id).first()
+        lesson_response = LessonResponse(
+            id=lesson.id,
+            title=lesson.title,
+            youtube_url=lesson.youtube_url,
+            level=lesson.level,
+            total_sentences=lesson.total_sentences,
+            created_at=lesson.created_at,
+            updated_at=lesson.updated_at
+        )
         
         # Check if completed (reached end of lesson)
         if session.current_sentence_index >= lesson.total_sentences:
@@ -675,6 +684,7 @@ class ListeningService:
             current_sentence_index=session.current_sentence_index,
             status=session.status,
             attempts=session.attempts,
+            lesson=lesson_response,
             current_sentence=current_sentence,
             created_at=session.created_at,
             updated_at=session.updated_at
