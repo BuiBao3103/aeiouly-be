@@ -1,13 +1,12 @@
 """
-AI Agent for determining difficulty level from title and SRT content
+Determine Level Agent for Listening Lessons
 """
 from google.adk.agents import LlmAgent
 from pydantic import BaseModel, Field
-from typing import Dict, Any
 from src.constants.cefr import get_cefr_definitions_string
 
 
-class DifficultyResult(BaseModel):
+class DetermineLevelResult(BaseModel):
     level: str = Field(description="Độ khó được xác định: A1, A2, B1, B2, C1, hoặc C2")
     confidence: float = Field(ge=0, le=1, description="Độ tin cậy của việc xác định độ khó (0-1)")
     reasoning: str = Field(description="Lý do xác định độ khó này")
@@ -16,8 +15,8 @@ class DifficultyResult(BaseModel):
     sentence_structure: str = Field(description="Đánh giá cấu trúc câu")
 
 
-difficulty_agent = LlmAgent(
-    name="difficulty_agent",
+determine_level_agent = LlmAgent(
+    name="determine_level",
     model="gemini-2.0-flash",
     description="Xác định độ khó CEFR từ tiêu đề và nội dung SRT",
     instruction=f"""
@@ -44,10 +43,10 @@ difficulty_agent = LlmAgent(
     - grammar_complexity: Đánh giá ngữ pháp  
     - sentence_structure: Đánh giá cấu trúc câu
     """,
-    output_schema=DifficultyResult,
-    output_key="difficulty_result",
+    output_schema=DetermineLevelResult,
+    output_key="determine_level_result",
     disallow_transfer_to_parent=True,
-    disallow_transfer_to_peers=True
+    disallow_transfer_to_peers=True,
 )
 
 

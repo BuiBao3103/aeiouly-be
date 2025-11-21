@@ -1,9 +1,9 @@
 """
-AI Agent for translating English sentences to Vietnamese
+Translation Agent for Listening Lessons
 """
 from google.adk.agents import LlmAgent
 from pydantic import BaseModel, Field
-from typing import Dict, Any, List
+from typing import List
 
 
 class TranslationItem(BaseModel):
@@ -33,7 +33,6 @@ translation_agent = LlmAgent(
     - Nội dung phụ đề dạng SRT (có thể có thời gian và nhãn người nói)
 
     OUTPUT FORMAT:
-    Trả về JSON với cấu trúc:
     {
       "items": [
         {"translation": "bản dịch 1", "confidence_score": 0.92},
@@ -44,12 +43,12 @@ translation_agent = LlmAgent(
     QUAN TRỌNG:
     - Mỗi câu phải có bản dịch khác nhau theo đúng thứ tự
     - Trả về đúng JSON format như trên
-    - Số lượng phần tử trong mảng items = số câu đầu vào có nội dung (bỏ qua nhãn, timestamp, dòng rỗng)
+    - Số lượng phần tử trong mảng items = số câu đầu vào có nội dung
     """,
     output_schema=BatchTranslationResult,
     output_key="translation_result",
     disallow_transfer_to_parent=True,
-    disallow_transfer_to_peers=True
+    disallow_transfer_to_peers=True,
 )
 
 
