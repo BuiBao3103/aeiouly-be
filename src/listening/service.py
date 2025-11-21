@@ -607,7 +607,6 @@ class ListeningService:
                     "translation": sentence.translation,
                     "start_time": sentence.start_time,
                     "end_time": sentence.end_time,
-                    "normalized_text": sentence.normalized_text,
                 }
         
         return SessionDetailResponse(
