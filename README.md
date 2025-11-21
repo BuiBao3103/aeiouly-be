@@ -38,14 +38,8 @@ You can import various types of data into your database:
 
 #### Option 1: Import all data at once
 ```bash
-# Run all import scripts (admin user, sounds)
+# Run all import scripts (admin, sounds, background videos, dictionary, listening lessons)
 python scripts/run_all_imports.py
-
-# Import dictionary separately (requires CSV file)
-python scripts/import_dictionary.py data/dictionary.csv
-
-# Import background videos separately (requires JSON file)
-python scripts/import_background_videos.py
 ```
 
 #### Option 2: Import data separately
@@ -72,6 +66,12 @@ python scripts/import_dictionary.py data/dictionary.csv
 ```bash
 # Import background video types and videos
 python scripts/import_background_videos.py
+```
+
+**Import listening lessons:**
+```bash
+# Import listening lessons and sentences from JSON
+python scripts/import_listening_lessons.py
 ```
 
 ### 6. Run the application
@@ -129,12 +129,22 @@ uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
   - Background videos with YouTube URLs and image URLs
 - **Behavior**: Only imports if no background videos exist in database
 
+### Listening Lessons
+- **Script**: `scripts/import_listening_lessons.py`
+- **Requires**: JSON file at `data/listening_lessons_data.json`
+- **Imports**:
+  - Listening lesson metadata (title, URL, level, timestamps)
+  - Sentence-level entries with translations and timing
+- **Behavior**: Skips lessons/sentences that already exist
+
 ### All-in-One Import
 - **Script**: `scripts/run_all_imports.py`
 - **Runs all scripts in sequence**:
   1. Create admin user
   2. Import sound files
-- **Note**: Dictionary and background videos imports require data files and must be run separately
+  3. Import background videos
+  4. Import dictionary data
+  5. Import listening lessons
 
 ---
 

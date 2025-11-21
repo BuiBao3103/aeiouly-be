@@ -8,6 +8,8 @@ import sys
 import os
 import codecs
 from datetime import datetime
+UTC_SUFFIX = "+00:00"
+
 
 # Set UTF-8 encoding for Windows console
 if sys.platform == "win32":
@@ -44,8 +46,8 @@ def import_background_video_types(type_data: list):
             # Import types data
             for vid_type in type_data:
                 # Parse datetime strings
-                created_at = datetime.fromisoformat(vid_type['created_at'].replace('Z', '+00:00'))
-                updated_at = datetime.fromisoformat(vid_type['updated_at'].replace('Z', '+00:00'))
+                created_at = datetime.fromisoformat(vid_type['created_at'].replace('Z', UTC_SUFFIX))
+                updated_at = datetime.fromisoformat(vid_type['updated_at'].replace('Z', UTC_SUFFIX))
                 
                 # Insert type data
                 conn.execute(
@@ -91,8 +93,8 @@ def import_background_videos(video_data: list):
             # Import videos data
             for video in video_data:
                 # Parse datetime strings
-                created_at = datetime.fromisoformat(video['created_at'].replace('Z', '+00:00'))
-                updated_at = datetime.fromisoformat(video['updated_at'].replace('Z', '+00:00'))
+                created_at = datetime.fromisoformat(video['created_at'].replace('Z', UTC_SUFFIX))
+                updated_at = datetime.fromisoformat(video['updated_at'].replace('Z', UTC_SUFFIX))
                 
                 # Insert video data
                 conn.execute(

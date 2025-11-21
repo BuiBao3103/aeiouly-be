@@ -21,21 +21,23 @@ if sys.platform == "win32":
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
-def run_script(script_name, description):
-    """Run a script and handle errors"""
+def run_script(script_name, description, extra_args=None):
+    """Run a script and handle errors."""
     print(f"\n{'='*60}")
     print(f"📋 {description}")
     print(f"{'='*60}")
     
     script_path = os.path.join(os.path.dirname(__file__), script_name)
+    extra_args = extra_args or []
     
     try:
         # Set environment variable to force UTF-8 encoding
         env = os.environ.copy()
         env['PYTHONIOENCODING'] = 'utf-8'
         
+        cmd = [sys.executable, script_path, *extra_args]
         result = subprocess.run(
-            [sys.executable, script_path],
+            cmd,
             check=False,
             capture_output=True,
             text=True,
@@ -60,22 +62,19 @@ def main():
     """Main function to run all imports"""
     print("🚀 Starting all import scripts...")
     
-    # List of scripts to run
-    # Note: dictionary and background videos imports require data files, so they're commented out
-    # You can run them manually:
-    # python scripts/import_dictionary.py data/dictionary.csv
-    # python scripts/import_background_videos.py
+    # List of scripts to run (order matters for dependencies)
     scripts = [
-        ("create_admin.py", "Create Admin User"),
-        ("import_sounds.py", "Import Sound Data"),
-        # ("import_dictionary.py", "Import Dictionary Data"),  # Requires CSV file argument
-        # ("import_background_videos.py", "Import Background Videos"),  # Requires JSON file in data/
+        ("create_admin.py", "Create Admin User", []),
+        ("import_sounds.py", "Import Sound Data", []),
+        ("import_background_videos.py", "Import Background Videos", []),
+        ("import_dictionary.py", "Import Dictionary Data", [os.path.join("data", "dictionary.csv")]),
+        ("import_listening_lessons.py", "Import Listening Lessons", []),
     ]
     
     results = {}
     
-    for script_name, description in scripts:
-        success = run_script(script_name, description)
+    for script_name, description, extra_args in scripts:
+        success = run_script(script_name, description, extra_args)
         results[script_name] = success
         
         if success:
