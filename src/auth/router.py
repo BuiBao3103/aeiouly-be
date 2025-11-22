@@ -59,7 +59,8 @@ async def login(
         max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         httponly=settings.COOKIE_HTTPONLY,
         secure=settings.COOKIE_SECURE,
-        samesite=settings.COOKIE_SAMESITE
+        samesite=settings.COOKIE_SAMESITE,
+        domain=settings.COOKIE_DOMAIN
     )
     
     response.set_cookie(
@@ -68,7 +69,8 @@ async def login(
         max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
         httponly=settings.COOKIE_HTTPONLY,
         secure=settings.COOKIE_SECURE,
-        samesite=settings.COOKIE_SAMESITE
+        samesite=settings.COOKIE_SAMESITE,
+        domain=settings.COOKIE_DOMAIN
     )
     
     return token_data
@@ -91,7 +93,8 @@ async def login_with_google(
         max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         httponly=settings.COOKIE_HTTPONLY,
         secure=settings.COOKIE_SECURE,
-        samesite=settings.COOKIE_SAMESITE
+        samesite=settings.COOKIE_SAMESITE,
+        domain=settings.COOKIE_DOMAIN
     )
     response.set_cookie(
         key=settings.REFRESH_TOKEN_COOKIE_NAME,
@@ -99,7 +102,8 @@ async def login_with_google(
         max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
         httponly=settings.COOKIE_HTTPONLY,
         secure=settings.COOKIE_SECURE,
-        samesite=settings.COOKIE_SAMESITE
+        samesite=settings.COOKIE_SAMESITE,
+        domain=settings.COOKIE_DOMAIN
     )
 
     return token_data
@@ -130,7 +134,8 @@ async def refresh_token(
         max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         httponly=settings.COOKIE_HTTPONLY,
         secure=settings.COOKIE_SECURE,
-        samesite=settings.COOKIE_SAMESITE
+        samesite=settings.COOKIE_SAMESITE,
+        domain=settings.COOKIE_DOMAIN
     )
     
     response.set_cookie(
@@ -139,7 +144,8 @@ async def refresh_token(
         max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
         httponly=settings.COOKIE_HTTPONLY,
         secure=settings.COOKIE_SECURE,
-        samesite=settings.COOKIE_SAMESITE
+        samesite=settings.COOKIE_SAMESITE,
+        domain=settings.COOKIE_DOMAIN
     )
     
     return token_data

@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     COOKIE_SECURE: bool = True  # HTTPS only
     COOKIE_HTTPONLY: bool = True  # Prevent XSS
     COOKIE_SAMESITE: str = "lax"  # CSRF protection
+    COOKIE_DOMAIN: str = "localhost"
     
     # Password reset
     PASSWORD_RESET_TOKEN_EXPIRE_MINUTES: int = 60  # 1 hour instead of 30 minutes
