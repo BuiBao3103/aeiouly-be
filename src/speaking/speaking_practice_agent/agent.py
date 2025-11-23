@@ -36,10 +36,10 @@ speaking_practice = Agent(
     CRITICAL: For chat_input, call conversation tool immediately without generating own response.
     """,
     tools=[
-        AgentTool(agent=chat_agent, skip_summarization=False),
         AgentTool(agent=hint_provider_agent, skip_summarization=True),
         AgentTool(agent=final_evaluator_agent, skip_summarization=True),
     ],
+    sub_agents=[chat_agent],
     disallow_transfer_to_parent=True,
     disallow_transfer_to_peers=True
 )

@@ -4,8 +4,8 @@ Chat coordination agent for the speaking practice module.
 from google.adk.agents import Agent
 from google.adk.tools import AgentTool
 
-from ..conversation_agent.agent import conversation_agent
-from ..guidance_agent.agent import guidance_agent
+from .sub_agents.conversation_agent.agent import conversation_agent
+from .sub_agents.guidance_agent.agent import guidance_agent
 
 
 chat_agent = Agent(
@@ -62,7 +62,10 @@ chat_agent = Agent(
 
     RESPONSE RULES:
     - You MUST call a tool first. Do NOT generate your own response.
-    - After the tool returns a result, forward that result to the learner.
+    - After the tool returns a result, forward ONLY the tool's response content to the learner.
+    - Do NOT include "SOURCE:" or "MESSAGE:" prefixes in your response.
+    - Do NOT repeat the input format in your response.
+    - Simply return the tool's response text directly.
     - Conversation tool responses are in English - forward as-is.
     - Guidance tool responses are in Vietnamese - forward as-is.
 
@@ -70,10 +73,11 @@ chat_agent = Agent(
     - If unsure whether it's conversation or guidance, default to the conversation tool.
     - NEVER answer questions or provide guidance yourself - always use the guidance tool.
     - NEVER continue the conversation yourself - always use the conversation tool.
+    - Your response should be ONLY the tool's output, nothing else.
     """,
     tools=[
-        AgentTool(agent=conversation_agent, skip_summarization=False),
-        AgentTool(agent=guidance_agent, skip_summarization=False),
+        AgentTool(agent=conversation_agent, skip_summarization=True),
+        AgentTool(agent=guidance_agent, skip_summarization=True),
     ],
     disallow_transfer_to_parent=True,
     disallow_transfer_to_peers=True,

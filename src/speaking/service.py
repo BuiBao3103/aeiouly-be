@@ -53,6 +53,7 @@ logger = logging.getLogger(__name__)
 
 # Constants
 SESSION_NOT_FOUND_MSG = "Không tìm thấy phiên luyện nói"
+DEFAULT_GREETING = "Hello! Let's start our conversation."
 
 class SpeakingService:
     """Service for speaking practice and speech-to-text conversion"""
@@ -322,10 +323,10 @@ class SpeakingService:
                 }
             )
             
-            # Generate initial AI greeting
+            # Generate initial AI greeting - Agent starts the conversation
             query = self._build_agent_query(
                 source="chat_input",
-                message="Hello, let's start the conversation."
+                message="[START_CONVERSATION]"
             )
             
             try:
@@ -337,11 +338,27 @@ class SpeakingService:
                     logger=logger
                 )
                 
+                # Get response from conversation_response in state
+                try:
+                    agent_session = await self.session_service.get_session(
+                        app_name="SpeakingPractice",
+                        user_id=str(user_id),
+                        session_id=str(db_session.id)
+                    )
+                    state = agent_session.state or {}
+                    conversation_data = state.get("conversation_response", {})
+                    if isinstance(conversation_data, dict):
+                        greeting_text = conversation_data.get("response_text", "")
+                    else:
+                        greeting_text = initial_response or DEFAULT_GREETING
+                except Exception:
+                    greeting_text = initial_response or DEFAULT_GREETING
+                
                 # Save initial AI message
                 ai_message = SpeakingChatMessage(
                     session_id=db_session.id,
                     role="assistant",
-                    content=initial_response or "Hello! Let's start our conversation.",
+                    content=greeting_text,
                     is_audio=False
                 )
                 db.add(ai_message)
@@ -353,7 +370,7 @@ class SpeakingService:
                 ai_message = SpeakingChatMessage(
                     session_id=db_session.id,
                     role="assistant",
-                    content="Hello! Let's start our conversation.",
+                    content=DEFAULT_GREETING,
                     is_audio=False
                 )
                 db.add(ai_message)
