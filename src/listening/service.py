@@ -73,27 +73,6 @@ class ListeningService:
     def _build_agent_query(self, source: str, message: str) -> str:
         return f"SOURCE:{source}\nMESSAGE:{message}"
 
-    async def _ensure_agent_session(self, session_id: str, state: Optional[dict] = None) -> None:
-        state = state or {}
-        try:
-            await self.session_service.create_session(
-                app_name="ListeningLesson",
-                user_id=self.agent_user_id,
-                session_id=str(session_id),
-                state=state,
-            )
-        except Exception:
-            if state:
-                try:
-                    await self.session_service.update_session(
-                        app_name="ListeningLesson",
-                        user_id=self.agent_user_id,
-                        session_id=str(session_id),
-                        state=state,
-                    )
-                except Exception:
-                    self.logger.debug("Could not update agent session state", exc_info=True)
-
     async def _call_listening_agent(self, session_id: str, source: str, message: str) -> str:
         query = self._build_agent_query(source, message)
         return await call_agent_with_logging(
@@ -188,7 +167,10 @@ class ListeningService:
             db.refresh(db_lesson)
 
             lesson_session_id = str(db_lesson.id)
-            await self._ensure_agent_session(
+            # Create agent session for this lesson
+            await self.session_service.create_session(
+                app_name="ListeningLesson",
+                user_id=self.agent_user_id,
                 session_id=lesson_session_id,
                 state={
                     "lesson_id": db_lesson.id,
