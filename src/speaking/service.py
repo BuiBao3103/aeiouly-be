@@ -54,6 +54,7 @@ logger = logging.getLogger(__name__)
 # Constants
 SESSION_NOT_FOUND_MSG = "Không tìm thấy phiên luyện nói"
 DEFAULT_GREETING = "Hello! Let's start our conversation."
+SKIP_TRIGGER_MESSAGE = "[SKIP_TURN]"
 
 class SpeakingService:
     """Service for speaking practice and speech-to-text conversion"""
@@ -724,6 +725,92 @@ class SpeakingService:
             if "Session not found" in msg:
                 raise HTTPException(status_code=404, detail="Không tìm thấy phiên làm việc của agent")
             raise HTTPException(status_code=500, detail=f"Lỗi khi lấy gợi ý: {msg}")
+    
+    async def skip_conversation_turn(
+        self,
+        session_id: int,
+        user_id: int,
+        db: Session
+    ) -> ChatMessageResponse:
+        """Trigger AI to move the conversation forward without a new user utterance."""
+        # Get and validate session
+        session = db.query(SpeakingSession).filter(
+            SpeakingSession.id == session_id,
+            SpeakingSession.user_id == user_id
+        ).first()
+        
+        if not session:
+            raise HTTPException(status_code=404, detail=SESSION_NOT_FOUND_MSG)
+        
+        if session.status == "completed":
+            raise HTTPException(status_code=400, detail="Phiên luyện nói đã kết thúc")
+        
+        # Ask conversation agent to produce the next natural turn
+        query = self._build_agent_query(
+            source="skip_button",
+            message=SKIP_TRIGGER_MESSAGE
+        )
+        
+        try:
+            await call_agent_with_logging(
+                runner=self.runner,
+                user_id=str(user_id),
+                session_id=str(session_id),
+                query=query,
+                logger=logger
+            )
+        except Exception as agent_error:
+            logger.error(f"Error calling skip agent: {agent_error}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Lỗi khi bỏ qua lượt: {agent_error}")
+        
+        # Read updated state for response
+        agent_response = ""
+        try:
+            agent_session = await self.session_service.get_session(
+                app_name="SpeakingPractice",
+                user_id=str(user_id),
+                session_id=str(session_id)
+            )
+            state = agent_session.state or {}
+            
+            if state.get("conversation_ended"):
+                session.status = "completed"
+                db.commit()
+            
+            conversation_data = state.get("conversation_response", {})
+            if isinstance(conversation_data, dict):
+                agent_response = conversation_data.get("response_text", "") or ""
+            
+            if not agent_response:
+                chat_history = state.get("chat_history", [])
+                for msg in reversed(chat_history):
+                    if msg.get("role") == "assistant":
+                        agent_response = msg.get("content", "")
+                        break
+        except Exception as state_error:
+            logger.warning(f"Could not fetch state after skip: {state_error}")
+            agent_response = ""
+        
+        final_response = agent_response.strip() or "Let's keep the conversation going!"
+        
+        agent_message = SpeakingChatMessage(
+            session_id=session_id,
+            role="assistant",
+            content=final_response,
+            is_audio=False
+        )
+        db.add(agent_message)
+        db.commit()
+        db.refresh(agent_message)
+        
+        return ChatMessageResponse(
+            id=agent_message.id,
+            session_id=agent_message.session_id,
+            role=agent_message.role,
+            content=agent_message.content,
+            is_audio=agent_message.is_audio,
+            created_at=agent_message.created_at
+        )
     
     async def get_final_evaluation(
         self,

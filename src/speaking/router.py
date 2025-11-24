@@ -155,6 +155,25 @@ async def send_chat_message(
         )
 
 
+@router.post("/{session_id}/skip", response_model=ChatMessageResponse)
+async def skip_conversation_turn(
+    session_id: int,
+    current_user: User = Depends(get_current_active_user),
+    service: SpeakingService = Depends(get_speaking_service),
+    db: Session = Depends(get_db)
+):
+    """Bỏ qua lượt hiện tại và để AI tiếp tục cuộc hội thoại."""
+    try:
+        return await service.skip_conversation_turn(session_id, current_user.id, db)
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Lỗi khi bỏ qua lượt: {str(e)}"
+        )
+
+
 @router.get("/{session_id}/chat", response_model=List[ChatMessageResponse])
 async def get_chat_history(
     session_id: int,

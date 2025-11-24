@@ -136,6 +136,11 @@ conversation_agent = LlmAgent(
     - Greet the learner (playing {{my_character}}) and begin the conversation based on the scenario.
     - Make it natural and engaging, appropriate for level {{level}}.
     
+    SKIPPING A TURN:
+    - If you receive "[SKIP_TURN]", the learner wants you to move the conversation forward with a new response.
+    - Do NOT mention the skip action. Simply continue the scenario naturally, referencing the context or introducing a fresh angle.
+    - Treat it like you are proactively adding the next line in the conversation.
+    
     RESPONDING TO USER MESSAGES:
     - If you receive a normal user message, respond naturally to that message.
     - Continue the conversation flow based on the user's input.

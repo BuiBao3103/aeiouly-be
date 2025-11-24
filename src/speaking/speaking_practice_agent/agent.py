@@ -25,6 +25,7 @@ speaking_practice = Agent(
     
     ROUTING RULES from SOURCE:
     - chat_input → chat tool (forward full payload, don't generate own response)
+    - skip_button → chat tool (forward full payload so conversation agent can produce the next turn)
     - hint_button → hint_provider tool (reply in Vietnamese with hint)
     - final_evaluation_button → final_evaluator tool (summarize in Vietnamese)
     
