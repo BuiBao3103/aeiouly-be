@@ -72,19 +72,25 @@ def after_conversation_callback(callback_context: CallbackContext) -> Optional[t
     # Get conversation_response from state (set by output_key)
     conversation_data = state.get("conversation_response", {})
     
-    # Save conversation to chat_history
+    # Save conversation to chat_history and update last_ai_message/order
     if isinstance(conversation_data, dict):
         response_text = conversation_data.get("response_text", "")
         if response_text:
             chat_history = state.get("chat_history", [])
+            message_order = state.get("assistant_message_order", 0)
             # Store conversation response in history list
             chat_history.append(
                 {
                     "role": "assistant",
                     "content": response_text.strip(),
+                    "order": message_order,
                 }
             )
             state["chat_history"] = chat_history
+            # Update last_ai_message for hint provider agent
+            state["last_ai_message"] = response_text.strip()
+            state["last_ai_message_order"] = message_order
+            state["assistant_message_order"] = message_order + 1
     
     return None  # Continue with normal agent processing
 

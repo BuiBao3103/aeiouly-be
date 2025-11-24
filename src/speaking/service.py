@@ -86,7 +86,7 @@ class SpeakingService:
             app_name="SpeakingPractice",
             session_service=self.session_service
         )
-    
+
     def _get_file_extension(self, audio_file: UploadFile) -> str:
         """Get file extension from filename or content type"""
         filename = audio_file.filename or ""
@@ -506,35 +506,7 @@ class SpeakingService:
             db.add(user_message)
             db.commit()
             
-            # Get agent session and update chat history
-            try:
-                agent_session = await self.session_service.get_session(
-                    app_name="SpeakingPractice",
-                    user_id=str(user_id),
-                    session_id=str(session_id)
-                )
-                
-                state = agent_session.state or {}
-                chat_history = state.get("chat_history", [])
-                
-                # Add user message to history
-                chat_history.append({
-                    "role": "user",
-                    "content": user_message_text
-                })
-                
-                # Update state
-                state["chat_history"] = chat_history
-                state["user_message"] = user_message_text
-                
-                await self.session_service.update_session(
-                    app_name="SpeakingPractice",
-                    user_id=str(user_id),
-                    session_id=str(session_id),
-                    state=state
-                )
-            except Exception as e:
-                logger.warning(f"Could not update agent session state: {e}")
+            # Note: chat_history and user_message will be updated by agent callbacks
             
             # Query for speaking_practice to route to conversation agent
             query = self._build_agent_query(
@@ -580,13 +552,6 @@ class SpeakingService:
                         break
                 
                 if last_ai_msg:
-                    state["last_ai_message"] = last_ai_msg
-                    await self.session_service.update_session(
-                        app_name="SpeakingPractice",
-                        user_id=str(user_id),
-                        session_id=str(session_id),
-                        state=state
-                    )
                     # Use message from chat_history if available
                     if not agent_response:
                         agent_response = last_ai_msg
@@ -692,16 +657,19 @@ class SpeakingService:
             if not last_ai_message:
                 raise HTTPException(status_code=400, detail="Không có tin nhắn AI để tạo gợi ý")
             
-            # Update state with last AI message
-            state["last_ai_message"] = last_ai_message
-            await self.session_service.update_session(
-                app_name="SpeakingPractice",
-                user_id=str(user_id),
-                session_id=str(session_id),
-                state=state
-            )
-            
-            # Get hint from speaking_practice (will call hint_provider tool)
+            # Check if hint already exists in hint_history for this message
+            hint_history = state.get("hint_history", {}) or {}
+            cached_hint = None
+            last_ai_order = state.get("last_ai_message_order")
+            if last_ai_order is not None:
+                cached_hint = hint_history.get(str(last_ai_order))
+
+            if cached_hint and isinstance(cached_hint, dict):
+                hint_text = cached_hint.get("hint", "")
+                if hint_text:
+                    return HintResponse(hint=hint_text, last_ai_message=last_ai_message)
+
+            # No cached hint; call agent to generate one
             query = self._build_agent_query(
                 source="hint_button",
                 message="gợi ý"

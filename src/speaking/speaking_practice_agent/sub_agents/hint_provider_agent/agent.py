@@ -35,19 +35,18 @@ def after_hint_provider_callback(callback_context: CallbackContext) -> Optional[
     # Get current_hint_result from state (set by output_key)
     hint_result_data = state.get("current_hint_result", {})
     
-    # Save hint to hint_history
+    # Save hint to hint_history dict keyed by last AI message order
     if isinstance(hint_result_data, dict):
         hint_text = hint_result_data.get("hint_text", "")
         if hint_text:
-            hint_history = state.get("hint_history", [])
-            # Store hint in history list with last AI message
+            hint_history = state.get("hint_history", {}) or {}
             last_ai_message = state.get("last_ai_message", "")
-            hint_history.append(
-                {
+            last_ai_order = state.get("last_ai_message_order")
+            if last_ai_order is not None:
+                hint_history[str(last_ai_order)] = {
                     "last_ai_message": last_ai_message,
-                    "hint": hint_text
+                    "hint": hint_text,
                 }
-            )
             state["hint_history"] = hint_history
     
     return None  # Continue with normal agent processing
