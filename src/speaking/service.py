@@ -2,6 +2,7 @@
 import os
 import tempfile
 import sys
+import asyncio
 from fastapi import UploadFile
 # Fix for Python 3.13+: ensure audioop-lts is used if available
 try:
@@ -405,10 +406,54 @@ class SpeakingService:
                     raise HTTPException(status_code=500, detail="Speech-to-text service chưa được khởi tạo")
                 
                 try:
-                    stt_response = self.speech_to_text(audio_file, language_code="en-US")
+                    # Read file content once into memory for parallel processing
+                    audio_file.file.seek(0)
+                    audio_content = audio_file.file.read()
+                    audio_file.file.seek(0)
+                    
+                    # Create helper functions that work with bytes
+                    from io import BytesIO
+                    
+                    def _stt_from_bytes(content: bytes, filename: str, content_type: str):
+                        """Helper to run speech-to-text from bytes"""
+                        file_obj = UploadFile(
+                            filename=filename,
+                            file=BytesIO(content),
+                            headers={"content-type": content_type} if content_type else {}
+                        )
+                        return self.speech_to_text(file_obj, "en-US")
+                    
+                    def _upload_from_bytes(content: bytes, filename: str, content_type: str):
+                        """Helper to upload from bytes"""
+                        file_obj = UploadFile(
+                            filename=filename,
+                            file=BytesIO(content),
+                            headers={"content-type": content_type} if content_type else {}
+                        )
+                        return self._upload_user_audio(file_obj)
+                    
+                    # Run speech-to-text and upload in parallel
+                    stt_task = asyncio.to_thread(
+                        _stt_from_bytes,
+                        audio_content,
+                        audio_file.filename or "audio",
+                        audio_file.content_type or "audio/wav"
+                    )
+                    upload_task = asyncio.to_thread(
+                        _upload_from_bytes,
+                        audio_content,
+                        audio_file.filename or "audio",
+                        audio_file.content_type or "audio/wav"
+                    )
+                    
+                    # Wait for both to complete
+                    stt_response, user_audio_url = await asyncio.gather(
+                        stt_task,
+                        upload_task
+                    )
+                    
                     user_message_text = stt_response.text
                     is_audio = True
-                    user_audio_url = self._upload_user_audio(audio_file)
                 except Exception as e:
                     logger.error(f"Error converting audio to text: {e}")
                     raise HTTPException(status_code=400, detail=f"Lỗi khi chuyển đổi audio sang text: {str(e)}")
@@ -416,7 +461,7 @@ class SpeakingService:
             if not user_message_text:
                 raise HTTPException(status_code=400, detail="Nội dung tin nhắn không được để trống")
             
-            # Save user message
+            # Prepare user message (don't commit yet - will commit with agent message)
             user_message = SpeakingChatMessage(
                 session_id=session_id,
                 role="user",
@@ -425,25 +470,22 @@ class SpeakingService:
                 audio_url=user_audio_url,
             )
             db.add(user_message)
-            db.commit()
+            # Don't commit yet - will commit both messages together
             
             # Store user message in temporary state key for conversation_agent callback
             # Only messages routed to conversation_agent will be added to chat_history
-            try:
-                await update_session_state(
-                    session_service=self.session_service,
-                    app_name="SpeakingPractice",
-                    user_id=str(user_id),
-                    session_id=str(session_id),
-                    state_delta={
-                        "pending_user_message": user_message_text.strip(),
-                    },
-                    author="system",
-                    invocation_id_prefix="pending_user_message",
-                    logger=logger
-                )
-            except Exception as e:
-                logger.warning(f"Could not store pending user message: {e}")
+            await update_session_state(
+                session_service=self.session_service,
+                app_name="SpeakingPractice",
+                user_id=str(user_id),
+                session_id=str(session_id),
+                state_delta={
+                    "pending_user_message": user_message_text.strip(),
+                },
+                author="system",
+                invocation_id_prefix="pending_user_message",
+                logger=logger
+            )
             
             # Query for speaking_practice to route to conversation agent
             query = build_agent_query(
@@ -452,7 +494,7 @@ class SpeakingService:
             )
             
             # Get agent response with logging (speaking_practice will route appropriately)
-            agent_response_raw = await call_agent_with_logging(
+            await call_agent_with_logging(
                 runner=self.runner,
                 user_id=str(user_id),
                 session_id=str(session_id),
@@ -460,21 +502,18 @@ class SpeakingService:
                 logger=logger
             )
             
-            # Check if conversation ended and update session status
-            try:
-                state = await get_agent_state(
-                    session_service=self.session_service,
-                    app_name="SpeakingPractice",
-                    user_id=str(user_id),
-                    session_id=str(session_id),
-                )
-                
-                if state.get("conversation_ended", False):
-                    session.status = "completed"
-                    db.commit()
-            except Exception as e:
-                logger.warning(f"Could not check conversation status: {e}")
-                state = {}
+            # Query state only once after agent call (reuse for all checks)
+            state = await get_agent_state(
+                session_service=self.session_service,
+                app_name="SpeakingPractice",
+                user_id=str(user_id),
+                session_id=str(session_id),
+            )
+            
+            # Check conversation status and get response data from single state query
+            conversation_ended = state.get("conversation_ended", False) if isinstance(state, dict) else False
+            if conversation_ended:
+                session.status = "completed"
             
             conversation_data = state.get("chat_response", {}) if isinstance(state, dict) else {}
             
@@ -490,7 +529,7 @@ class SpeakingService:
             if isinstance(translation_candidate, str):
                 translation_sentence = translation_candidate.strip() or None
             
-            # Save agent response
+            # Save agent response (both messages committed together for better performance)
             agent_message = SpeakingChatMessage(
                 session_id=session_id,
                 role="assistant",
@@ -500,7 +539,11 @@ class SpeakingService:
                 translation_sentence=translation_sentence
             )
             db.add(agent_message)
+            
+            # Single commit for both user and agent messages + session status update
             db.commit()
+            db.refresh(user_message)
+            db.refresh(agent_message)
             
             session_payload = SpeakingSessionResponse(
                 id=session.id,
@@ -698,7 +741,7 @@ class SpeakingService:
         )
         
         try:
-            agent_response_raw = await call_agent_with_logging(
+            await call_agent_with_logging(
                 runner=self.runner,
                 user_id=str(user_id),
                 session_id=str(session_id),
@@ -791,6 +834,10 @@ class SpeakingService:
             
             if not session:
                 raise HTTPException(status_code=404, detail=SESSION_NOT_FOUND_MSG)
+            
+            # update session status to completed
+            session.status = "completed"
+            db.commit()
             
             # Get final evaluation from speaking_practice (will call final_evaluator tool)
             # Using trigger phrase that matches speaking_practice instruction
