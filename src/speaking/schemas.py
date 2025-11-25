@@ -62,6 +62,10 @@ class ChatMessageResponse(CustomModel):
     role: str
     content: str  # English content
     is_audio: bool
+    audio_url: Optional[str] = Field(None, description="URL of attached audio for this message, if any")
+    session: Optional[SpeakingSessionResponse] = Field(
+        None, description="Updated speaking session state associated with this response"
+    )
     created_at: datetime
 
 

@@ -32,6 +32,7 @@ class SpeakingChatMessage(Base, SoftDeleteMixin, TimestampMixin):
     role = Column(String(20), nullable=False)  # 'user' or 'assistant'
     content = Column(Text, nullable=False)  # English content
     is_audio = Column(Boolean, default=False, nullable=False)  # True if message was sent as audio
+    audio_url = Column(Text, nullable=True)  # Link to stored audio file (if available)
     
     # Relationships
     session = relationship("SpeakingSession", back_populates="chat_messages")

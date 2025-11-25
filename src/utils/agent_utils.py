@@ -6,7 +6,8 @@ from google.genai import types
 from google.adk.events import Event, EventActions
 import logging
 import time
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Iterable
+import json
 logging.getLogger('google_genai.types').setLevel(logging.ERROR)
 # ANSI color codes for terminal output
 class Colors:
@@ -261,6 +262,54 @@ async def call_agent_with_logging(
         raise
     
     return final_response_text
+
+
+def build_agent_query(source: str, message: str) -> str:
+    """Construct standardized agent query payload."""
+    return f"SOURCE:{source}\nMESSAGE:{message}"
+
+
+def extract_agent_response_text(
+    agent_output: Optional[str],
+    preferred_keys: Optional[Iterable[str]] = None,
+) -> str:
+    """Extract plain text from agent output (handles JSON payloads)."""
+    if not agent_output:
+        return ""
+
+    text = agent_output.strip()
+    if not text:
+        return ""
+
+    keys = list(preferred_keys or ("response_text", "evaluation_text", "hint_text"))
+
+    if text.startswith("{") and text.endswith("}"):
+        try:
+            data = json.loads(text)
+            if isinstance(data, dict):
+                for key in keys:
+                    value = data.get(key)
+                    if isinstance(value, str) and value.strip():
+                        return value.strip()
+        except json.JSONDecodeError:
+            pass
+
+    return text
+
+
+async def get_agent_state(
+    session_service,
+    app_name: str,
+    user_id: str,
+    session_id: str,
+) -> Dict[str, Any]:
+    """Fetch agent session state dictionary."""
+    agent_session = await session_service.get_session(
+        app_name=app_name,
+        user_id=user_id,
+        session_id=session_id,
+    )
+    return (agent_session.state or {}) if agent_session else {}
 
 
 def log_session_state(session_service, app_name: str, user_id: str, session_id: str, logger: logging.Logger = None):

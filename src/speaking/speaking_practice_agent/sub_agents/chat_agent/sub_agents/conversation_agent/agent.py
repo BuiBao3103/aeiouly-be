@@ -31,13 +31,13 @@ def end_conversation(tool_context: ToolContext) -> Dict[str, Any]:
     
     if session_id:
         from src.database import SessionLocal
-        from src.speaking.models import SpeakingSession, SessionStatus
+        from src.speaking.models import SpeakingSession
         
         db = SessionLocal()
         try:
             session = db.query(SpeakingSession).filter(SpeakingSession.id == session_id).first()
             if session:
-                session.status = SessionStatus.COMPLETED
+                session.status = "completed"
                 db.commit()
         except Exception as exc:
             db.rollback()
@@ -138,8 +138,13 @@ conversation_agent = LlmAgent(
     
     SKIPPING A TURN:
     - If you receive "[SKIP_TURN]", the learner wants you to move the conversation forward with a new response.
-    - Do NOT mention the skip action. Simply continue the scenario naturally, referencing the context or introducing a fresh angle.
-    - Treat it like you are proactively adding the next line in the conversation.
+    - Do NOT mention the skip action. Simply continue the scenario naturally.
+    - You should proactively continue the conversation by:
+      * Asking a relevant question based on the scenario (e.g., "What would you like to order?" in a restaurant scenario)
+      * Making a natural follow-up statement that invites a response
+      * Introducing a new topic or angle that fits the scenario
+    - Your response should be engaging and give the learner a clear direction on what to say next.
+    - Make it feel like a natural continuation of the conversation, not a generic prompt.
     
     RESPONDING TO USER MESSAGES:
     - If you receive a normal user message, respond naturally to that message.

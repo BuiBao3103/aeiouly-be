@@ -3,7 +3,6 @@ import os
 import tempfile
 import sys
 from fastapi import UploadFile
-import mutagen
 # Fix for Python 3.13+: ensure audioop-lts is used if available
 try:
     import audioop_lts as audioop
@@ -42,7 +41,14 @@ from src.config import settings
 from google.adk.runners import Runner
 from google.adk.sessions import DatabaseSessionService
 from src.config import get_database_url
-from src.utils.agent_utils import call_agent_with_logging
+from src.utils.agent_utils import (
+    call_agent_with_logging,
+    build_agent_query,
+    extract_agent_response_text,
+    get_agent_state,
+)
+from src.utils.audio_utils import convert_audio_to_wav, validate_audio_file
+from src.storage import S3StorageService
 import logging
 from fastapi import HTTPException
 from datetime import datetime
@@ -54,7 +60,6 @@ logger = logging.getLogger(__name__)
 # Constants
 SESSION_NOT_FOUND_MSG = "Không tìm thấy phiên luyện nói"
 DEFAULT_GREETING = "Hello! Let's start our conversation."
-SKIP_TRIGGER_MESSAGE = "[SKIP_TURN]"
 
 class SpeakingService:
     """Service for speaking practice and speech-to-text conversion"""
@@ -65,6 +70,8 @@ class SpeakingService:
     
     # Supported input formats (will be converted to WAV)
     SUPPORTED_INPUT_FORMATS = ['.webm', '.ogg', '.opus', '.wav', '.mp3', '.m4a', '.flac', '.aac', '.mpeg']
+    MAX_AUDIO_FILE_SIZE = 10 * 1024 * 1024
+    MAX_AUDIO_DURATION_SECONDS = 60
     
     def __init__(self):
         """Initialize SpeakingService with Google Cloud Speech client and ADK runner"""
@@ -87,109 +94,12 @@ class SpeakingService:
             app_name="SpeakingPractice",
             session_service=self.session_service
         )
+        try:
+            self.storage_service = S3StorageService()
+        except Exception as storage_error:
+            logger.warning(f"Could not initialize storage service: {storage_error}")
+            self.storage_service = None
 
-    def _get_file_extension(self, audio_file: UploadFile) -> str:
-        """Get file extension from filename or content type"""
-        filename = audio_file.filename or ""
-        content_type = audio_file.content_type or ""
-        
-        # Try to get extension from filename
-        if filename:
-            ext = os.path.splitext(filename)[1].lower()
-            if ext in self.SUPPORTED_INPUT_FORMATS:
-                return ext
-        
-        # Try to get from content type
-        content_type_map = {
-            'audio/webm': '.webm',
-            'audio/ogg': '.ogg',
-            'audio/opus': '.opus',
-            'audio/wav': '.wav',
-            'audio/wave': '.wav',
-            'audio/x-wav': '.wav',
-            'audio/mpeg': '.mp3',
-            'audio/mp3': '.mp3',
-            'audio/mp4': '.m4a',
-            'audio/x-m4a': '.m4a',
-            'audio/flac': '.flac',
-            'audio/aac': '.aac',
-            'audio/aacp': '.aac',
-        }
-        
-        for mime_type, ext in content_type_map.items():
-            if mime_type in content_type.lower():
-                return ext
-        
-        raise SpeechToTextException(
-            f"Định dạng file không được hỗ trợ. "
-            f"Chỉ chấp nhận: {', '.join(self.SUPPORTED_INPUT_FORMATS)}"
-        )
-    
-    def _convert_to_wav(self, input_file_path: str, output_file_path: str) -> str:
-        """
-        Convert audio file to WAV format (LINEAR16, 16000 Hz, mono)
-        Returns: output_file_path
-        """
-        try:
-            # Load audio file using pydub
-            audio = AudioSegment.from_file(input_file_path)
-            
-            # Convert to mono if stereo
-            if audio.channels > 1:
-                audio = audio.set_channels(1)
-            
-            # Resample to target sample rate if different
-            if audio.frame_rate != self.TARGET_SAMPLE_RATE:
-                audio = audio.set_frame_rate(self.TARGET_SAMPLE_RATE)
-            
-            # Export as WAV (LINEAR16 PCM)
-            audio.export(
-                output_file_path,
-                format="wav",
-                parameters=["-acodec", "pcm_s16le"]  # 16-bit PCM
-            )
-            
-            return output_file_path
-        except Exception as e:
-            raise SpeechToTextException(f"Không thể chuyển đổi file âm thanh sang WAV: {str(e)}")
-    
-    def _validate_audio_file(self, audio_file: UploadFile) -> tuple[str, str]:
-        """
-        Validate audio file and save to temp file
-        Returns: (temp_file_path, file_extension)
-        """
-        # Get and validate file extension
-        file_ext = self._get_file_extension(audio_file)
-        
-        # Save to temporary file
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=file_ext)
-        try:
-            audio_file.file.seek(0)
-            content = audio_file.file.read()
-            temp_file.write(content)
-            temp_file_path = temp_file.name
-        finally:
-            temp_file.close()
-        
-        # Check file size (max 10MB)
-        file_size = os.path.getsize(temp_file_path)
-        if file_size > 10 * 1024 * 1024:
-            os.unlink(temp_file_path)
-            raise SpeechToTextException("Kích thước file không được vượt quá 10MB")
-        
-        # Check duration (max 60 seconds)
-        try:
-            audio_info = mutagen.File(temp_file_path)
-            if audio_info and hasattr(audio_info.info, 'length'):
-                if audio_info.info.length > 60:
-                    os.unlink(temp_file_path)
-                    raise SpeechToTextException("Độ dài file âm thanh không được vượt quá 60 giây")
-        except Exception as e:
-            # If we can't read duration, continue anyway (let Google API handle it)
-            print(f"Warning: Could not validate duration: {e}")
-        
-        return temp_file_path, file_ext
-    
     def speech_to_text(
         self,
         audio_file: UploadFile,
@@ -204,7 +114,13 @@ class SpeakingService:
             raise SpeechToTextException("Google Cloud Speech client chưa được khởi tạo")
         
         # Validate and save audio file
-        input_file_path, file_ext = self._validate_audio_file(audio_file)
+        input_file_path, file_ext = validate_audio_file(
+            audio_file=audio_file,
+            supported_formats=self.SUPPORTED_INPUT_FORMATS,
+            max_size_bytes=self.MAX_AUDIO_FILE_SIZE,
+            max_duration_seconds=self.MAX_AUDIO_DURATION_SECONDS,
+            exception_cls=SpeechToTextException,
+        )
         wav_file_path = None
 
         try:
@@ -227,7 +143,12 @@ class SpeakingService:
             # Convert to WAV only if needed
             if needs_conversion:
                 wav_file_path = tempfile.NamedTemporaryFile(delete=False, suffix='.wav').name
-                self._convert_to_wav(input_file_path, wav_file_path)
+                convert_audio_to_wav(
+                    input_file_path=input_file_path,
+                    output_file_path=wav_file_path,
+                    target_sample_rate=self.TARGET_SAMPLE_RATE,
+                    exception_cls=SpeechToTextException,
+                )
                 final_file_path = wav_file_path
             
             # Read converted WAV file
@@ -271,19 +192,35 @@ class SpeakingService:
             if wav_file_path and os.path.exists(wav_file_path):
                 os.unlink(wav_file_path)
     
-    def _build_agent_query(self, source: str, message: str) -> str:
-        """
-        Build standardized query string for speaking_practice with source metadata.
-        
-        Args:
-            source: Origin of the action (e.g., chat_input, hint_button)
-            message: The natural language message or trigger phrase
-        
-        Returns:
-            Formatted string consumed by speaking_practice:
-                SOURCE:<source>\nMESSAGE:<message>
-        """
-        return f"SOURCE:{source}\nMESSAGE:{message}"
+    
+    def _get_contextual_fallback(self, session: SpeakingSession) -> str:
+        """Generate a context-aware fallback prompt."""
+        scenario = (session.scenario or "").lower()
+        if "restaurant" in scenario or "nhà hàng" in scenario:
+            return "What would you like to order today?"
+        if "hotel" in scenario or "khách sạn" in scenario:
+            return "How can I help you with your stay?"
+        if any(keyword in scenario for keyword in ["shop", "store", "cửa hàng", "mua", "shopping"]):
+            return "What are you looking for today?"
+        return "Let's continue our conversation. What would you like to say?"
+
+    def _upload_user_audio(self, audio_file: UploadFile) -> Optional[str]:
+        """Upload learner audio to S3 (if configured) and return the public URL."""
+        if not self.storage_service or not audio_file:
+            return None
+        try:
+            audio_file.file.seek(0)
+        except Exception as seek_err:
+            logger.warning(f"Could not reset audio stream before upload: {seek_err}")
+            return None
+        try:
+            return self.storage_service.upload_speaking_audio(
+                fileobj=audio_file.file,
+                content_type=audio_file.content_type or "audio/wav"
+            )
+        except Exception as upload_err:
+            logger.error(f"Failed to upload learner audio: {upload_err}", exc_info=True)
+            return None
     
     async def create_speaking_session(
         self,
@@ -324,10 +261,10 @@ class SpeakingService:
                 }
             )
             
-            # Generate initial AI greeting - Agent starts the conversation
-            query = self._build_agent_query(
-                source="chat_input",
-                message="[START_CONVERSATION]"
+            # Generate initial AI greeting via intro_message tool
+            query = build_agent_query(
+                source="start_conversation_button",
+                message="Generate opening line"
             )
             
             try:
@@ -339,23 +276,24 @@ class SpeakingService:
                     logger=logger
                 )
                 
-                # Get response from conversation_response in state
-                try:
-                    agent_session = await self.session_service.get_session(
-                        app_name="SpeakingPractice",
-                        user_id=str(user_id),
-                        session_id=str(db_session.id)
-                    )
-                    state = agent_session.state or {}
-                    conversation_data = state.get("conversation_response", {})
-                    if isinstance(conversation_data, dict):
-                        greeting_text = conversation_data.get("response_text", "")
-                    else:
-                        greeting_text = initial_response or DEFAULT_GREETING
-                except Exception:
-                    greeting_text = initial_response or DEFAULT_GREETING
+                greeting_text = extract_agent_response_text(initial_response)
+                if not greeting_text:
+                    # Fallback to state value if available
+                    try:
+                        state = await get_agent_state(
+                            session_service=self.session_service,
+                            app_name="SpeakingPractice",
+                            user_id=str(user_id),
+                            session_id=str(db_session.id),
+                        )
+                        conversation_data = state.get("conversation_response", {})
+                        if isinstance(conversation_data, dict):
+                            greeting_text = conversation_data.get("response_text", "") or ""
+                    except Exception as state_error:
+                        logger.warning(f"Could not read intro state: {state_error}")
                 
-                # Save initial AI message
+                greeting_text = greeting_text or DEFAULT_GREETING
+                
                 ai_message = SpeakingChatMessage(
                     session_id=db_session.id,
                     role="assistant",
@@ -367,7 +305,6 @@ class SpeakingService:
                 
             except Exception as agent_error:
                 logger.error(f"Error generating initial greeting: {agent_error}")
-                # Use fallback greeting
                 ai_message = SpeakingChatMessage(
                     session_id=db_session.id,
                     role="assistant",
@@ -493,7 +430,7 @@ class SpeakingService:
                 except Exception as e:
                     logger.error(f"Error converting audio to text: {e}")
                     raise HTTPException(status_code=400, detail=f"Lỗi khi chuyển đổi audio sang text: {str(e)}")
-            
+                
             if not user_message_text:
                 raise HTTPException(status_code=400, detail="Nội dung tin nhắn không được để trống")
             
@@ -502,7 +439,7 @@ class SpeakingService:
                 session_id=session_id,
                 role="user",
                 content=user_message_text,
-                is_audio=is_audio
+                is_audio=is_audio,
             )
             db.add(user_message)
             db.commit()
@@ -510,13 +447,13 @@ class SpeakingService:
             # Note: chat_history and user_message will be updated by agent callbacks
             
             # Query for speaking_practice to route to conversation agent
-            query = self._build_agent_query(
+            query = build_agent_query(
                 source="chat_input",
                 message=user_message_text
             )
             
-            # Get agent response with logging
-            await call_agent_with_logging(
+            # Get agent response with logging (speaking_practice will route appropriately)
+            agent_response_raw = await call_agent_with_logging(
                 runner=self.runner,
                 user_id=str(user_id),
                 session_id=str(session_id),
@@ -524,60 +461,61 @@ class SpeakingService:
                 logger=logger
             )
             
-            # Get updated state to check if conversation ended and get response
+            # Check if conversation ended and update session status
             try:
-                agent_session = await self.session_service.get_session(
+                state = await get_agent_state(
+                    session_service=self.session_service,
                     app_name="SpeakingPractice",
                     user_id=str(user_id),
-                    session_id=str(session_id)
+                    session_id=str(session_id),
                 )
-                state = agent_session.state or {}
                 
                 if state.get("conversation_ended", False):
                     session.status = "completed"
                     db.commit()
-                
-                # Get response from conversation_response (output_key)
-                conversation_data = state.get("conversation_response", {})
-                if isinstance(conversation_data, dict):
-                    agent_response = conversation_data.get("response_text", "")
-                else:
-                    agent_response = ""
-                
-                # Get last AI message from chat_history (set by callback)
-                chat_history = state.get("chat_history", [])
-                last_ai_msg = None
-                for msg in reversed(chat_history):
-                    if msg.get("role") == "assistant":
-                        last_ai_msg = msg.get("content", "")
-                        break
-                
-                if last_ai_msg:
-                    # Use message from chat_history if available
-                    if not agent_response:
-                        agent_response = last_ai_msg
             except Exception as e:
-                logger.warning(f"Could not get state after agent response: {e}")
-                agent_response = ""
+                logger.warning(f"Could not check conversation status: {e}")
+                state = {}
             
-            db.refresh(session)
+            agent_response = extract_agent_response_text(agent_response_raw)
+            if not agent_response:
+                conversation_data = state.get("conversation_response", {}) if isinstance(state, dict) else {}
+                if isinstance(conversation_data, dict):
+                    agent_response = conversation_data.get("response_text", "") or ""
+            if not agent_response:
+                agent_response = self._get_contextual_fallback(session)
             
             # Save agent response
             agent_message = SpeakingChatMessage(
                 session_id=session_id,
                 role="assistant",
-                content=agent_response or "I'm sorry, I didn't understand that.",
-                is_audio=False
+                content=agent_response,
+                is_audio=False,
+                audio_url=None
             )
             db.add(agent_message)
             db.commit()
             
+            session_payload = SpeakingSessionResponse(
+                id=session.id,
+                user_id=session.user_id,
+                my_character=session.my_character,
+                ai_character=session.ai_character,
+                scenario=session.scenario,
+                level=session.level,
+                status=session.status,
+                created_at=session.created_at,
+                updated_at=session.updated_at
+            )
+
             return ChatMessageResponse(
                 id=agent_message.id,
                 session_id=agent_message.session_id,
                 role=agent_message.role,
                 content=agent_message.content,
                 is_audio=agent_message.is_audio,
+                audio_url=agent_message.audio_url,
+                session=session_payload,
                 created_at=agent_message.created_at
             )
             
@@ -615,6 +553,8 @@ class SpeakingService:
                 role=msg.role,
                 content=msg.content,
                 is_audio=msg.is_audio,
+                audio_url=msg.audio_url,
+                session=None,
                 created_at=msg.created_at
             )
             for msg in messages
@@ -638,13 +578,12 @@ class SpeakingService:
                 raise HTTPException(status_code=404, detail=SESSION_NOT_FOUND_MSG)
             
             # Get agent session
-            agent_session = await self.session_service.get_session(
+            state = await get_agent_state(
+                session_service=self.session_service,
                 app_name="SpeakingPractice",
                 user_id=str(user_id),
-                session_id=str(session_id)
+                session_id=str(session_id),
             )
-            
-            state = agent_session.state or {}
             last_ai_message = state.get("last_ai_message", "")
             
             if not last_ai_message:
@@ -671,7 +610,7 @@ class SpeakingService:
                     return HintResponse(hint=hint_text, last_ai_message=last_ai_message)
 
             # No cached hint; call agent to generate one
-            query = self._build_agent_query(
+            query = build_agent_query(
                 source="hint_button",
                 message="gợi ý"
             )
@@ -690,13 +629,12 @@ class SpeakingService:
             
             # Read hint from state after agent finishes
             try:
-                agent_session_after = await self.session_service.get_session(
+                state_after = await get_agent_state(
+                    session_service=self.session_service,
                     app_name="SpeakingPractice",
                     user_id=str(user_id),
-                    session_id=str(session_id)
+                    session_id=str(session_id),
                 )
-                
-                state_after = agent_session_after.state or {}
                 
                 # Get hint from current_hint_result (output_key)
                 hint_result_data = state_after.get("current_hint_result", {})
@@ -745,14 +683,14 @@ class SpeakingService:
         if session.status == "completed":
             raise HTTPException(status_code=400, detail="Phiên luyện nói đã kết thúc")
         
-        # Ask conversation agent to produce the next natural turn
-        query = self._build_agent_query(
+        # Ask skip_response agent to produce the next natural turn
+        query = build_agent_query(
             source="skip_button",
-            message=SKIP_TRIGGER_MESSAGE
+            message="generate skip response"
         )
         
         try:
-            await call_agent_with_logging(
+            agent_response_raw = await call_agent_with_logging(
                 runner=self.runner,
                 user_id=str(user_id),
                 session_id=str(session_id),
@@ -763,52 +701,61 @@ class SpeakingService:
             logger.error(f"Error calling skip agent: {agent_error}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Lỗi khi bỏ qua lượt: {agent_error}")
         
-        # Read updated state for response
-        agent_response = ""
+        # Check if conversation ended and get response from state if needed
         try:
-            agent_session = await self.session_service.get_session(
+            state = await get_agent_state(
+                session_service=self.session_service,
                 app_name="SpeakingPractice",
                 user_id=str(user_id),
-                session_id=str(session_id)
+                session_id=str(session_id),
             )
-            state = agent_session.state or {}
             
             if state.get("conversation_ended"):
                 session.status = "completed"
                 db.commit()
-            
+        except Exception as state_error:
+            logger.warning(f"Could not check conversation status: {state_error}")
+            state = {}
+        
+        final_response = extract_agent_response_text(agent_response_raw)
+        if not final_response and isinstance(state, dict):
             conversation_data = state.get("conversation_response", {})
             if isinstance(conversation_data, dict):
-                agent_response = conversation_data.get("response_text", "") or ""
-            
-            if not agent_response:
-                chat_history = state.get("chat_history", [])
-                for msg in reversed(chat_history):
-                    if msg.get("role") == "assistant":
-                        agent_response = msg.get("content", "")
-                        break
-        except Exception as state_error:
-            logger.warning(f"Could not fetch state after skip: {state_error}")
-            agent_response = ""
-        
-        final_response = agent_response.strip() or "Let's keep the conversation going!"
+                final_response = conversation_data.get("response_text", "") or ""
+        if not final_response:
+            final_response = self._get_contextual_fallback(session)
         
         agent_message = SpeakingChatMessage(
             session_id=session_id,
             role="assistant",
             content=final_response,
-            is_audio=False
+            is_audio=False,
+            audio_url=None
         )
         db.add(agent_message)
         db.commit()
         db.refresh(agent_message)
         
+        session_payload = SpeakingSessionResponse(
+            id=session.id,
+            user_id=session.user_id,
+            my_character=session.my_character,
+            ai_character=session.ai_character,
+            scenario=session.scenario,
+            level=session.level,
+            status=session.status,
+            created_at=session.created_at,
+            updated_at=session.updated_at
+        )
+
         return ChatMessageResponse(
             id=agent_message.id,
             session_id=agent_message.session_id,
             role=agent_message.role,
             content=agent_message.content,
             is_audio=agent_message.is_audio,
+            audio_url=agent_message.audio_url,
+            session=session_payload,
             created_at=agent_message.created_at
         )
     
@@ -835,7 +782,7 @@ class SpeakingService:
                 runner=self.runner,
                 user_id=str(user_id),
                 session_id=str(session_id),
-                query=self._build_agent_query(
+                query=build_agent_query(
                     source="final_evaluation_button",
                     message="đánh giá cuối"
                 ),
@@ -845,14 +792,15 @@ class SpeakingService:
             # Get structured output from agent session state
             try:
                 # Get the structured output from the agent's session state
-                agent_session = await self.session_service.get_session(
+                state = await get_agent_state(
+                    session_service=self.session_service,
                     app_name="SpeakingPractice",
                     user_id=str(user_id),
-                    session_id=str(session_id)
+                    session_id=str(session_id),
                 )
                 
                 # Extract structured evaluation from session state
-                final_eval = agent_session.state.get("final_evaluation", {})
+                final_eval = state.get("final_evaluation", {})
                 
                 if final_eval:
                     overall = float(final_eval.get("overall_score", 0))

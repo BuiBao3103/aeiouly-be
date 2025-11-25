@@ -42,6 +42,24 @@ class S3StorageService:
         region = settings.AWS_S3_REGION
         return f"https://{self.bucket}.s3.{region}.amazonaws.com/{key}"
 
+    def upload_speaking_audio(self, fileobj, content_type: Optional[str] = None) -> str:
+        """
+        Convenience helper to upload learner speaking audio clips.
+
+        Args:
+            fileobj: A file-like object positioned at the beginning.
+            content_type: MIME type of the audio; defaults to wav if missing.
+
+        Returns:
+            Public URL to the uploaded audio file.
+        """
+        normalized_content_type = content_type or "audio/wav"
+        return self.upload_fileobj(
+            fileobj=fileobj,
+            content_type=normalized_content_type,
+            key_prefix="speaking/audio/",
+        )
+
     def delete_file(self, file_url: str) -> bool:
         """
         Xóa file từ S3 bucket dựa trên URL
