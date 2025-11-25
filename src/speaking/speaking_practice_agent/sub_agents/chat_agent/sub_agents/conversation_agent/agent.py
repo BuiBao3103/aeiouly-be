@@ -16,6 +16,9 @@ from src.speaking.service import SpeakingService
 
 class ConversationResponse(BaseModel):
     response_text: str = Field(description="English response text from AI character")
+    translation_sentence: str = Field(
+        description="Single Vietnamese sentence translating response_text"
+    )
 
 
 def end_conversation(tool_context: ToolContext) -> Dict[str, Any]:
@@ -130,39 +133,28 @@ conversation_agent = LlmAgent(
     CONVERSATION HISTORY (from state):
     {{chat_history?}}
     
-    STARTING THE CONVERSATION:
-    - If you receive "[START_CONVERSATION]" as the message, this means you should start the conversation first.
-    - In this case, initiate the conversation naturally as {{ai_character}} in the scenario "{{scenario}}".
-    - Greet the learner (playing {{my_character}}) and begin the conversation based on the scenario.
-    - Make it natural and engaging, appropriate for level {{level}}.
-    
-    SKIPPING A TURN:
-    - If you receive "[SKIP_TURN]", the learner wants you to move the conversation forward with a new response.
-    - Do NOT mention the skip action. Simply continue the scenario naturally.
-    - You should proactively continue the conversation by:
-      * Asking a relevant question based on the scenario (e.g., "What would you like to order?" in a restaurant scenario)
-      * Making a natural follow-up statement that invites a response
-      * Introducing a new topic or angle that fits the scenario
-    - Your response should be engaging and give the learner a clear direction on what to say next.
-    - Make it feel like a natural continuation of the conversation, not a generic prompt.
-    
     RESPONDING TO USER MESSAGES:
-    - If you receive a normal user message, respond naturally to that message.
-    - Continue the conversation flow based on the user's input.
+    - You will only receive real learner utterances (chat_input). Intro/skip turns are handled by other tools.
+    - Respond naturally to each message while keeping the scenario moving forward.
     
     OUTPUT FORMAT:
     You MUST respond with ONLY a raw JSON object. NO markdown code blocks, NO explanations, NO plain text.
     Your ENTIRE response must be ONLY the JSON object conforming to the output schema:
     {{
-        "response_text": "Your English response here as {{ai_character}}"
+        "response_text": "Your English response here as {{ai_character}}",
+        "translation_sentence": "A SINGLE Vietnamese sentence translating response_text"
     }}
     
+    translation_sentence requirements:
+    - Must be exactly one concise Vietnamese sentence translating the meaning of response_text.
+    - Keep vocabulary aligned with CEFR level {{level}}.
+    
     CRITICAL: 
-    - Your response must be ONLY the JSON object, nothing else.
+    - Output ONLY the JSON object, nothing else.
     - Do NOT wrap it in ```json or ``` markdown code blocks.
     - Do NOT add any text before or after the JSON.
-    - Example of CORRECT output: {{"response_text": "<your response here>"}}
-    - Example of WRONG output: ```json{{"response_text": "<your response here>"}}```
+    - Example of CORRECT output: {{"response_text": "...", "translation_sentence": "..."}}
+    - Example of WRONG output: ```json{{"response_text": "...", "translation_sentence": "..."}}```
     
     {get_cefr_definitions_string()}
     """,

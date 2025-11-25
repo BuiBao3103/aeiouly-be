@@ -33,6 +33,7 @@ class SpeakingChatMessage(Base, SoftDeleteMixin, TimestampMixin):
     content = Column(Text, nullable=False)  # English content
     is_audio = Column(Boolean, default=False, nullable=False)  # True if message was sent as audio
     audio_url = Column(Text, nullable=True)  # Link to stored audio file (if available)
+    translation_sentence = Column(Text, nullable=True)  # Vietnamese translation of content
     
     # Relationships
     session = relationship("SpeakingSession", back_populates="chat_messages")

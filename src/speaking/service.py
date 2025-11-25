@@ -16,6 +16,7 @@ from pydub import AudioSegment
 from google.cloud import speech
 
 from typing import List, Optional
+import json
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from src.speaking.schemas import (
@@ -203,6 +204,23 @@ class SpeakingService:
         if any(keyword in scenario for keyword in ["shop", "store", "cửa hàng", "mua", "shopping"]):
             return "What are you looking for today?"
         return "Let's continue our conversation. What would you like to say?"
+    
+    def _extract_translation_sentence(self, agent_output: Optional[str]) -> str:
+        """Extract Vietnamese translation sentence from agent output."""
+        if not agent_output:
+            return ""
+        agent_output = agent_output.strip()
+        if not agent_output or not agent_output.startswith("{"):
+            return ""
+        try:
+            data = json.loads(agent_output)
+            if isinstance(data, dict):
+                translation = data.get("translation_sentence")
+                if isinstance(translation, str):
+                    return translation.strip()
+        except json.JSONDecodeError:
+            return ""
+        return ""
 
     def _upload_user_audio(self, audio_file: UploadFile) -> Optional[str]:
         """Upload learner audio to S3 (if configured) and return the public URL."""
@@ -277,7 +295,9 @@ class SpeakingService:
                 )
                 
                 greeting_text = extract_agent_response_text(initial_response)
-                if not greeting_text:
+                translation_sentence = self._extract_translation_sentence(initial_response)
+                
+                if not greeting_text or not translation_sentence:
                     # Fallback to state value if available
                     try:
                         state = await get_agent_state(
@@ -288,17 +308,22 @@ class SpeakingService:
                         )
                         conversation_data = state.get("conversation_response", {})
                         if isinstance(conversation_data, dict):
-                            greeting_text = conversation_data.get("response_text", "") or ""
+                            if not greeting_text:
+                                greeting_text = conversation_data.get("response_text", "") or ""
+                            if not translation_sentence:
+                                translation_sentence = conversation_data.get("translation_sentence", "") or ""
                     except Exception as state_error:
                         logger.warning(f"Could not read intro state: {state_error}")
                 
                 greeting_text = greeting_text or DEFAULT_GREETING
+                translation_sentence = translation_sentence or None
                 
                 ai_message = SpeakingChatMessage(
                     session_id=db_session.id,
                     role="assistant",
                     content=greeting_text,
-                    is_audio=False
+                    is_audio=False,
+                    translation_sentence=translation_sentence
                 )
                 db.add(ai_message)
                 db.commit()
@@ -309,7 +334,8 @@ class SpeakingService:
                     session_id=db_session.id,
                     role="assistant",
                     content=DEFAULT_GREETING,
-                    is_audio=False
+                    is_audio=False,
+                    translation_sentence=None
                 )
                 db.add(ai_message)
                 db.commit()
@@ -417,6 +443,7 @@ class SpeakingService:
             # Determine if message is audio or text
             user_message_text = message_data.content
             is_audio = False
+            user_audio_url = None
             
             if audio_file:
                 # Convert audio to text
@@ -427,6 +454,7 @@ class SpeakingService:
                     stt_response = self.speech_to_text(audio_file, language_code="en-US")
                     user_message_text = stt_response.text
                     is_audio = True
+                    user_audio_url = self._upload_user_audio(audio_file)
                 except Exception as e:
                     logger.error(f"Error converting audio to text: {e}")
                     raise HTTPException(status_code=400, detail=f"Lỗi khi chuyển đổi audio sang text: {str(e)}")
@@ -440,6 +468,7 @@ class SpeakingService:
                 role="user",
                 content=user_message_text,
                 is_audio=is_audio,
+                audio_url=user_audio_url,
             )
             db.add(user_message)
             db.commit()
@@ -478,12 +507,16 @@ class SpeakingService:
                 state = {}
             
             agent_response = extract_agent_response_text(agent_response_raw)
-            if not agent_response:
-                conversation_data = state.get("conversation_response", {}) if isinstance(state, dict) else {}
-                if isinstance(conversation_data, dict):
+            translation_sentence = self._extract_translation_sentence(agent_response_raw)
+            conversation_data = state.get("conversation_response", {}) if isinstance(state, dict) else {}
+            if isinstance(conversation_data, dict):
+                if not agent_response:
                     agent_response = conversation_data.get("response_text", "") or ""
+                if not translation_sentence:
+                    translation_sentence = conversation_data.get("translation_sentence", "") or ""
             if not agent_response:
                 agent_response = self._get_contextual_fallback(session)
+            translation_sentence = translation_sentence or None
             
             # Save agent response
             agent_message = SpeakingChatMessage(
@@ -491,7 +524,8 @@ class SpeakingService:
                 role="assistant",
                 content=agent_response,
                 is_audio=False,
-                audio_url=None
+                audio_url=None,
+                translation_sentence=translation_sentence
             )
             db.add(agent_message)
             db.commit()
@@ -513,6 +547,7 @@ class SpeakingService:
                 session_id=agent_message.session_id,
                 role=agent_message.role,
                 content=agent_message.content,
+                translation_sentence=agent_message.translation_sentence,
                 is_audio=agent_message.is_audio,
                 audio_url=agent_message.audio_url,
                 session=session_payload,
@@ -552,6 +587,7 @@ class SpeakingService:
                 session_id=msg.session_id,
                 role=msg.role,
                 content=msg.content,
+                translation_sentence=msg.translation_sentence,
                 is_audio=msg.is_audio,
                 audio_url=msg.audio_url,
                 session=None,
@@ -718,19 +754,25 @@ class SpeakingService:
             state = {}
         
         final_response = extract_agent_response_text(agent_response_raw)
-        if not final_response and isinstance(state, dict):
+        translation_sentence = self._extract_translation_sentence(agent_response_raw)
+        if isinstance(state, dict):
             conversation_data = state.get("conversation_response", {})
             if isinstance(conversation_data, dict):
-                final_response = conversation_data.get("response_text", "") or ""
+                if not final_response:
+                    final_response = conversation_data.get("response_text", "") or ""
+                if not translation_sentence:
+                    translation_sentence = conversation_data.get("translation_sentence", "") or ""
         if not final_response:
             final_response = self._get_contextual_fallback(session)
+        translation_sentence = translation_sentence or None
         
         agent_message = SpeakingChatMessage(
             session_id=session_id,
             role="assistant",
             content=final_response,
             is_audio=False,
-            audio_url=None
+            audio_url=None,
+            translation_sentence=translation_sentence
         )
         db.add(agent_message)
         db.commit()
@@ -753,6 +795,7 @@ class SpeakingService:
             session_id=agent_message.session_id,
             role=agent_message.role,
             content=agent_message.content,
+            translation_sentence=agent_message.translation_sentence,
             is_audio=agent_message.is_audio,
             audio_url=agent_message.audio_url,
             session=session_payload,

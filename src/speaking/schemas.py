@@ -63,6 +63,7 @@ class ChatMessageResponse(CustomModel):
     content: str  # English content
     is_audio: bool
     audio_url: Optional[str] = Field(None, description="URL of attached audio for this message, if any")
+    translation_sentence: Optional[str] = Field(None, description="Vietnamese translation of the assistant message")
     session: Optional[SpeakingSessionResponse] = Field(
         None, description="Updated speaking session state associated with this response"
     )
