@@ -46,6 +46,7 @@ from src.utils.agent_utils import (
     build_agent_query,
     extract_agent_response_text,
     get_agent_state,
+    update_session_state,
 )
 from src.utils.audio_utils import convert_audio_to_wav, validate_audio_file
 from src.storage import S3StorageService
@@ -426,7 +427,23 @@ class SpeakingService:
             db.add(user_message)
             db.commit()
             
-            # Note: chat_history and user_message will be updated by agent callbacks
+            # Store user message in temporary state key for conversation_agent callback
+            # Only messages routed to conversation_agent will be added to chat_history
+            try:
+                await update_session_state(
+                    session_service=self.session_service,
+                    app_name="SpeakingPractice",
+                    user_id=str(user_id),
+                    session_id=str(session_id),
+                    state_delta={
+                        "pending_user_message": user_message_text.strip(),
+                    },
+                    author="system",
+                    invocation_id_prefix="pending_user_message",
+                    logger=logger
+                )
+            except Exception as e:
+                logger.warning(f"Could not store pending user message: {e}")
             
             # Query for speaking_practice to route to conversation agent
             query = build_agent_query(

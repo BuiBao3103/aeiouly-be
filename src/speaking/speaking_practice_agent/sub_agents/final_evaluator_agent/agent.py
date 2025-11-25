@@ -34,11 +34,11 @@ final_evaluator_agent = LlmAgent(
     4. Gợi ý cải thiện cụ thể, thực thi được
     
     THÔNG TIN TRONG STATE:
-    - chat_history: Lịch sử cuộc trò chuyện (cả user và assistant messages)
-    - my_character: Nhân vật của người học
-    - ai_character: Nhân vật AI
-    - scenario: Tình huống giao tiếp
-    - level: CEFR level
+    - chat_history: {{chat_history?}}
+    - my_character: {{my_character}}
+    - ai_character: {{ai_character}}
+    - scenario: {{scenario}}
+    - level: {{level}}
     
     {get_cefr_definitions_string()}
     

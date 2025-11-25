@@ -63,7 +63,7 @@ def end_conversation(tool_context: ToolContext) -> Dict[str, Any]:
 
 def after_conversation_callback(callback_context: CallbackContext) -> Optional[types.Content]:
     """
-    Callback that automatically saves conversation message to chat_history in state
+    Callback that automatically saves user message and AI response to chat_history in state
     after conversation_agent generates response.
     
     This is the CORRECT way to update state - using callback_context.state
@@ -77,14 +77,30 @@ def after_conversation_callback(callback_context: CallbackContext) -> Optional[t
     """
     state = callback_context.state
     
+    # Get pending user message (set by service before calling agent)
+    pending_user_message = state.get("pending_user_message", "")
+    
     # Get chat_response from state (set by output_key)
     conversation_data = state.get(CHAT_RESPONSE_STATE_KEY, {})
     
-    # Save conversation to chat_history and update last_ai_message/order
+    chat_history = state.get("chat_history", [])
+    
+    # Add user message to chat_history if it exists (only for conversation_agent)
+    if pending_user_message:
+        user_message_order = state.get("user_message_order", 0)
+        chat_history.append({
+            "role": "user",
+            "content": pending_user_message.strip(),
+            "order": user_message_order,
+        })
+        state["user_message_order"] = user_message_order + 1
+        # Clear pending user message after adding to history
+        state["pending_user_message"] = ""
+    
+    # Save AI response to chat_history and update last_ai_message/order
     if isinstance(conversation_data, dict):
         response_text = conversation_data.get("response_text", "")
         if response_text:
-            chat_history = state.get("chat_history", [])
             message_order = state.get("assistant_message_order", 0)
             # Store conversation response in history list
             chat_history.append(
