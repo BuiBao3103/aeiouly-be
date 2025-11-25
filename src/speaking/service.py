@@ -16,7 +16,6 @@ from pydub import AudioSegment
 from google.cloud import speech
 
 from typing import List, Optional
-import json
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from src.speaking.schemas import (
@@ -60,7 +59,6 @@ logger = logging.getLogger(__name__)
 
 # Constants
 SESSION_NOT_FOUND_MSG = "Không tìm thấy phiên luyện nói"
-DEFAULT_GREETING = "Hello! Let's start our conversation."
 
 class SpeakingService:
     """Service for speaking practice and speech-to-text conversion"""
@@ -194,34 +192,6 @@ class SpeakingService:
                 os.unlink(wav_file_path)
     
     
-    def _get_contextual_fallback(self, session: SpeakingSession) -> str:
-        """Generate a context-aware fallback prompt."""
-        scenario = (session.scenario or "").lower()
-        if "restaurant" in scenario or "nhà hàng" in scenario:
-            return "What would you like to order today?"
-        if "hotel" in scenario or "khách sạn" in scenario:
-            return "How can I help you with your stay?"
-        if any(keyword in scenario for keyword in ["shop", "store", "cửa hàng", "mua", "shopping"]):
-            return "What are you looking for today?"
-        return "Let's continue our conversation. What would you like to say?"
-    
-    def _extract_translation_sentence(self, agent_output: Optional[str]) -> str:
-        """Extract Vietnamese translation sentence from agent output."""
-        if not agent_output:
-            return ""
-        agent_output = agent_output.strip()
-        if not agent_output or not agent_output.startswith("{"):
-            return ""
-        try:
-            data = json.loads(agent_output)
-            if isinstance(data, dict):
-                translation = data.get("translation_sentence")
-                if isinstance(translation, str):
-                    return translation.strip()
-        except json.JSONDecodeError:
-            return ""
-        return ""
-
     def _upload_user_audio(self, audio_file: UploadFile) -> Optional[str]:
         """Upload learner audio to S3 (if configured) and return the public URL."""
         if not self.storage_service or not audio_file:
@@ -285,60 +255,43 @@ class SpeakingService:
                 message="Generate opening line"
             )
             
-            try:
-                initial_response = await call_agent_with_logging(
-                    runner=self.runner,
-                    user_id=str(user_id),
-                    session_id=str(db_session.id),
-                    query=query,
-                    logger=logger
-                )
-                
-                greeting_text = extract_agent_response_text(initial_response)
-                translation_sentence = self._extract_translation_sentence(initial_response)
-                
-                if not greeting_text or not translation_sentence:
-                    # Fallback to state value if available
-                    try:
-                        state = await get_agent_state(
-                            session_service=self.session_service,
-                            app_name="SpeakingPractice",
-                            user_id=str(user_id),
-                            session_id=str(db_session.id),
-                        )
-                        conversation_data = state.get("conversation_response", {})
-                        if isinstance(conversation_data, dict):
-                            if not greeting_text:
-                                greeting_text = conversation_data.get("response_text", "") or ""
-                            if not translation_sentence:
-                                translation_sentence = conversation_data.get("translation_sentence", "") or ""
-                    except Exception as state_error:
-                        logger.warning(f"Could not read intro state: {state_error}")
-                
-                greeting_text = greeting_text or DEFAULT_GREETING
-                translation_sentence = translation_sentence or None
-                
-                ai_message = SpeakingChatMessage(
-                    session_id=db_session.id,
-                    role="assistant",
-                    content=greeting_text,
-                    is_audio=False,
-                    translation_sentence=translation_sentence
-                )
-                db.add(ai_message)
-                db.commit()
-                
-            except Exception as agent_error:
-                logger.error(f"Error generating initial greeting: {agent_error}")
-                ai_message = SpeakingChatMessage(
-                    session_id=db_session.id,
-                    role="assistant",
-                    content=DEFAULT_GREETING,
-                    is_audio=False,
-                    translation_sentence=None
-                )
-                db.add(ai_message)
-                db.commit()
+            initial_response = await call_agent_with_logging(
+                runner=self.runner,
+                user_id=str(user_id),
+                session_id=str(db_session.id),
+                query=query,
+                logger=logger
+            )
+            
+            state = await get_agent_state(
+                session_service=self.session_service,
+                app_name="SpeakingPractice",
+                user_id=str(user_id),
+                session_id=str(db_session.id),
+            )
+            conversation_data = state.get("chat_response", {}) if isinstance(state, dict) else {}
+            
+            if not isinstance(conversation_data, dict):
+                raise HTTPException(status_code=500, detail="Agent không trả về dữ liệu hợp lệ")
+            
+            greeting_text = (conversation_data.get("response_text") or "").strip()
+            if not greeting_text:
+                raise HTTPException(status_code=500, detail="Agent không tạo được câu chào đầu tiên")
+            
+            translation_candidate = conversation_data.get("translation_sentence")
+            translation_sentence = None
+            if isinstance(translation_candidate, str):
+                translation_sentence = translation_candidate.strip() or None
+            
+            ai_message = SpeakingChatMessage(
+                session_id=db_session.id,
+                role="assistant",
+                content=greeting_text,
+                is_audio=False,
+                translation_sentence=translation_sentence
+            )
+            db.add(ai_message)
+            db.commit()
             
             return SpeakingSessionResponse(
                 id=db_session.id,
@@ -506,17 +459,19 @@ class SpeakingService:
                 logger.warning(f"Could not check conversation status: {e}")
                 state = {}
             
-            agent_response = extract_agent_response_text(agent_response_raw)
-            translation_sentence = self._extract_translation_sentence(agent_response_raw)
-            conversation_data = state.get("conversation_response", {}) if isinstance(state, dict) else {}
-            if isinstance(conversation_data, dict):
-                if not agent_response:
-                    agent_response = conversation_data.get("response_text", "") or ""
-                if not translation_sentence:
-                    translation_sentence = conversation_data.get("translation_sentence", "") or ""
+            conversation_data = state.get("chat_response", {}) if isinstance(state, dict) else {}
+            
+            if not isinstance(conversation_data, dict):
+                raise HTTPException(status_code=500, detail="Agent không trả về dữ liệu hợp lệ")
+            
+            agent_response = (conversation_data.get("response_text") or "").strip()
             if not agent_response:
-                agent_response = self._get_contextual_fallback(session)
-            translation_sentence = translation_sentence or None
+                raise HTTPException(status_code=500, detail="Agent không tạo được phản hồi")
+            
+            translation_candidate = conversation_data.get("translation_sentence")
+            translation_sentence = None
+            if isinstance(translation_candidate, str):
+                translation_sentence = translation_candidate.strip() or None
             
             # Save agent response
             agent_message = SpeakingChatMessage(
@@ -753,18 +708,19 @@ class SpeakingService:
             logger.warning(f"Could not check conversation status: {state_error}")
             state = {}
         
-        final_response = extract_agent_response_text(agent_response_raw)
-        translation_sentence = self._extract_translation_sentence(agent_response_raw)
-        if isinstance(state, dict):
-            conversation_data = state.get("conversation_response", {})
-            if isinstance(conversation_data, dict):
-                if not final_response:
-                    final_response = conversation_data.get("response_text", "") or ""
-                if not translation_sentence:
-                    translation_sentence = conversation_data.get("translation_sentence", "") or ""
+        conversation_data = state.get("chat_response", {}) if isinstance(state, dict) else {}
+        
+        if not isinstance(conversation_data, dict):
+            raise HTTPException(status_code=500, detail="Agent không trả về dữ liệu hợp lệ")
+        
+        final_response = (conversation_data.get("response_text") or "").strip()
         if not final_response:
-            final_response = self._get_contextual_fallback(session)
-        translation_sentence = translation_sentence or None
+            raise HTTPException(status_code=500, detail="Agent không tạo được phản hồi khi bỏ qua lượt")
+        
+        translation_candidate = conversation_data.get("translation_sentence")
+        translation_sentence = None
+        if isinstance(translation_candidate, str):
+            translation_sentence = translation_candidate.strip() or None
         
         agent_message = SpeakingChatMessage(
             session_id=session_id,

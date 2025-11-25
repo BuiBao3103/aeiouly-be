@@ -44,8 +44,8 @@ chat_agent = Agent(
     - Maintain polite, natural tone appropriate for {ai_character} at level {level}. Ask follow-up questions when using the conversation tool to keep the dialogue flowing.
     """,
     tools=[
-        AgentTool(agent=conversation_agent, skip_summarization=False),
-        AgentTool(agent=guidance_agent, skip_summarization=False),
+        AgentTool(agent=conversation_agent, skip_summarization=True),
+        AgentTool(agent=guidance_agent, skip_summarization=True),
     ],
     disallow_transfer_to_parent=True,
     disallow_transfer_to_peers=True,

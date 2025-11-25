@@ -11,14 +11,19 @@ from google.adk.tools.tool_context import ToolContext
 from google.genai import types
 from pydantic import BaseModel, Field
 from src.constants.cefr import get_cefr_definitions_string
-from src.speaking.service import SpeakingService
 
 
-class ConversationResponse(BaseModel):
-    response_text: str = Field(description="English response text from AI character")
-    translation_sentence: str = Field(
-        description="Single Vietnamese sentence translating response_text"
+class ChatAgentResponse(BaseModel):
+    response_text: str = Field(
+        description="Final message for learner (English here, Vietnamese for guidance)"
     )
+    translation_sentence: Optional[str] = Field(
+        default=None,
+        description="Optional single Vietnamese sentence translating response_text",
+    )
+
+
+CHAT_RESPONSE_STATE_KEY = "chat_response"
 
 
 def end_conversation(tool_context: ToolContext) -> Dict[str, Any]:
@@ -72,8 +77,8 @@ def after_conversation_callback(callback_context: CallbackContext) -> Optional[t
     """
     state = callback_context.state
     
-    # Get conversation_response from state (set by output_key)
-    conversation_data = state.get("conversation_response", {})
+    # Get chat_response from state (set by output_key)
+    conversation_data = state.get(CHAT_RESPONSE_STATE_KEY, {})
     
     # Save conversation to chat_history and update last_ai_message/order
     if isinstance(conversation_data, dict):
@@ -159,8 +164,8 @@ conversation_agent = LlmAgent(
     {get_cefr_definitions_string()}
     """,
     tools=[end_conversation],
-    output_schema=ConversationResponse,
-    output_key="conversation_response",
+    output_schema=ChatAgentResponse,
+    output_key=CHAT_RESPONSE_STATE_KEY,
     after_agent_callback=after_conversation_callback,
     disallow_transfer_to_parent=True,
     disallow_transfer_to_peers=True

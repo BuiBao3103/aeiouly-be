@@ -9,6 +9,7 @@ from google.genai import types
 from pydantic import BaseModel, Field
 
 from src.speaking.speaking_practice_agent.sub_agents.chat_agent.sub_agents.conversation_agent.agent import (
+    CHAT_RESPONSE_STATE_KEY,
     after_conversation_callback,
 )
 from src.constants.cefr import get_cefr_definitions_string
@@ -23,7 +24,7 @@ def after_skip_response_callback(callback_context: CallbackContext) -> types.Con
     state = callback_context.state
     result = state.get("skip_response_result")
     if isinstance(result, dict):
-        state["conversation_response"] = result
+        state[CHAT_RESPONSE_STATE_KEY] = result
         return after_conversation_callback(callback_context)
     return None
 
