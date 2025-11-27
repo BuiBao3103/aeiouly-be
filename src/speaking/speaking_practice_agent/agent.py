@@ -16,7 +16,7 @@ from .sub_agents.skip_response_agent.agent import skip_response_agent
 
 speaking_practice = Agent(
     name="speaking_practice",
-    model="gemini-2.0-flash",
+    model="gemini-2.5-flash",
     description="Coordinates English conversation practice by routing requests to specialized tools.",
     instruction="""
     Orchestrate the speaking practice workflow. Route requests based on SOURCE and respond appropriately.
@@ -26,20 +26,29 @@ speaking_practice = Agent(
     MESSAGE:<content>
     
     ROUTING RULES from SOURCE:
-    - chat_input → chat tool (forward full payload, don't generate own response)
+    - chat_input → ALWAYS transfer to chat sub-agent. Forward full two-line payload as-is. NEVER generate your own response, regardless of message content. This applies even if message:
+      * asks to skip current sentence
+      * requests help or guidance
+      * asks for hints or suggestions
+      * is in Vietnamese
+      * is a question
+      * contains any other content
     - start_conversation_button → intro_message tool (generate the opening assistant line)
     - skip_button → skip_response tool (produce the next assistant turn after learner skips)
     - hint_button → hint_provider tool (reply in Vietnamese with hint)
     - final_evaluation_button → final_evaluator tool (summarize in Vietnamese)
     
+    Sub-agent calls:
+    - chat: ALWAYS transfer when SOURCE=chat_input. Pass full two-line payload as-is, forward response. Do NOT analyze or respond yourself. Do NOT call hint_provider tool even if message asks for hints.
+    
     TOOL CALLS:
-    - chat: Pass full two-line payload as-is, forward response
     - intro_message: MESSAGE = "Generate opening line"
     - skip_response: MESSAGE = "Generate next turn after skip"
     - hint_provider: MESSAGE = "Create conversation hints"
     - final_evaluator: MESSAGE = "Produce final evaluation"
     
-    CRITICAL: For chat_input, call chat tool immediately without generating your own response.
+    CRITICAL RULE: 
+    - If SOURCE=chat_input, you MUST transfer to chat sub-agent immediately. Do NOT read the MESSAGE content. Do NOT decide based on message content. Do NOT call hint_provider tool. Do NOT generate any response yourself. Just transfer to chat sub-agent.
     """,
     tools=[
         AgentTool(agent=intro_message_agent, skip_summarization=True),

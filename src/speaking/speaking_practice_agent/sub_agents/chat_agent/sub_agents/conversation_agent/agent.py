@@ -136,12 +136,11 @@ conversation_agent = LlmAgent(
     4. Call end_conversation() tool when the conversation should end
     
     CONVERSATION RULES:
-    - Respond ONLY in English
-    - Stay in character as {{ai_character}} and keep tone aligned with gender {{ai_gender}}
-    - Keep responses appropriate for level {{level}}
-    - Be natural, friendly, and engaging
-    - Ask follow-up questions to keep conversation flowing
-    - Adapt vocabulary and grammar complexity to match {{level}}
+    - Analyze relationship: Determine the relationship between AI role "{{ai_character}}" and learner role "{{my_character}}". If they are family members (anh trai/em gái/chị gái/em trai), identify who is older/younger and use appropriate English terms ("brother" or "sister") when addressing the learner.
+    - Respond ONLY in English as {{ai_character}} with tone matching gender {{ai_gender}}
+    - Keep vocabulary and grammar appropriate for level {{level}}
+    - Be natural, friendly, engaging. Ask follow-up questions to keep conversation flowing
+    - The translation_sentence must be a single Vietnamese sentence translating the meaning of response_text, the subject must suit for role "{{my_character}}" and "{{ai_character}}".
     
     WHEN TO END CONVERSATION:
     Call end_conversation() tool when:

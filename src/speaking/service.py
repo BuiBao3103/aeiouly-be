@@ -428,10 +428,10 @@ class SpeakingService:
         session_id: int,
         user_id: int,
         message_data: ChatMessageCreate,
-        audio_file: Optional[UploadFile] = None,
+        audio_url: Optional[str] = None,
         db: Session = None
     ) -> ChatMessageResponse:
-        """Send a chat message (text or audio) and get agent response"""
+        """Send a chat message (text with optional audio URL) and get agent response"""
         try:
             # Get session
             session = db.query(SpeakingSession).filter(
@@ -442,69 +442,10 @@ class SpeakingService:
             if not session:
                 raise HTTPException(status_code=404, detail=SESSION_NOT_FOUND_MSG)
             
-            # Determine if message is audio or text
+            # Get message content and determine if it's audio
             user_message_text = message_data.content
-            is_audio = False
-            user_audio_url = None
+            is_audio = bool(audio_url)  # Set is_audio=True if audio_url is provided
             
-            if audio_file:
-                # Convert audio to text
-                if not self.client:
-                    raise HTTPException(status_code=500, detail="Speech-to-text service chưa được khởi tạo")
-                
-                try:
-                    # Read file content once into memory for parallel processing
-                    audio_file.file.seek(0)
-                    audio_content = audio_file.file.read()
-                    audio_file.file.seek(0)
-                    
-                    # Create helper functions that work with bytes
-                    from io import BytesIO
-                    
-                    def _stt_from_bytes(content: bytes, filename: str, content_type: str):
-                        """Helper to run speech-to-text from bytes"""
-                        file_obj = UploadFile(
-                            filename=filename,
-                            file=BytesIO(content),
-                            headers={"content-type": content_type} if content_type else {}
-                        )
-                        return self.speech_to_text(file_obj, "en-US")
-                    
-                    def _upload_from_bytes(content: bytes, filename: str, content_type: str):
-                        """Helper to upload from bytes"""
-                        file_obj = UploadFile(
-                            filename=filename,
-                            file=BytesIO(content),
-                            headers={"content-type": content_type} if content_type else {}
-                        )
-                        return self._upload_user_audio(file_obj)
-                    
-                    # Run speech-to-text and upload in parallel
-                    stt_task = asyncio.to_thread(
-                        _stt_from_bytes,
-                        audio_content,
-                        audio_file.filename or "audio",
-                        audio_file.content_type or "audio/wav"
-                    )
-                    upload_task = asyncio.to_thread(
-                        _upload_from_bytes,
-                        audio_content,
-                        audio_file.filename or "audio",
-                        audio_file.content_type or "audio/wav"
-                    )
-                    
-                    # Wait for both to complete
-                    stt_response, user_audio_url = await asyncio.gather(
-                        stt_task,
-                        upload_task
-                    )
-                    
-                    user_message_text = stt_response.text
-                    is_audio = True
-                except Exception as e:
-                    logger.error(f"Error converting audio to text: {e}")
-                    raise HTTPException(status_code=400, detail=f"Lỗi khi chuyển đổi audio sang text: {str(e)}")
-                
             if not user_message_text:
                 raise HTTPException(status_code=400, detail="Nội dung tin nhắn không được để trống")
             
@@ -514,7 +455,7 @@ class SpeakingService:
                 role="user",
                 content=user_message_text,
                 is_audio=is_audio,
-                audio_url=user_audio_url,
+                audio_url=audio_url,
             )
             db.add(user_message)
             # Don't commit yet - will commit both messages together

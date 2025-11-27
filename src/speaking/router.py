@@ -109,43 +109,34 @@ async def delete_speaking_session(
 @router.post("/{session_id}/chat", response_model=ChatMessageResponse)
 async def send_chat_message(
     session_id: int,
-    content: Optional[str] = Form(None, description="Text content (required if audio_file is not provided)"),
-    audio_file: Optional[UploadFile] = File(None, description="File âm thanh (max 10MB, max 60s) - required if content is not provided"),
+    content: str = Form(..., description="Nội dung text của tin nhắn"),
+    audio_url: Optional[str] = Form(None, description="URL của file âm thanh (nếu có)"),
     current_user: User = Depends(get_current_active_user),
     service: SpeakingService = Depends(get_speaking_service),
     db: Session = Depends(get_db)
 ):
     """
-    Gửi tin nhắn (text hoặc audio) và nhận phản hồi từ AI (tiếng Anh)
+    Gửi tin nhắn (text) và nhận phản hồi từ AI (tiếng Anh)
     
     **Yêu cầu:**
-    - Phải cung cấp một trong hai: `content` (text) hoặc `audio_file` (file âm thanh)
-    - File âm thanh: tối đa 10MB, tối đa 60 giây
-    
-    **Định dạng hỗ trợ:** WebM, OGG, WAV, MP3, M4A, FLAC
+    - Phải cung cấp `content` (text)
+    - Có thể cung cấp `audio_url` nếu tin nhắn có file âm thanh đính kèm
     
     **Tham số:**
-    - **content**: Nội dung text (bắt buộc nếu không có audio_file)
-    - **audio_file**: File âm thanh (bắt buộc nếu không có content)
+    - **content**: Nội dung text (bắt buộc)
+    - **audio_url**: URL của file âm thanh (tùy chọn)
     
     **Trả về:** Phản hồi từ AI bằng tiếng Anh
     """
     try:
-        # Validate that at least one is provided
-        if not content and not audio_file:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Phải cung cấp 'content' (text) hoặc 'audio_file' (file âm thanh)"
-            )
-        
         # Create message data object
         from src.speaking.schemas import ChatMessageCreate
         message_data = ChatMessageCreate(
             content=content,
-            audio_file=None  # Will be passed separately
+            audio_file=None  # Not used anymore
         )
         
-        return await service.send_chat_message(session_id, current_user.id, message_data, audio_file, db)
+        return await service.send_chat_message(session_id, current_user.id, message_data, audio_url, db)
     except HTTPException as e:
         raise e
     except Exception as e:
