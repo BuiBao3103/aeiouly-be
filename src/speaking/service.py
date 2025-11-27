@@ -74,6 +74,8 @@ class SpeakingService:
     MAX_AUDIO_FILE_SIZE = 10 * 1024 * 1024
     MAX_AUDIO_DURATION_SECONDS = 60
     
+    VALID_AI_GENDERS = {"male", "female", "neutral"}
+
     def __init__(self):
         """Initialize SpeakingService with Google Cloud Speech client and ADK runner"""
         if settings.GOOGLE_APPLICATION_CREDENTIALS:
@@ -100,6 +102,13 @@ class SpeakingService:
         except Exception as storage_error:
             logger.warning(f"Could not initialize storage service: {storage_error}")
             self.storage_service = None
+
+    @classmethod
+    def _resolve_ai_gender(cls, value: Optional[str]) -> str:
+        """Normalize ai_gender, defaulting to neutral when legacy data is missing."""
+        if isinstance(value, str) and value.lower() in cls.VALID_AI_GENDERS:
+            return value.lower()
+        return "neutral"
 
     def speech_to_text(
         self,
@@ -259,7 +268,7 @@ class SpeakingService:
                 message="Generate opening line"
             )
             
-            initial_response = await call_agent_with_logging(
+            await call_agent_with_logging(
                 runner=self.runner,
                 user_id=str(user_id),
                 session_id=str(db_session.id),
@@ -302,7 +311,7 @@ class SpeakingService:
                 user_id=db_session.user_id,
                 my_character=db_session.my_character,
                 ai_character=db_session.ai_character,
-                ai_gender=db_session.ai_gender,
+                ai_gender=self._resolve_ai_gender(db_session.ai_gender),
                 scenario=db_session.scenario,
                 level=db_session.level,
                 status=db_session.status,
@@ -335,7 +344,7 @@ class SpeakingService:
             user_id=session.user_id,
             my_character=session.my_character,
             ai_character=session.ai_character,
-            ai_gender=session.ai_gender,
+            ai_gender=self._resolve_ai_gender(session.ai_gender),
             scenario=session.scenario,
             level=session.level,
             status=session.status,
@@ -358,7 +367,7 @@ class SpeakingService:
                 id=session.id,
                 my_character=session.my_character,
                 ai_character=session.ai_character,
-                ai_gender=session.ai_gender,
+                ai_gender=self._resolve_ai_gender(session.ai_gender),
                 scenario=session.scenario,
                 level=session.level,
                 status=session.status,
@@ -555,7 +564,7 @@ class SpeakingService:
                 user_id=session.user_id,
                 my_character=session.my_character,
                 ai_character=session.ai_character,
-                ai_gender=session.ai_gender,
+                ai_gender=self._resolve_ai_gender(session.ai_gender),
                 scenario=session.scenario,
                 level=session.level,
                 status=session.status,
@@ -805,7 +814,7 @@ class SpeakingService:
             user_id=session.user_id,
             my_character=session.my_character,
             ai_character=session.ai_character,
-            ai_gender=session.ai_gender,
+            ai_gender=self._resolve_ai_gender(session.ai_gender),
             scenario=session.scenario,
             level=session.level,
             status=session.status,
