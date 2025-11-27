@@ -37,6 +37,7 @@ final_evaluator_agent = LlmAgent(
     - chat_history: {{chat_history?}}
     - my_character: {{my_character}}
     - ai_character: {{ai_character}}
+    - ai_gender: {{ai_gender}}
     - scenario: {{scenario}}
     - level: {{level}}
     

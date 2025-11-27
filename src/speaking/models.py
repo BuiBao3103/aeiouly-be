@@ -15,6 +15,7 @@ class SpeakingSession(Base, SoftDeleteMixin, TimestampMixin):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     my_character = Column(String(255), nullable=False)  # Nhân vật của người dùng
     ai_character = Column(String(255), nullable=False)  # Nhân vật AI
+    ai_gender = Column(String(20), nullable=True, default="neutral")  # Giới tính giọng AI
     scenario = Column(Text, nullable=False)  # Tình huống giao tiếp
     level = Column(String(10), nullable=False)
     status = Column(String(20), default="active")

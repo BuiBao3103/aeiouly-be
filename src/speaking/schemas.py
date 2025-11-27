@@ -1,6 +1,8 @@
 """Schemas for Speaking module"""
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional, List, Literal
+AI_GENDER = Literal["male", "female", "neutral"]
+
 from datetime import datetime
 from src.models import CustomModel
 from src.constants.cefr import CEFRLevel
@@ -22,6 +24,7 @@ class SpeakingSessionCreate(CustomModel):
     """Schema for creating a new speaking session"""
     my_character: str = Field(..., min_length=1, max_length=255, description="Nhân vật của bạn trong cuộc trò chuyện")
     ai_character: str = Field(..., min_length=1, max_length=255, description="Nhân vật AI trong cuộc trò chuyện")
+    ai_gender: AI_GENDER = Field(..., description="Giới tính giọng AI (male/female/neutral)")
     scenario: str = Field(..., min_length=1, description="Tình huống giao tiếp")
     level: CEFRLevel = Field(..., description="Độ khó theo thang CEFR")
 
@@ -32,6 +35,7 @@ class SpeakingSessionResponse(CustomModel):
     user_id: int
     my_character: str
     ai_character: str
+    ai_gender: AI_GENDER
     scenario: str
     level: CEFRLevel
     status: str 
@@ -44,6 +48,7 @@ class SpeakingSessionListResponse(CustomModel):
     id: int
     my_character: str
     ai_character: str
+    ai_gender: AI_GENDER
     scenario: str
     level: CEFRLevel
     status: str

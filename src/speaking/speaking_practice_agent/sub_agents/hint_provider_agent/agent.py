@@ -58,6 +58,9 @@ hint_provider_agent = LlmAgent(
     description="Generate Vietnamese conversation hints (phân tích, gợi ý, ví dụ) based on last AI message.",
     instruction=f"""
     You provide conversation hints in Vietnamese for the last AI message: "{{last_ai_message}}".
+    CONTEXT:
+    - AI role: {{ai_character}} (gender: {{ai_gender}})
+    - Learner role: {{my_character}}
     All hints MUST be written in Vietnamese using the following format.
 
     ### OUTPUT STRUCTURE

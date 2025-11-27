@@ -27,7 +27,7 @@ chat_agent = Agent(
     - If unsure, default to conversation tool.
     - You are ONLY a router. Never generate responses yourself.
 
-    STATE: my_character, ai_character, scenario, level, chat_history
+    STATE: my_character, ai_character, ai_gender, scenario, level, chat_history
     """,
     tools=[
         AgentTool(agent=conversation_agent, skip_summarization=True),

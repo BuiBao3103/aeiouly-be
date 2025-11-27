@@ -38,12 +38,13 @@ intro_message_agent = LlmAgent(
 
     CONTEXT FROM STATE:
     - AI role: {{ai_character}}
+    - AI gender: {{ai_gender}}
     - Learner role: {{my_character}}
     - Scenario: "{{scenario}}"
     - CEFR level: {{level}}
 
     REQUIREMENTS:
-    1. Respond ONLY in English, fully in-character as {{ai_character}}.
+    1. Respond ONLY in English, fully in-character as {{ai_character}} with tone consistent with gender {{ai_gender}} (female=feminine, male=masculine, neutral=balanced).
     2. Craft a natural greeting that references the scenario and invites the learner to speak.
     3. Keep tone friendly and match CEFR level {{level}} (simpler language for lower levels).
     4. Ask a follow-up question so the learner knows how to start.

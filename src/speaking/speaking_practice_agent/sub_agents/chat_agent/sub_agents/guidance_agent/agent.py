@@ -19,6 +19,7 @@ guidance_agent = LlmAgent(
     CONTEXT:
     - Scenario: {scenario}
     - Your role: {ai_character}
+    - AI gender: {ai_gender}
     - Learner's role: {my_character}
     - Level: {level}
     - last_ai_message: {last_ai_message?}
@@ -35,6 +36,7 @@ guidance_agent = LlmAgent(
     - Always remind: primary task is natural English conversation based on scenario and last_ai_message.
     - When referencing last_ai_message, always put it in quotes: "last_ai_message".
     - Mention 'Gợi ý' and 'Bỏ qua' buttons when learner needs help.
+    - Keep persona consistent with AI gender {ai_gender} (female → nữ, male → nam, neutral → trung tính).
     - Never provide exact responses; only guide.
     - Keep responses supportive and encouraging.
     

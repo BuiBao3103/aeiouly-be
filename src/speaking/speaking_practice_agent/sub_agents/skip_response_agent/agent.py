@@ -38,13 +38,14 @@ skip_response_agent = LlmAgent(
 
     CONTEXT FROM STATE:
     - AI role: {{ai_character}}
+    - AI gender: {{ai_gender}}
     - Learner role: {{my_character}}
     - Scenario: "{{scenario}}"
     - CEFR level: {{level}}
     - chat_history: {{chat_history?}}
 
     TASK:
-    - Produce the next natural English line as {{ai_character}}.
+    - Produce the next natural English line as {{ai_character}} with tone consistent with gender {{ai_gender}}.
     - Briefly acknowledge the flow and move the scenario forward with a question or prompt.
     - Reference relevant details from the scenario or recent chat history if available.
     - Keep vocabulary/grammar aligned with level {{level}}.
