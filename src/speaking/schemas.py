@@ -11,6 +11,9 @@ from src.constants.cefr import CEFRLevel
 class SpeechToTextResponse(BaseModel):
     """Response schema for speech-to-text conversion"""
     text: str = Field(..., description="Transcribed text from audio")
+    audio_url: Optional[str] = Field(None, description="URL của file âm thanh nếu được lưu lại")
+    is_save: bool = Field(False, description="Trạng thái có lưu file âm thanh hay không")
+    detected_language: Optional[str] = Field(None, description="Ngôn ngữ được phát hiện tự động (nếu sử dụng auto-detect)")
 
 
 class SpeechToTextRequest(BaseModel):

@@ -234,7 +234,9 @@ async def get_final_evaluation(
 @router.post("/speech-to-text", response_model=SpeechToTextResponse)
 async def convert_speech_to_text(
     audio_file: UploadFile = File(..., description="File âm thanh (max 10MB, max 60s)"),
-    language_code: str = Form(default="en-US", description="Language code (default: en-US)"),
+    language_code: str = Form(default="en-US", description="Language code (default: en-US). Bị bỏ qua nếu auto_detect=true"),
+    is_save: bool = Form(default=False, description="Bật lưu file âm thanh lên server/S3"),
+    auto_detect: bool = Form(default=False, description="Tự động nhận diện ngôn ngữ giữa tiếng Anh (en-US) và tiếng Việt (vi-VN)"),
     current_user: User = Depends(get_current_active_user),
     service: SpeakingService = Depends(get_speaking_service),
     db: Session = Depends(get_db)
@@ -250,14 +252,21 @@ async def convert_speech_to_text(
     
     **Tham số:**
     - **audio_file**: File âm thanh cần chuyển đổi
-    - **language_code**: Mã ngôn ngữ (mặc định: en-US)
+    - **language_code**: Mã ngôn ngữ (mặc định: en-US). Bị bỏ qua nếu auto_detect=true
+    - **is_save**: Có lưu file âm thanh lên storage để lấy URL hay không
+    - **auto_detect**: Tự động nhận diện ngôn ngữ giữa tiếng Anh và tiếng Việt (mặc định: false)
     
-    **Trả về:** Văn bản đã chuyển đổi
+    **Trả về:** 
+    - Văn bản đã chuyển đổi
+    - URL file âm thanh (nếu is_save=true)
+    - Ngôn ngữ được phát hiện (nếu auto_detect=true)
     """
     try:
         return service.speech_to_text(
             audio_file=audio_file,
-            language_code=language_code
+            language_code=language_code,
+            is_save=is_save,
+            auto_detect=auto_detect
         )
     except SpeechToTextException as e:
         raise speech_to_text_exception(str(e))

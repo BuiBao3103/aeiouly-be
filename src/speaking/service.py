@@ -114,11 +114,19 @@ class SpeakingService:
         self,
         audio_file: UploadFile,
         language_code: str = "en-US",
+        is_save: bool = False,
+        auto_detect: bool = False,
     ) -> SpeechToTextResponse:
         """
         Convert audio to text using Google Cloud Speech-to-Text API
         All audio formats are converted to WAV (LINEAR16, 16000 Hz) before sending to Google Cloud
         Supports: WebM, OGG, WAV, MP3, M4A, FLAC, AAC
+        
+        Args:
+            audio_file: Audio file to transcribe
+            language_code: Language code (default: "en-US"). Ignored if auto_detect=True
+            is_save: Whether to save audio file to S3
+            auto_detect: If True, automatically detects between English (en-US) and Vietnamese (vi-VN)
         """
         if not self.client:
             raise SpeechToTextException("Google Cloud Speech client chưa được khởi tạo")
@@ -169,27 +177,52 @@ class SpeakingService:
             audio = speech.RecognitionAudio(content=audio_data)
             
             # Build config with fixed WAV format (LINEAR16, 16000 Hz)
-            config = speech.RecognitionConfig(
-                encoding=self.TARGET_ENCODING,
-                sample_rate_hertz=self.TARGET_SAMPLE_RATE,
-                language_code=language_code,
-                enable_automatic_punctuation=True,
-            )
+            if auto_detect:
+                # Use alternative_language_codes for auto-detection between English and Vietnamese
+                config = speech.RecognitionConfig(
+                    encoding=self.TARGET_ENCODING,
+                    sample_rate_hertz=self.TARGET_SAMPLE_RATE,
+                    language_code="en-US",  # Primary language
+                    alternative_language_codes=["vi-VN"],  # Alternative languages to consider
+                    enable_automatic_punctuation=True,
+                )
+            else:
+                # Use specified language code
+                config = speech.RecognitionConfig(
+                    encoding=self.TARGET_ENCODING,
+                    sample_rate_hertz=self.TARGET_SAMPLE_RATE,
+                    language_code=language_code,
+                    enable_automatic_punctuation=True,
+                )
             
             # Perform speech recognition
             response = self.client.recognize(config=config, audio=audio)
             
-            # Extract text from results
+            # Extract text and detected language from results
             transcribed_text = ""
+            detected_language = None
+            
             for result in response.results:
                 transcribed_text += result.alternatives[0].transcript + " "
+                # Check if language_code is available in result (for auto-detection)
+                if auto_detect and hasattr(result, 'language_code') and result.language_code:
+                    detected_language = result.language_code
             
             transcribed_text = transcribed_text.strip()
             
             if not transcribed_text:
                 raise SpeechToTextException("Không thể nhận dạng giọng nói từ file âm thanh")
+
+            audio_url = None
+            if is_save:
+                audio_url = self._upload_user_audio(audio_file)
             
-            return SpeechToTextResponse(text=transcribed_text)
+            return SpeechToTextResponse(
+                text=transcribed_text,
+                audio_url=audio_url,
+                is_save=bool(is_save and audio_url),
+                detected_language=detected_language if auto_detect else None,
+            )
             
         except SpeechToTextException:
             raise
