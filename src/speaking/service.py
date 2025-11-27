@@ -291,7 +291,6 @@ class SpeakingService:
                     "level": session_data.level.value,
                     "chat_history": [],
                     "hint_history": [],
-                    "conversation_ended": False
                 }
             )
             
@@ -442,6 +441,10 @@ class SpeakingService:
             if not session:
                 raise HTTPException(status_code=404, detail=SESSION_NOT_FOUND_MSG)
             
+            if session.status == "completed":
+                raise HTTPException(status_code=400, detail="Phiên luyện nói đã kết thúc")
+       
+            
             # Get message content and determine if it's audio
             user_message_text = message_data.content
             is_audio = bool(audio_url)  # Set is_audio=True if audio_url is provided
@@ -498,10 +501,6 @@ class SpeakingService:
                 session_id=str(session_id),
             )
             
-            # Check conversation status and get response data from single state query
-            conversation_ended = state.get("conversation_ended", False) if isinstance(state, dict) else False
-            if conversation_ended:
-                session.status = "completed"
             
             conversation_data = state.get("chat_response", {}) if isinstance(state, dict) else {}
             
@@ -749,10 +748,7 @@ class SpeakingService:
                 user_id=str(user_id),
                 session_id=str(session_id),
             )
-            
-            if state.get("conversation_ended"):
-                session.status = "completed"
-                db.commit()
+
         except Exception as state_error:
             logger.warning(f"Could not check conversation status: {state_error}")
             state = {}

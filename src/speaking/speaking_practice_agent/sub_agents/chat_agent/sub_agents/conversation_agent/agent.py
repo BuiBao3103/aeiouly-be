@@ -52,9 +52,7 @@ def end_conversation(tool_context: ToolContext) -> Dict[str, Any]:
             print(f"Could not persist session completion for session {session_id}: {exc}")
         finally:
             db.close()
-    
-    tool_context.state["conversation_ended"] = True
-    
+        
     return {
         "action": "conversation_complete",
         "message": "Thank you for the conversation! The session has been completed. You can review your practice when ready.",

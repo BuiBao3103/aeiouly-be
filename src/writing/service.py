@@ -170,8 +170,6 @@ class WritingService:
                     "current_sentence_index": 0,
                     "evaluation_history": [],
                     "hint_history": {},
-                    "vietnamese_sentences": {},
-                    "current_vietnamese_sentence": None # Will be set by after_text_generator_callback
                 }
             )
             
