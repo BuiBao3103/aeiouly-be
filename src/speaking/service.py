@@ -54,6 +54,7 @@ from src.storage import S3StorageService
 import logging
 from fastapi import HTTPException
 from datetime import datetime
+from langdetect import detect, LangDetectException
 
 
 # Logger for speaking service
@@ -160,7 +161,8 @@ class SpeakingService:
             
             # Convert to WAV only if needed
             if needs_conversion:
-                wav_file_path = tempfile.NamedTemporaryFile(delete=False, suffix='.wav').name
+                fd, wav_file_path = tempfile.mkstemp(suffix='.wav')
+                os.close(fd)
                 convert_audio_to_wav(
                     input_file_path=input_file_path,
                     output_file_path=wav_file_path,
@@ -198,20 +200,44 @@ class SpeakingService:
             # Perform speech recognition
             response = self.client.recognize(config=config, audio=audio)
             
-            # Extract text and detected language from results
+            # Extract text and aggregate detected language votes from alternatives
             transcribed_text = ""
             detected_language = None
+            language_votes: dict[str, float] = {}
             
             for result in response.results:
-                transcribed_text += result.alternatives[0].transcript + " "
-                # Check if language_code is available in result (for auto-detection)
-                if auto_detect and hasattr(result, 'language_code') and result.language_code:
-                    detected_language = result.language_code
+                if not result.alternatives:
+                    continue
+                top_alternative = result.alternatives[0]
+                transcribed_text += top_alternative.transcript + " "
+                
+                if auto_detect:
+                    for alternative in result.alternatives:
+                        alt_language = getattr(alternative, "language_code", None)
+                        if alt_language:
+                            confidence = alternative.confidence or 1.0
+                            language_votes[alt_language] = language_votes.get(alt_language, 0.0) + confidence
             
             transcribed_text = transcribed_text.strip()
             
             if not transcribed_text:
                 raise SpeechToTextException("Không thể nhận dạng giọng nói từ file âm thanh")
+
+            if auto_detect:
+                if language_votes:
+                    detected_language = max(language_votes, key=language_votes.get)
+                else:
+                    try:
+                        lang_code = detect(transcribed_text)
+                        language_map = {
+                            "en": "en-US",
+                            "vi": "vi-VN",
+                        }
+                        detected_language = language_map.get(lang_code, config.language_code)
+                    except LangDetectException:
+                        detected_language = config.language_code
+            else:
+                detected_language = None
 
             audio_url = None
             if is_save:
