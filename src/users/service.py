@@ -2,6 +2,7 @@
 Service layer for Users management
 """
 import bcrypt
+import logging
 from datetime import datetime, timezone
 from typing import List, Optional
 from sqlalchemy.orm import Session
@@ -17,12 +18,15 @@ from src.users.exceptions import (
 from src.pagination import PaginationParams, PaginatedResponse, paginate
 from src.vocabulary.models import VocabularySet
 from src.config import settings
+from src.mailer.service import EmailService
+
+logger = logging.getLogger(__name__)
 
 
 class UsersService:
     def __init__(self):
         """Initialize UsersService"""
-        pass
+        self.email_service = EmailService()
 
     def get_password_hash(self, password: str) -> str:
         """Hash password using bcrypt"""
@@ -190,7 +194,7 @@ class UsersService:
             db.rollback()
             raise UserValidationException(f"Lỗi khi xóa user: {str(e)}")
 
-    def reset_user_password(self, user_id: int, reset_data: UserResetPassword, db: Session) -> UserResponse:
+    async def reset_user_password(self, user_id: int, reset_data: UserResetPassword, db: Session) -> UserResponse:
         """Reset user password"""
         user = db.query(User).filter(
             User.id == user_id,
@@ -209,6 +213,21 @@ class UsersService:
 
             db.commit()
             db.refresh(user)
+
+            if user.email:
+                try:
+                    display_name = user.username or user.full_name or "bạn"
+                    await self.email_service.send_password_changed_email(
+                        to_email=user.email,
+                        username=display_name,
+                        new_password=reset_data.new_password
+                    )
+                except Exception as email_error:
+                    logger.warning(
+                        "Failed to send password change email to %s: %s",
+                        user.email,
+                        email_error,
+                    )
 
             return UserResponse.from_orm(user)
         except Exception as e:

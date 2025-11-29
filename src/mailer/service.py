@@ -89,6 +89,35 @@ class EmailService:
             print(f"Error sending welcome email: {type(e).__name__}: {e}")
             return False
 
+    async def send_password_changed_email(
+        self,
+        to_email: str,
+        username: str,
+        new_password: str
+    ) -> bool:
+        """Notify user that their password has been updated and share the new password."""
+        try:
+            subject = "Mật khẩu của bạn đã được đặt lại - Aeiouly"
+
+            context = {
+                "username": username,
+                "new_password": new_password,
+                "login_url": f"{settings.CLIENT_SIDE_URL}/login",
+                "support_email": "support@aeiouly.com"
+            }
+
+            html_content = self._render_template(
+                "password_changed.html", context)
+
+            return await self._send_email(
+                to_email=to_email,
+                subject=subject,
+                html_content=html_content
+            )
+        except Exception as e:
+            print(f"Error sending password changed email: {type(e).__name__}: {e}")
+            return False
+
     async def send_verification_email(
         self,
         to_email: str,
@@ -121,41 +150,6 @@ class EmailService:
 
         except Exception as e:
             print(f"Error sending verification email: {type(e).__name__}: {e}")
-            return False
-
-    async def send_notification_email(
-        self,
-        to_email: str,
-        username: str,
-        notification_type: str,
-        message: str,
-        action_url: Optional[str] = None
-    ) -> bool:
-        """Send general notification email"""
-        try:
-            subject = f"Thông báo - {notification_type} - Aeiouly"
-
-            # Prepare context for template
-            context = {
-                "username": username,
-                "notification_type": notification_type,
-                "message": message,
-                "action_url": action_url,
-                "app_name": "Aeiouly",
-                "support_email": "support@aeiouly.com"
-            }
-
-            # Render HTML template
-            html_content = self._render_template("notification.html", context)
-
-            return await self._send_email(
-                to_email=to_email,
-                subject=subject,
-                html_content=html_content
-            )
-
-        except Exception as e:
-            print(f"Error sending notification email: {type(e).__name__}: {e}")
             return False
 
     async def _send_email(

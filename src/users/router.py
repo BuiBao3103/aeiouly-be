@@ -208,7 +208,7 @@ async def reset_user_password(
         )
 
     try:
-        return service.reset_user_password(user_id, reset_data, db)
+        return await service.reset_user_password(user_id, reset_data, db)
     except UserNotFoundException as e:
         raise user_not_found_exception(user_id)
     except UserValidationException as e:
