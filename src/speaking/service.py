@@ -14,7 +14,9 @@ except ImportError:
     except ImportError:
         pass  # Let pydub handle the error
 from pydub import AudioSegment
-from google.cloud import speech
+from google.cloud.speech_v2 import SpeechClient
+from google.cloud.speech_v2.types import cloud_speech
+from google.api_core.client_options import ClientOptions
 
 from typing import List, Optional
 from sqlalchemy.orm import Session
@@ -66,9 +68,19 @@ SESSION_NOT_FOUND_MSG = "Không tìm thấy phiên luyện nói"
 class SpeakingService:
     """Service for speaking practice and speech-to-text conversion"""
     
+    # Regional location for Chirp models
+    # Chirp 3 available at: "us", "eu" and more regions
+    # Chirp 2 available at: us-central1, europe-west4, asia-southeast1
+    # Using "us" for Chirp 3 (best for auto-detect)
+    SPEECH_REGION = "us"
+    
+    # Target model for speech recognition
+    # Chirp 3 supports native auto-detect with language_codes=["auto"] or ["en-US", "vi-VN"]
+    TARGET_MODEL = "chirp_3"
+    
     # Target format: always convert to WAV with LINEAR16 encoding at 16000 Hz
     TARGET_SAMPLE_RATE = 16000
-    TARGET_ENCODING = speech.RecognitionConfig.AudioEncoding.LINEAR16
+    TARGET_ENCODING = cloud_speech.ExplicitDecodingConfig.AudioEncoding.LINEAR16
     
     # Supported input formats (will be converted to WAV)
     SUPPORTED_INPUT_FORMATS = ['.webm', '.ogg', '.opus', '.wav', '.mp3', '.m4a', '.flac', '.aac', '.mpeg']
@@ -83,10 +95,21 @@ class SpeakingService:
             os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = settings.GOOGLE_APPLICATION_CREDENTIALS
         
         try:
-            self.client = speech.SpeechClient()
+            # Initialize SpeechClient with regional endpoint for Chirp models
+            # Chirp models are only available at regional locations, not global
+            logger.info(f"Initializing Speech client with region: {self.SPEECH_REGION}")
+            self.client = SpeechClient(
+                client_options=ClientOptions(
+                    api_endpoint=f"{self.SPEECH_REGION}-speech.googleapis.com"
+                )
+            )
+            self.project_id = settings.GOOGLE_CLOUD_PROJECT_ID
+            if not self.project_id:
+                logger.warning("GOOGLE_CLOUD_PROJECT_ID not set, speech-to-text may not work")
         except Exception as e:
-            print(f"Warning: Could not initialize Google Cloud Speech client: {e}")
+            logger.error(f"Could not initialize Google Cloud Speech client: {e}", exc_info=True)
             self.client = None
+            self.project_id = None
         
         # Initialize ADK session service and runner
         self.session_service = DatabaseSessionService(db_url=get_database_url())
@@ -111,31 +134,16 @@ class SpeakingService:
             return value.lower()
         return "neutral"
 
-    def speech_to_text(
+    def _prepare_audio_data(
         self,
         audio_file: UploadFile,
-        language_code: str = "en-US",
-        is_save: bool = False,
-        auto_detect: bool = False,
-    ) -> SpeechToTextResponse:
+    ) -> tuple[bytes, str]:
         """
-        Convert audio to text using Google Cloud Speech-to-Text API
-        All audio formats are converted to WAV (LINEAR16, 16000 Hz) before sending to Google Cloud
-        Supports: WebM, OGG, WAV, MP3, M4A, FLAC, AAC
+        Validate and convert audio file to WAV format, return audio data and file extension.
         
-        Uses enhanced model (use_enhanced=True) for better accuracy with accented speech,
-        especially useful for Vietnamese speakers speaking English.
-        
-        Args:
-            audio_file: Audio file to transcribe
-            language_code: Language code (default: "en-US"). Ignored if auto_detect=True
-            is_save: Whether to save audio file to S3
-            auto_detect: If True, automatically detects between English (en-US) and Vietnamese (vi-VN)
+        Returns:
+            tuple: (audio_data: bytes, file_ext: str)
         """
-        if not self.client:
-            raise SpeechToTextException("Google Cloud Speech client chưa được khởi tạo")
-        
-        # Validate and save audio file
         input_file_path, file_ext = validate_audio_file(
             audio_file=audio_file,
             supported_formats=self.SUPPORTED_INPUT_FORMATS,
@@ -178,78 +186,212 @@ class SpeakingService:
             with open(final_file_path, 'rb') as f:
                 audio_data = f.read()
             
-            # Create audio object
-            audio = speech.RecognitionAudio(content=audio_data)
+            return audio_data, file_ext
             
-            # Build config with fixed WAV format (LINEAR16, 16000 Hz)
-            # Use enhanced model for better accuracy with accented speech
+        except SpeechToTextException:
+            raise
+        except Exception as e:
+            logger.error(f"Error preparing audio data: {type(e).__name__}: {str(e)}", exc_info=True)
+            raise SpeechToTextException(f"Lỗi khi chuẩn bị file âm thanh: {str(e)}")
+        finally:
+            # Clean up temporary files
+            if os.path.exists(input_file_path):
+                try:
+                    os.unlink(input_file_path)
+                except Exception:
+                    pass
+            if wav_file_path and os.path.exists(wav_file_path):
+                try:
+                    os.unlink(wav_file_path)
+                except Exception:
+                    pass
+
+    def _recognize_single(
+        self,
+        audio_data: bytes,
+        language_code: str,
+    ) -> tuple[str, float]:
+        """
+        Perform speech recognition with a single language.
+        
+        Args:
+            audio_data: Audio data in bytes (WAV format, LINEAR16, 16000 Hz)
+            language_code: Language code to use (e.g., "en-US", "vi-VN")
+        
+        Returns:
+            tuple: (transcribed_text: str, average_confidence: float)
+        """
+        # Build config for v2 API with chirp_2 model
+        config = cloud_speech.RecognitionConfig(
+            explicit_decoding_config=cloud_speech.ExplicitDecodingConfig(
+                encoding=self.TARGET_ENCODING,
+                sample_rate_hertz=self.TARGET_SAMPLE_RATE,
+                audio_channel_count=1,
+            ),
+            language_codes=[language_code],
+            model=self.TARGET_MODEL,  # Use chirp_2 model for best accuracy with accented speech
+            features=cloud_speech.RecognitionFeatures(
+                enable_automatic_punctuation=True,
+                max_alternatives=3,  # Get multiple alternatives for better accuracy
+            )
+        )
+        
+        # Create request for v2 API with regional recognizer path
+        recognizer = f"projects/{self.project_id}/locations/{self.SPEECH_REGION}/recognizers/_"
+        request = cloud_speech.RecognizeRequest(
+            recognizer=recognizer,
+            config=config,
+            content=audio_data,
+        )
+        
+        # Perform speech recognition
+        response = self.client.recognize(request=request)
+        
+        # Extract text and calculate average confidence
+        transcribed_text = ""
+        confidences = []
+        
+        for result in response.results:
+            if not result.alternatives:
+                continue
+            top_alternative = result.alternatives[0]
+            confidence = top_alternative.confidence or 0.0
+            transcript = top_alternative.transcript
+            transcribed_text += transcript + " "
+            confidences.append(confidence)
+        
+        transcribed_text = transcribed_text.strip()
+        
+        if not transcribed_text:
+            logger.error("No transcript found in API response")
+            raise SpeechToTextException("Không thể nhận dạng giọng nói từ file âm thanh")
+        
+        average_confidence = sum(confidences) / len(confidences) if confidences else 0.0
+        
+        return transcribed_text, average_confidence
+
+    def speech_to_text(
+        self,
+        audio_file: UploadFile,
+        language_code: str = "en-US",
+        is_save: bool = False,
+        auto_detect: bool = False,
+    ) -> SpeechToTextResponse:
+        """
+        Convert audio to text using Google Cloud Speech-to-Text API
+        All audio formats are converted to WAV (LINEAR16, 16000 Hz) before sending to Google Cloud
+        Supports: WebM, OGG, WAV, MP3, M4A, FLAC, AAC
+        
+        Uses chirp_3 model for best accuracy with accented speech, especially useful for 
+        Vietnamese speakers speaking English. Chirp 3 supports native auto-detect and is 
+        trained on millions of hours of multilingual audio, providing superior accuracy 
+        compared to standard models.
+        
+        Args:
+            audio_file: Audio file to transcribe
+            language_code: Language code (default: "en-US"). Ignored if auto_detect=True
+            is_save: Whether to save audio file to S3
+            auto_detect: If True, automatically detects between English (en-US) and Vietnamese (vi-VN)
+                using Chirp 3's native auto-detection feature
+        """
+        if not self.client:
+            logger.error("Google Cloud Speech client chưa được khởi tạo")
+            raise SpeechToTextException("Google Cloud Speech client chưa được khởi tạo")
+        
+        if not self.project_id:
+            logger.error("GOOGLE_CLOUD_PROJECT_ID chưa được cấu hình")
+            raise SpeechToTextException("GOOGLE_CLOUD_PROJECT_ID chưa được cấu hình")
+        
+        # Prepare audio data (validate and convert to WAV)
+        audio_data, _ = self._prepare_audio_data(audio_file)
+        
+        try:
+            # Build config for v2 API with Chirp 3 model
+            # Chirp 3 supports native auto-detect with language_codes=["auto"] or hint with specific languages
             if auto_detect:
-                # Use alternative_language_codes for auto-detection between English and Vietnamese
-                config = speech.RecognitionConfig(
-                    encoding=self.TARGET_ENCODING,
-                    sample_rate_hertz=self.TARGET_SAMPLE_RATE,
-                    language_code="en-US",  # Primary language
-                    alternative_language_codes=["vi-VN"],  # Alternative languages to consider
-                    enable_automatic_punctuation=True,
-                    use_enhanced=True,  # Use enhanced model for better accuracy with accented speech
-                    max_alternatives=3,  # Get multiple alternatives for better accuracy
+                # Use language hints ["en-US", "vi-VN"] to improve accuracy (better than ["auto"])
+                # Chirp 3 will automatically detect which language is being spoken
+                config = cloud_speech.RecognitionConfig(
+                    auto_decoding_config=cloud_speech.AutoDetectDecodingConfig(),
+                    language_codes=["en-US", "vi-VN"],  # Hint languages to improve accuracy
+                    model=self.TARGET_MODEL,  # chirp_3
+                    features=cloud_speech.RecognitionFeatures(
+                        enable_automatic_punctuation=True,
+                        # Note: enable_denoiser not available in current SDK version
+                    )
                 )
             else:
-                # Use specified language code
-                config = speech.RecognitionConfig(
-                    encoding=self.TARGET_ENCODING,
-                    sample_rate_hertz=self.TARGET_SAMPLE_RATE,
-                    language_code=language_code,
-                    enable_automatic_punctuation=True,
-                    use_enhanced=True,  # Use enhanced model for better accuracy with accented speech
-                    max_alternatives=3,  # Get multiple alternatives for better accuracy
+                # Use specified language code with explicit decoding
+                config = cloud_speech.RecognitionConfig(
+                    explicit_decoding_config=cloud_speech.ExplicitDecodingConfig(
+                        encoding=self.TARGET_ENCODING,
+                        sample_rate_hertz=self.TARGET_SAMPLE_RATE,
+                        audio_channel_count=1,
+                    ),
+                    language_codes=[language_code],
+                    model=self.TARGET_MODEL,  # chirp_3
+                    features=cloud_speech.RecognitionFeatures(
+                        enable_automatic_punctuation=True,
+                        # Note: enable_denoiser not available in current SDK version
+                    )
                 )
             
-            # Perform speech recognition
-            response = self.client.recognize(config=config, audio=audio)
+            # Create request for v2 API with regional recognizer path
+            recognizer = f"projects/{self.project_id}/locations/{self.SPEECH_REGION}/recognizers/_"
+            request = cloud_speech.RecognizeRequest(
+                recognizer=recognizer,
+                config=config,
+                content=audio_data,
+            )
             
-            # Extract text and aggregate detected language votes from alternatives
+            # Perform speech recognition
+            response = self.client.recognize(request=request)
+            
+            # Extract text and detected language
             transcribed_text = ""
             detected_language = None
-            language_votes: dict[str, float] = {}
             
             for result in response.results:
                 if not result.alternatives:
                     continue
                 top_alternative = result.alternatives[0]
-                transcribed_text += top_alternative.transcript + " "
+                transcript = top_alternative.transcript
+                transcribed_text += transcript + " "
                 
+                # In Chirp 3, language_code is returned in the result when using auto-detect
                 if auto_detect:
-                    for alternative in result.alternatives:
-                        alt_language = getattr(alternative, "language_code", None)
-                        if alt_language:
-                            confidence = alternative.confidence or 1.0
-                            language_votes[alt_language] = language_votes.get(alt_language, 0.0) + confidence
+                    result_language = getattr(result, "language_code", None)
+                    if result_language:
+                        detected_language = result_language
             
             transcribed_text = transcribed_text.strip()
             
             if not transcribed_text:
+                logger.error("No transcript found in API response")
                 raise SpeechToTextException("Không thể nhận dạng giọng nói từ file âm thanh")
 
-            if auto_detect:
-                if language_votes:
-                    detected_language = max(language_votes, key=language_votes.get)
-                else:
-                    try:
-                        lang_code = detect(transcribed_text)
-                        language_map = {
-                            "en": "en-US",
-                            "vi": "vi-VN",
-                        }
-                        detected_language = language_map.get(lang_code, config.language_code)
-                    except LangDetectException:
-                        detected_language = config.language_code
-            else:
-                detected_language = None
+            # If auto_detect but no language_code in results, use langdetect as fallback
+            if auto_detect and not detected_language:
+                try:
+                    lang_code = detect(transcribed_text)
+                    language_map = {
+                        "en": "en-US",
+                        "vi": "vi-VN",
+                    }
+                    detected_language = language_map.get(lang_code, "en-US")
+                except LangDetectException:
+                    detected_language = "en-US"
 
+            # Upload audio if needed
             audio_url = None
             if is_save:
                 audio_url = self._upload_user_audio(audio_file)
+            
+            # Log final result only
+            logger.info(
+                f"Speech-to-text result: text='{transcribed_text[:100]}{'...' if len(transcribed_text) > 100 else ''}', "
+                f"detected_language={detected_language}, audio_url={'yes' if audio_url else 'no'}"
+            )
             
             return SpeechToTextResponse(
                 text=transcribed_text,
@@ -261,13 +403,8 @@ class SpeakingService:
         except SpeechToTextException:
             raise
         except Exception as e:
+            logger.error(f"Unexpected error in speech_to_text: {type(e).__name__}: {str(e)}", exc_info=True)
             raise SpeechToTextException(f"Lỗi khi chuyển đổi speech-to-text: {str(e)}")
-        finally:
-            # Clean up temporary files
-            if os.path.exists(input_file_path):
-                os.unlink(input_file_path)
-            if wav_file_path and os.path.exists(wav_file_path):
-                os.unlink(wav_file_path)
     
     
     def _upload_user_audio(self, audio_file: UploadFile) -> Optional[str]:
