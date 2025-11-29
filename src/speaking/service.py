@@ -123,6 +123,9 @@ class SpeakingService:
         All audio formats are converted to WAV (LINEAR16, 16000 Hz) before sending to Google Cloud
         Supports: WebM, OGG, WAV, MP3, M4A, FLAC, AAC
         
+        Uses enhanced model (use_enhanced=True) for better accuracy with accented speech,
+        especially useful for Vietnamese speakers speaking English.
+        
         Args:
             audio_file: Audio file to transcribe
             language_code: Language code (default: "en-US"). Ignored if auto_detect=True
@@ -179,6 +182,7 @@ class SpeakingService:
             audio = speech.RecognitionAudio(content=audio_data)
             
             # Build config with fixed WAV format (LINEAR16, 16000 Hz)
+            # Use enhanced model for better accuracy with accented speech
             if auto_detect:
                 # Use alternative_language_codes for auto-detection between English and Vietnamese
                 config = speech.RecognitionConfig(
@@ -187,6 +191,8 @@ class SpeakingService:
                     language_code="en-US",  # Primary language
                     alternative_language_codes=["vi-VN"],  # Alternative languages to consider
                     enable_automatic_punctuation=True,
+                    use_enhanced=True,  # Use enhanced model for better accuracy with accented speech
+                    max_alternatives=3,  # Get multiple alternatives for better accuracy
                 )
             else:
                 # Use specified language code
@@ -195,6 +201,8 @@ class SpeakingService:
                     sample_rate_hertz=self.TARGET_SAMPLE_RATE,
                     language_code=language_code,
                     enable_automatic_punctuation=True,
+                    use_enhanced=True,  # Use enhanced model for better accuracy with accented speech
+                    max_alternatives=3,  # Get multiple alternatives for better accuracy
                 )
             
             # Perform speech recognition
