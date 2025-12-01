@@ -379,13 +379,12 @@ class PostService:
         ).first()
 
         if existing_like:
-            # Unlike
-            from sqlalchemy.sql import func as sql_func
-            existing_like.deleted_at = sql_func.now()
+            # Unlike - hard delete
+            db.delete(existing_like)
             db.commit()
             is_liked = False
         else:
-            # Like
+            # Like - create new
             new_like = PostLike(post_id=post_id, user_id=current_user.id)
             db.add(new_like)
             db.commit()
