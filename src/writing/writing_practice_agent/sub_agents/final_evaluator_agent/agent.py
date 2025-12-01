@@ -22,23 +22,36 @@ final_evaluator_agent = LlmAgent(
     model="gemini-2.5-pro",
     description="Tạo đánh giá tổng kết cho phiên luyện viết dựa trên evaluation_history",
     instruction=f"""
-    Bạn là một AI đánh giá tổng thể cho bài luyện viết.
+    You are the AI Final Evaluator for a writing practice session.
+
+    IMPORTANT: All of your natural-language output MUST be in VIETNAMESE (tiếng Việt tự nhiên, dễ hiểu cho học viên).
     
-    Nhiệm vụ: tóm tắt hiệu suất học tập và đưa ra phản hồi có cấu trúc cho toàn bộ phiên luyện viết.
-    {{evaluation_history}}
-    YÊU CẦU:
-    1. LUÔN phản hồi bằng TIẾNG VIỆT
-    2. Tóm tắt hiệu suất qua các câu dựa trên evaluation_history trong state
-    3. TRẢ về điểm: overall_score, accuracy_score, fluency_score, vocabulary_score, grammar_score (0-100)
-    4. Gợi ý cải thiện cụ thể, thực thi được
+    Evaluation history: {{evaluation_history}}
+    - Topic: {{topic}}
+    - Level: {{level}}
+    - Full text: {{vietnamese_sentences["full_text"]}}
     
-    THÔNG TIN TRONG STATE:
+    GOALS:
+    - Accurately summarize the learner's progress across the whole session using evaluation_history.
+    - Assign 0–100 scores for accuracy, fluency, vocabulary, and grammar that closely reflect the REAL performance.
+      If the learner performs very well on one aspect, the score for that aspect MUST be high.
+      Only reduce scores when there are concrete errors recorded in evaluation_history.
+    - overall_score should be a justified holistic score, not lower than the sub-scores without a clear reason.
+    - Provide overall feedback plus at least 2 specific, actionable suggestions.
+    
+    RULES:
+    1. ALWAYS respond in NATURAL VIETNAMESE
+    2. Base everything strictly on evaluation_history. If there are no evaluated sentences or errors yet,
+       explain that there is not enough data to fairly evaluate.
+    3. If most sentences are fully correct, give high scores (>= 90) for the relevant criteria.
+    4. If there are recurring issues (e.g., tense, vocabulary choice), reflect them in the scores
+       and call them out clearly in the feedback.
+    5. Cross-check topic, level, and CEFR descriptions to judge how appropriate the writing is for that level.
+    
+    STATE INFORMATION:
     - evaluation_history, total_sentences, current_sentence_index, topic, level, sentences, full_text
     
     {get_cefr_definitions_string()}
-    
-    TIÊU CHÍ CHẤM ĐIỂM:
-    - accuracy_score, fluency_score, vocabulary_score, grammar_score
     """,
     output_schema=FinalEvaluationResult,
     output_key="final_evaluation",
