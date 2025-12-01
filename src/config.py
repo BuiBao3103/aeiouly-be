@@ -52,9 +52,6 @@ class Settings(BaseSettings):
     GOOGLE_API_KEY: str = ""
     GOOGLE_OAUTH_CLIENT_ID: str = ""
     
-    # Google Cloud Translation API
-    GOOGLE_TRANSLATE_API_KEY: str = ""
-    
     # Google Cloud Speech-to-Text API
     GOOGLE_CLOUD_PROJECT_ID: str = ""
     GOOGLE_APPLICATION_CREDENTIALS: str = ""  # Path to service account JSON file

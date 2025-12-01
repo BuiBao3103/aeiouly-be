@@ -162,9 +162,16 @@ async def logout(
     if refresh_token:
         await service.logout(refresh_token, db)
     
-    # Clear cookies
-    response.delete_cookie(settings.ACCESS_TOKEN_COOKIE_NAME)
-    response.delete_cookie(settings.REFRESH_TOKEN_COOKIE_NAME)
+    # Clear cookies (must match attributes used when setting)
+    cookie_kwargs = {
+        "domain": settings.COOKIE_DOMAIN,
+        "path": "/",
+        "samesite": settings.COOKIE_SAMESITE,
+        "secure": settings.COOKIE_SECURE,
+        "httponly": settings.COOKIE_HTTPONLY,
+    }
+    response.delete_cookie(settings.ACCESS_TOKEN_COOKIE_NAME, **cookie_kwargs)
+    response.delete_cookie(settings.REFRESH_TOKEN_COOKIE_NAME, **cookie_kwargs)
     
     return {"message": "Đăng xuất thành công"}
 
@@ -218,10 +225,16 @@ async def delete_account(
     if not ok:
         raise HTTPException(status_code=500, detail="Không thể vô hiệu hóa tài khoản")
 
-    # Clear cookies
-    from src.config import settings
-    response.delete_cookie(settings.ACCESS_TOKEN_COOKIE_NAME)
-    response.delete_cookie(settings.REFRESH_TOKEN_COOKIE_NAME)
+    # Clear cookies (must use same attributes as when setting them)
+    cookie_kwargs = {
+        "domain": settings.COOKIE_DOMAIN,
+        "path": "/",
+        "samesite": settings.COOKIE_SAMESITE,
+        "secure": settings.COOKIE_SECURE,
+        "httponly": settings.COOKIE_HTTPONLY,
+    }
+    response.delete_cookie(settings.ACCESS_TOKEN_COOKIE_NAME, **cookie_kwargs)
+    response.delete_cookie(settings.REFRESH_TOKEN_COOKIE_NAME, **cookie_kwargs)
     return {"message": "Tài khoản đã được vô hiệu hóa"}
 
 
