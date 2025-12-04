@@ -31,12 +31,12 @@ def after_skip_response_callback(callback_context: CallbackContext) -> types.Con
 
 skip_response_agent = LlmAgent(
     name="skip_response",
-    model="gemini-2.0-flash",
-    description="Generate the next assistant turn after the learner presses skip.",
+    model="gemini-2.5-flash-lite",
+    description="Generate next assistant turn after learner skips.",
     instruction=f"""
     The learner asked to skip their turn. Continue the conversation for them.
 
-    CONTEXT FROM STATE:
+    CONTEXT:
     - AI role: {{ai_character}}
     - AI gender: {{ai_gender}}
     - Learner role: {{my_character}}
@@ -53,10 +53,7 @@ skip_response_agent = LlmAgent(
 
     OUTPUT FORMAT:
     Return ONLY a JSON object:
-    {{
-        "response_text": "<assistant reply as {{ai_character}}>",
-        "translation_sentence": "Một câu tiếng Việt dịch lại response_text"
-    }}
+    {{"response_text": "<assistant reply as {{ai_character}}>", "translation_sentence": "Một câu tiếng Việt dịch lại response_text"}}
     - translation_sentence phải là đúng 1 câu tiếng Việt ngắn gọn, phù hợp với level {{level}}.
 
     {get_cefr_definitions_string()}

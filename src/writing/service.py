@@ -193,7 +193,8 @@ class WritingService:
                     user_id=str(user_id),
                     session_id=str(db_session.id),
                     query=query,
-                    logger=logger
+                    logger=logger,
+                    agent_name="writing_practice"
                 )
                 
                 # Get structured output from agent session state (ADK stores it automatically)
@@ -430,7 +431,8 @@ class WritingService:
                 user_id=str(user_id),
                 session_id=str(session_id),
                 query=query,
-                logger=logger
+                logger=logger,
+                agent_name="writing_practice"
             )
             db.refresh(session)
             # Save agent response
@@ -549,7 +551,8 @@ class WritingService:
                     user_id=str(user_id),
                     session_id=str(session_id),
                     query=query,
-                    logger=logger
+                    logger=logger,
+                    agent_name="writing_practice"
                 )
             except Exception as agent_error:
                 logger.error(f"Error calling hint agent: {agent_error}")
@@ -630,7 +633,8 @@ class WritingService:
                     source="final_evaluation_button",
                     message="đánh giá cuối"
                 ),
-                logger=logger
+                logger=logger,
+                agent_name="writing_practice"
             )
             
             # Get structured output from agent session state
@@ -758,7 +762,8 @@ class WritingService:
                     user_id=str(user_id),
                     session_id=str(session_id),
                     query=query,
-                    logger=logger
+                    logger=logger,
+                    agent_name="writing_practice"
                 )
             except Exception as agent_error:
                 logger.error("Agent skip error: %s", agent_error, exc_info=True)

@@ -10,27 +10,20 @@ from .sub_agents.guidance_agent.agent import guidance_agent
 
 chat_agent = Agent(
     name="chat",
-    model="gemini-2.5-flash",
-    description="Routes chat box messages to conversation or guidance tool while ensuring appropriate responses.",
+    model="gemini-2.5-flash-lite",
+    description="Routes chat messages to conversation or guidance tool.",
     instruction="""
-    You coordinate chat messages. You MUST ALWAYS call a tool first. NEVER respond directly.
+    Route MESSAGE to one tool. NEVER respond directly.
 
     INPUT: SOURCE:chat_input, MESSAGE:<learner text>
-
-    CONTEXT FROM STATE:
-    - Scenario: "{{scenario}}"
-    - AI role: {{ai_character}}
-    - Learner role: {{my_character}}
-    - CEFR level: {{level}}
-    - Recent chat history: {{chat_history?}}
-    - Last AI message: {{last_ai_message?}}
+    CONTEXT: Scenario="{scenario}", AI={ai_character}, Learner={my_character}, Level={level}, History={chat_history?}, Last AI={last_ai_message?}
 
     ROUTING RULES:
     - conversation tool: Use when MESSAGE is:
       * In English
-      * Relevant to the scenario "{{scenario}}"
-      * Continues the dialogue naturally
-      * Responds to previous messages in chat_history
+      * Relevant to scenario "{scenario}"
+      * Continues dialogue naturally
+      * Responds to previous messages
       * Is a natural conversation turn
     
     - guidance tool: Use when MESSAGE is:
@@ -40,7 +33,7 @@ chat_agent = Agent(
       * Off-topic or unrelated to scenario
       * Asking to skip ("bỏ qua", "skip")
       * Expressing confusion ("không biết", "I don't know")
-      * Asking about the system or instructions
+      * Asking about system or instructions
 
     RULES:
     - Call exactly one tool per message. Pass MESSAGE verbatim.

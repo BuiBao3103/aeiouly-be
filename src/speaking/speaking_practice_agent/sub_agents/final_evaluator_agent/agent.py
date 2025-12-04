@@ -20,41 +20,29 @@ class FinalEvaluationResult(BaseModel):
 
 final_evaluator_agent = LlmAgent(
     name="final_evaluator",
-    model="gemini-2.5-pro",
-    description="Tạo đánh giá tổng kết cho phiên luyện nói dựa trên chat_history",
+    model="gemini-2.5-flash",
+    description="Đánh giá tổng kết phiên luyện nói.",
     instruction=f"""
-    Bạn là một AI đánh giá tổng thể cho bài luyện nói.
+    Đánh giá tổng thể phiên luyện nói. Phản hồi bằng TIẾNG VIỆT.
     
-    Nhiệm vụ: tóm tắt hiệu suất học tập và đưa ra phản hồi có cấu trúc cho toàn bộ phiên luyện nói.
+    CONTEXT: chat_history={{chat_history?}}, Learner={{my_character}}, AI={{ai_character}}, Scenario={{scenario}}, Level={{level}}
     
     YÊU CẦU:
-    1. LUÔN phản hồi bằng TIẾNG VIỆT
-    2. Tóm tắt hiệu suất qua toàn bộ cuộc trò chuyện dựa trên chat_history trong state
-    3. TRẢ về điểm: overall_score, pronunciation_score, fluency_score, vocabulary_score, grammar_score, interaction_score (0-100)
-    4. Gợi ý cải thiện cụ thể, thực thi được
+    - Điểm 0-100: overall_score, pronunciation_score, fluency_score, vocabulary_score, grammar_score, interaction_score
+    - feedback: Nhận xét tổng thể (tiếng Việt)
+    - suggestions: Danh sách gợi ý cải thiện
     
-    THÔNG TIN TRONG STATE:
-    - chat_history: {{chat_history?}}
-    - my_character: {{my_character}}
-    - ai_character: {{ai_character}}
-    - ai_gender: {{ai_gender}}
-    - scenario: {{scenario}}
-    - level: {{level}}
+    TIÊU CHÍ:
+    - pronunciation_score: Phát âm (suy luận từ cách viết), tập trung vào từ vựng/ngữ pháp
+    - fluency_score: Độ trôi chảy, tự nhiên, độ dài câu
+    - vocabulary_score: Đa dạng, phù hợp với level
+    - grammar_score: Chính xác ngữ pháp, cấu trúc câu
+    - interaction_score: Tương tác, phản hồi phù hợp ngữ cảnh
+    - overall_score: Trung bình các tiêu chí
+    
+    Đánh giá dựa trên tin nhắn user trong chat_history. Feedback tích cực, gợi ý cụ thể.
     
     {get_cefr_definitions_string()}
-    
-    TIÊU CHÍ CHẤM ĐIỂM:
-    - pronunciation_score: Đánh giá dựa trên độ chính xác phát âm (nếu có thể suy luận từ cách viết), nhưng chủ yếu tập trung vào từ vựng và ngữ pháp
-    - fluency_score: Độ trôi chảy, tự nhiên trong cách diễn đạt, độ dài câu trả lời
-    - vocabulary_score: Sự đa dạng và phù hợp của từ vựng, sử dụng từ vựng phù hợp với level
-    - grammar_score: Độ chính xác ngữ pháp, cấu trúc câu
-    - interaction_score: Khả năng tương tác, phản hồi phù hợp với ngữ cảnh, duy trì cuộc trò chuyện
-    - overall_score: Điểm trung bình của tất cả các tiêu chí trên
-    
-    LƯU Ý:
-    - Đánh giá dựa trên các tin nhắn của user trong chat_history
-    - Xem xét cả độ dài, nội dung, và sự phù hợp với tình huống
-    - Đưa ra feedback tích cực và gợi ý cải thiện cụ thể
     """,
     output_schema=FinalEvaluationResult,
     output_key="final_evaluation",

@@ -94,22 +94,11 @@ class SpeakingService:
         if settings.GOOGLE_APPLICATION_CREDENTIALS:
             os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = settings.GOOGLE_APPLICATION_CREDENTIALS
         
-        try:
-            # Initialize SpeechClient with regional endpoint for Chirp models
-            # Chirp models are only available at regional locations, not global
-            logger.info(f"Initializing Speech client with region: {self.SPEECH_REGION}")
-            self.client = SpeechClient(
-                client_options=ClientOptions(
-                    api_endpoint=f"{self.SPEECH_REGION}-speech.googleapis.com"
-                )
-            )
-            self.project_id = settings.GOOGLE_CLOUD_PROJECT_ID
-            if not self.project_id:
-                logger.warning("GOOGLE_CLOUD_PROJECT_ID not set, speech-to-text may not work")
-        except Exception as e:
-            logger.error(f"Could not initialize Google Cloud Speech client: {e}", exc_info=True)
-            self.client = None
-            self.project_id = None
+        # Lazy initialization: SpeechClient will be created on first use
+        self._client = None
+        self.project_id = settings.GOOGLE_CLOUD_PROJECT_ID
+        if not self.project_id:
+            logger.warning("GOOGLE_CLOUD_PROJECT_ID not set, speech-to-text may not work")
         
         # Initialize ADK session service and runner
         self.session_service = DatabaseSessionService(db_url=get_database_url())
@@ -126,6 +115,24 @@ class SpeakingService:
         except Exception as storage_error:
             logger.warning(f"Could not initialize storage service: {storage_error}")
             self.storage_service = None
+    
+    @property
+    def client(self):
+        """Lazy initialization of SpeechClient - only created when needed"""
+        if self._client is None:
+            try:
+                # Initialize SpeechClient with regional endpoint for Chirp models
+                # Chirp models are only available at regional locations, not global
+                logger.info(f"Initializing Speech client with region: {self.SPEECH_REGION}")
+                self._client = SpeechClient(
+                    client_options=ClientOptions(
+                        api_endpoint=f"{self.SPEECH_REGION}-speech.googleapis.com"
+                    )
+                )
+            except Exception as e:
+                logger.error(f"Could not initialize Google Cloud Speech client: {e}", exc_info=True)
+                self._client = None
+        return self._client
 
     @classmethod
     def _resolve_ai_gender(cls, value: Optional[str]) -> str:
@@ -476,7 +483,8 @@ class SpeakingService:
                 user_id=str(user_id),
                 session_id=str(db_session.id),
                 query=query,
-                logger=logger
+                logger=logger,
+                agent_name="speaking_practice"
             )
             
             state = await get_agent_state(
@@ -661,7 +669,8 @@ class SpeakingService:
                 user_id=str(user_id),
                 session_id=str(session_id),
                 query=query,
-                logger=logger
+                logger=logger,
+                agent_name="speaking_practice"
             )
             
             # Query state only once after agent call (reuse for all checks)
@@ -831,7 +840,8 @@ class SpeakingService:
                     user_id=str(user_id),
                     session_id=str(session_id),
                     query=query,
-                    logger=logger
+                    logger=logger,
+                    agent_name="speaking_practice"
                 )
             except Exception as agent_error:
                 logger.error(f"Error calling hint agent: {agent_error}")
@@ -905,7 +915,8 @@ class SpeakingService:
                 user_id=str(user_id),
                 session_id=str(session_id),
                 query=query,
-                logger=logger
+                logger=logger,
+                agent_name="speaking_practice"
             )
         except Exception as agent_error:
             logger.error(f"Error calling skip agent: {agent_error}", exc_info=True)
@@ -1006,7 +1017,8 @@ class SpeakingService:
                     source="final_evaluation_button",
                     message="đánh giá cuối"
                 ),
-                logger=logger
+                logger=logger,
+                agent_name="speaking_practice"
             )
             
             # Get structured output from agent session state

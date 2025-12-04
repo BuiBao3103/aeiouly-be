@@ -81,6 +81,7 @@ class ListeningService:
             session_id=str(session_id),
             query=query,
             logger=self.logger,
+            agent_name="listening_lesson"
         )
 
     async def _get_state_value(self, session_id: str, key: str):

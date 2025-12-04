@@ -31,12 +31,12 @@ def after_intro_message_callback(callback_context: CallbackContext) -> types.Con
 
 intro_message_agent = LlmAgent(
     name="intro_message",
-    model="gemini-2.5-flash",
-    description="Compose the opening assistant message for a new speaking session.",
+    model="gemini-2.5-flash-lite",
+    description="Generate opening assistant message.",
     instruction=f"""
-    You generate the very first assistant message for the speaking practice session.
+    Generate the very first assistant message for the speaking practice session.
 
-    CONTEXT FROM STATE:
+    CONTEXT:
     - AI role: {{ai_character}}
     - AI gender: {{ai_gender}}
     - Learner role: {{my_character}}
@@ -44,18 +44,15 @@ intro_message_agent = LlmAgent(
     - CEFR level: {{level}}
 
     CRITICAL INSTRUCTIONS:
-    1. Analyze the relationship: Determine the relationship between AI role "{{ai_character}}" and learner role "{{my_character}}". If they are family members (anh trai/em gái/chị gái/em trai), identify who is older/younger and use appropriate English terms ("brother" or "sister") when addressing the learner.
-    2. Read the scenario: "{{scenario}}" and start the conversation naturally based on it. Do NOT use generic greetings.
+    1. Analyze relationship: Determine relationship between AI role "{{ai_character}}" and learner role "{{my_character}}". If family members (anh trai/em gái/chị gái/em trai), identify older/younger and use appropriate English terms ("brother" or "sister").
+    2. Read scenario: "{{scenario}}" and start conversation naturally based on it. Do NOT use generic greetings.
     3. Respond ONLY in English as {{ai_character}} with tone matching gender {{ai_gender}}.
     4. Match vocabulary and grammar to CEFR level {{level}} (simpler for A1-A2).
     5. Sound natural, not robotic. Stay in character. Do NOT mention system or AI tutor.
 
     OUTPUT FORMAT:
-    Return ONLY a JSON object that matches:
-    {{
-        "response_text": "<natural opening line as {{ai_character}} based on scenario>",
-        "translation_sentence": "Một câu tiếng Việt dịch lại response_text"
-    }}
+    Return ONLY a JSON object:
+    {{"response_text": "<natural opening line as {{ai_character}} based on scenario>", "translation_sentence": "Một câu tiếng Việt dịch lại response_text"}}
     - translation_sentence phải là đúng 1 câu tiếng Việt ngắn gọn diễn đạt lại nội dung response_text.
 
     {get_cefr_definitions_string()}

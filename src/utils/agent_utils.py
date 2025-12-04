@@ -197,10 +197,11 @@ async def call_agent_with_logging(
     user_id: str,
     session_id: str,
     query: str,
-    logger: logging.Logger = None
+    logger: logging.Logger = None,
+    agent_name: str = None
 ):
     """
-    Call agent with comprehensive logging.
+    Call agent with comprehensive logging including timing information.
     
     Args:
         runner: Agent runner instance
@@ -208,11 +209,25 @@ async def call_agent_with_logging(
         session_id: Session ID
         query: User query
         logger: Optional logger instance
+        agent_name: Optional agent name (will try to extract from runner if not provided)
         
     Returns:
         Final response text from agent
     """
     log_func = logger.info if logger else print
+    
+    # Try to get agent name from runner if not provided
+    if not agent_name:
+        if hasattr(runner, 'agent') and hasattr(runner.agent, 'name'):
+            agent_name = runner.agent.name
+        elif hasattr(runner, 'agent_name'):
+            agent_name = runner.agent_name
+        else:
+            agent_name = "unknown"
+    
+    # Record start time
+    start_time = time.time()
+    start_time_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(start_time))
     
     # Create content
     content = types.Content(role="user", parts=[types.Part(text=query)])
@@ -227,6 +242,10 @@ async def call_agent_with_logging(
             f"╚═════════════════════════════════════════════════════════════"
             f"{Colors.RESET}\n"
         )
+        logger.info(
+            f"{Colors.BG_MAGENTA}{Colors.WHITE}{Colors.BOLD}"
+            f"[AGENT: {agent_name}] Start time: {start_time_str}{Colors.RESET}"
+        )
     else:
         print(
             f"\n{Colors.BG_GREEN}{Colors.BLACK}{Colors.BOLD}"
@@ -235,6 +254,10 @@ async def call_agent_with_logging(
             f"{Colors.BG_GREEN}{Colors.BLACK}{Colors.BOLD}"
             f"╚═════════════════════════════════════════════════════════════"
             f"{Colors.RESET}"
+        )
+        print(
+            f"{Colors.BG_MAGENTA}{Colors.WHITE}{Colors.BOLD}"
+            f"[AGENT: {agent_name}] Start time: {start_time_str}{Colors.RESET}"
         )
     
     final_response_text = None
@@ -257,9 +280,29 @@ async def call_agent_with_logging(
                 final_response_text = response
                 
     except Exception as e:
+        # Record end time even on error
+        end_time = time.time()
+        end_time_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(end_time))
+        duration = end_time - start_time
+        
         error_msg = f"Error during agent call: {e}"
         log_func(f"{Colors.BG_RED}{Colors.WHITE}{error_msg}{Colors.RESET}")
+        log_func(
+            f"{Colors.BG_RED}{Colors.WHITE}{Colors.BOLD}"
+            f"[AGENT: {agent_name}] End time: {end_time_str} | Duration: {duration:.2f}s{Colors.RESET}"
+        )
         raise
+    
+    # Record end time
+    end_time = time.time()
+    end_time_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(end_time))
+    duration = end_time - start_time
+    
+    # Log timing information
+    log_func(
+        f"{Colors.BG_MAGENTA}{Colors.WHITE}{Colors.BOLD}"
+        f"[AGENT: {agent_name}] End time: {end_time_str} | Duration: {duration:.2f}s{Colors.RESET}"
+    )
     
     return final_response_text
 

@@ -118,7 +118,8 @@ class ReadingService:
                         user_id=str(user_id),
                         session_id=agent_session_id,
                         query=self._build_agent_query(source="analyze_text", message=message),
-                        logger=self.logger
+                        logger=self.logger,
+                        agent_name="reading_practice"
                     )
                     agent_session = await self.session_service.get_session(
                         app_name="ReadingPractice",
@@ -152,7 +153,8 @@ class ReadingService:
                         user_id=str(user_id),
                         session_id=agent_session_id,
                         query=self._build_agent_query(source="generate_text", message=message),
-                        logger=self.logger
+                        logger=self.logger,
+                        agent_name="reading_practice"
                     )
                     agent_session = await self.session_service.get_session(
                         app_name="ReadingPractice",
@@ -297,7 +299,8 @@ class ReadingService:
                 user_id=str(user_id),
                 session_id=agent_session_id,
                 query=query,
-                logger=self.logger
+                logger=self.logger,
+                agent_name="reading_practice"
             )
             
             try:
@@ -359,7 +362,8 @@ class ReadingService:
                 user_id=str(user_id),
                 session_id=agent_session_id,
                 query=query,
-                logger=self.logger
+                logger=self.logger,
+                agent_name="reading_practice"
             )
             
             try:
@@ -441,7 +445,8 @@ class ReadingService:
                 user_id=str(user_id),
                 session_id=agent_session_id,
                 query=query,
-                logger=self.logger
+                logger=self.logger,
+                agent_name="reading_practice"
             )
             
             try:
