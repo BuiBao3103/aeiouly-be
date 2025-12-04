@@ -2,10 +2,10 @@ import './App.css'
 import { useState } from 'react'
 import Tabs from './components/Tabs'
 import Home from './pages/Home'
-import NotificationsTest from './pages/NotificationsTest'
 import Login from './pages/Login'
-import LearningTracker from './pages/LearningTracker'
+import StreakTest from './pages/StreakTest'
 import AuthStatus from './components/AuthStatus'
+import { AuthProvider } from './contexts/AuthContext'
 import { WebSocketProvider } from './contexts/WebSocketContext'
 
 function App() {
@@ -14,15 +14,16 @@ function App() {
   const items = [
     { key: 'home', label: 'Home', content: <Home /> },
     { key: 'login', label: 'Login', content: <Login /> },
-    { key: 'notifications', label: 'Notifications', content: <NotificationsTest /> },
-    { key: 'learning', label: 'Learning Tracker', content: <LearningTracker /> },
+    { key: 'streak', label: 'Streak Test', content: <StreakTest /> },
   ]
 
   return (
+    <AuthProvider>
     <WebSocketProvider>
       <AuthStatus />
       <Tabs items={items} activeKey={active} onChange={setActive} />
     </WebSocketProvider>
+    </AuthProvider>
   )
 }
 

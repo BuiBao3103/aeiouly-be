@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useAuth } from '../contexts/AuthContext'
 
 declare global {
   interface Window {
@@ -7,48 +8,29 @@ declare global {
 }
 
 export default function Login() {
+  const { login, loginWithGoogle, logout, user } = useAuth()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [msg, setMsg] = useState('')
   const googleBtnRef = useRef<HTMLDivElement | null>(null)
 
-  const login = async () => {
+  const handleLogin = async () => {
     setMsg('')
     try {
-      const res = await fetch('http://localhost:8000/api/v1/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
-        credentials: 'include',
-      })
-      if (!res.ok) {
-        const text = await res.text()
-        setMsg(`Login failed: ${text}`)
-        return
-      }
+      await login(username, password)
       setMsg('Login success')
-      window.dispatchEvent(new CustomEvent('auth:changed', { detail: { status: 'logged_in' } }))
-    } catch (e) {
-      setMsg('Login error')
+    } catch (e: any) {
+      setMsg(`Login failed: ${e?.message || 'Login error'}`)
     }
   }
 
-  const logout = async () => {
+  const handleLogout = async () => {
     setMsg('')
     try {
-      const res = await fetch('http://localhost:8000/api/v1/auth/logout', {
-        method: 'POST',
-        credentials: 'include',
-      })
-      if (!res.ok) {
-        const text = await res.text()
-        setMsg(`Logout failed: ${text}`)
-        return
-      }
+      await logout()
       setMsg('Logged out')
-      window.dispatchEvent(new CustomEvent('auth:changed', { detail: { status: 'logged_out' } }))
-    } catch {
-      setMsg('Logout error')
+    } catch (e: any) {
+      setMsg(`Logout error: ${e?.message || 'Logout error'}`)
     }
   }
 
@@ -92,19 +74,8 @@ export default function Login() {
   async function handleGoogleCredential(resp: { credential: string }) {
     try {
       setMsg('Signing in with Google...')
-      const res = await fetch('http://localhost:8000/api/v1/auth/google', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id_token: resp.credential }),
-      })
-      if (!res.ok) {
-        const errText = await res.text().catch(() => '')
-        setMsg(`Google login failed: ${errText || res.status}`)
-        return
-      }
+      await loginWithGoogle(resp.credential)
       setMsg('Google login success')
-      window.dispatchEvent(new CustomEvent('auth:changed', { detail: { status: 'logged_in' } }))
     } catch (e: any) {
       setMsg(`Google login error: ${e?.message || e}`)
     }
@@ -113,12 +84,13 @@ export default function Login() {
   return (
     <div style={{ padding: 16, maxWidth: 420 }}>
       <h2>Login</h2>
+      {user && <div style={{ marginBottom: 8, fontSize: 14 }}>Logged in as: {user.username}</div>}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <input placeholder="Username" value={username} onChange={e => setUsername(e.target.value)} />
         <input placeholder="Password" type="password" value={password} onChange={e => setPassword(e.target.value)} />
         <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={login}>Login</button>
-          <button onClick={logout}>Logout</button>
+          <button onClick={handleLogin}>Login</button>
+          <button onClick={handleLogout}>Logout</button>
         </div>
         <div style={{ height: 1, background: '#eee', margin: '8px 0' }} />
         <div ref={googleBtnRef} />
@@ -127,5 +99,3 @@ export default function Login() {
     </div>
   )
 }
-
-

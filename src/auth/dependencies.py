@@ -1,4 +1,4 @@
-from fastapi import Depends, HTTPException, status, Request, Response
+from fastapi import Depends, HTTPException, status, Request, Response, WebSocket
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 from src.users.models import User
@@ -13,6 +13,7 @@ from src.database import get_db
 from src.config import settings
 from typing import Optional
 from src.auth.service import AuthService
+
 
 def get_auth_service() -> AuthService:
     """Get AuthService instance"""
@@ -48,6 +49,7 @@ async def get_current_user(
     token: str = Depends(get_token_from_cookie_or_header),
     db: Session = Depends(get_db)
 ) -> User:
+
     user = resolve_user_from_token(token, db)
     if user is None:
         raise TokenNotValidException()
@@ -154,4 +156,48 @@ async def get_current_user_optional(
             
         return user
     except JWTError:
+        return None
+
+
+def resolve_user_from_websocket(websocket: WebSocket, db: Session) -> Optional[User]:
+    """Resolve user from WebSocket connection (token from cookies or query params).
+    
+    Note: Some browsers may not send cookies in WebSocket handshake.
+    Fallback to query params if cookies are not available.
+    """
+    token = None
+    
+    # Try to get token from cookies first
+    cookie_header = websocket.headers.get("cookie") or websocket.headers.get("Cookie")
+    
+    if cookie_header:
+        # Parse cookies
+        cookies = {}
+        for cookie in cookie_header.split(";"):
+            if "=" in cookie:
+                key, value = cookie.strip().split("=", 1)
+                cookies[key] = value
+        
+        # Get access_token from cookies
+        token = cookies.get(settings.ACCESS_TOKEN_COOKIE_NAME)
+    
+    # Fallback to query params if no token in cookies
+    if not token:
+        token = websocket.query_params.get("token")
+    
+    # If no token found, return None
+    if not token:
+        return None
+    
+    # Resolve user from token
+    try:
+        # Validate token
+        try:
+            jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        except JWTError:
+            return None
+        
+        # Resolve user from token
+        return resolve_user_from_token(token, db)
+    except Exception:
         return None

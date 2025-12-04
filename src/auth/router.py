@@ -60,7 +60,8 @@ async def login(
         httponly=settings.COOKIE_HTTPONLY,
         secure=settings.COOKIE_SECURE,
         samesite=settings.COOKIE_SAMESITE,
-        domain=settings.COOKIE_DOMAIN
+        domain=settings.COOKIE_DOMAIN,
+        path="/"  # Important: set path so cookies are sent for all paths
     )
     
     response.set_cookie(
@@ -70,7 +71,8 @@ async def login(
         httponly=settings.COOKIE_HTTPONLY,
         secure=settings.COOKIE_SECURE,
         samesite=settings.COOKIE_SAMESITE,
-        domain=settings.COOKIE_DOMAIN
+        domain=settings.COOKIE_DOMAIN,
+        path="/"  # Important: set path so cookies are sent for all paths
     )
     
     return token_data
@@ -94,7 +96,8 @@ async def login_with_google(
         httponly=settings.COOKIE_HTTPONLY,
         secure=settings.COOKIE_SECURE,
         samesite=settings.COOKIE_SAMESITE,
-        domain=settings.COOKIE_DOMAIN
+        domain=settings.COOKIE_DOMAIN,
+        path="/"
     )
     response.set_cookie(
         key=settings.REFRESH_TOKEN_COOKIE_NAME,
@@ -103,7 +106,8 @@ async def login_with_google(
         httponly=settings.COOKIE_HTTPONLY,
         secure=settings.COOKIE_SECURE,
         samesite=settings.COOKIE_SAMESITE,
-        domain=settings.COOKIE_DOMAIN
+        domain=settings.COOKIE_DOMAIN,
+        path="/"
     )
 
     return token_data
@@ -135,7 +139,8 @@ async def refresh_token(
         httponly=settings.COOKIE_HTTPONLY,
         secure=settings.COOKIE_SECURE,
         samesite=settings.COOKIE_SAMESITE,
-        domain=settings.COOKIE_DOMAIN
+        domain=settings.COOKIE_DOMAIN,
+        path="/"
     )
     
     response.set_cookie(
@@ -145,7 +150,8 @@ async def refresh_token(
         httponly=settings.COOKIE_HTTPONLY,
         secure=settings.COOKIE_SECURE,
         samesite=settings.COOKIE_SAMESITE,
-        domain=settings.COOKIE_DOMAIN
+        domain=settings.COOKIE_DOMAIN,
+        path="/"
     )
     
     return token_data

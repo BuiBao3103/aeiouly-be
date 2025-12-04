@@ -24,7 +24,6 @@ from src.mailer.service import EmailService
 from src.config import settings
 from passlib.context import CryptContext
 from fastapi import APIRouter, Depends, HTTPException, Query, status, UploadFile
-from src.analytics.streak_service import LoginStreakService
 from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_requests
 
@@ -122,14 +121,6 @@ class AuthService:
         if not user:
             raise InvalidCredentialsException(
                 "Tên đăng nhập hoặc mật khẩu không đúng")
-
-        # Record login streak
-        try:
-            streak_service = LoginStreakService()
-            await streak_service.record_login(user.id, db)
-        except Exception as e:
-            print(f"Error recording login streak: {e}")
-            # Don't fail login if streak recording fails
 
         # Create access token
         access_token_expires = timedelta(
@@ -245,13 +236,6 @@ class AuthService:
             db.add(user)
             db.commit()
             db.refresh(user)
-
-        # Record login streak (non-blocking error)
-        try:
-            streak_service = LoginStreakService()
-            await streak_service.record_login(user.id, db)
-        except Exception as e:
-            print(f"Error recording login streak (Google): {e}")
 
         # Issue tokens
         access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)

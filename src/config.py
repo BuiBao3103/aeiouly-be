@@ -21,7 +21,8 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_COOKIE_NAME: str = "refresh_token"
     
     # Cookie settings
-    COOKIE_SECURE: bool = True  # HTTPS only
+    # Note: Set to False for localhost development (ws://), True for production (wss://)
+    COOKIE_SECURE: bool = False  # Set to True in production with HTTPS/WSS
     COOKIE_HTTPONLY: bool = True  # Prevent XSS
     COOKIE_SAMESITE: str = "lax"  # CSRF protection
     COOKIE_DOMAIN: str = "localhost"

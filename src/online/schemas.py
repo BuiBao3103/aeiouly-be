@@ -1,5 +1,7 @@
-from pydantic import BaseModel
 from typing import Optional
+from datetime import datetime
+
+from pydantic import BaseModel
 
 
 class NotificationMessage(BaseModel):
@@ -17,3 +19,14 @@ class ConnectionStatus(BaseModel):
     connected: bool
     total_connections: int
     user_connections: int
+
+
+class StreakUpdatedMessage(BaseModel):
+    """Message sent when user's streak is updated after 5-minute timer"""
+    type: str = "streak_updated"
+    current_streak: int
+    longest_streak: int
+    message: str
+    timestamp: str
+
+

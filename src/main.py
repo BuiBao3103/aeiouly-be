@@ -1,3 +1,21 @@
+import src.models
+from src.users.router import router as users_router
+from src.online.websocket import websocket_endpoint
+from src.speaking.router import router as speaking_router
+from src.solo_study.user_favorite_video_router import router as user_favorite_video_router
+from src.solo_study.session_goal_router import router as session_goal_router
+from src.solo_study.background_video_router import router as background_video_router
+from src.solo_study.background_video_type_router import router as background_video_type_router
+from src.solo_study.router import router as sound_router
+from src.vocabulary.router import router as vocabulary_router
+from src.reading.router import router as reading_router
+from src.listening.router import router as listening_router
+from src.writing.router import router as writing_router
+from src.online.router import router as online_router
+from src.dictionary.router import router as dictionary_router
+from src.posts.router import router as posts_router
+from src.auth.router import router as auth_router
+from src.config import settings
 from fastapi import FastAPI, APIRouter, Request
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
@@ -11,7 +29,8 @@ load_dotenv()
 # Configure logging from logging.ini file
 logging_config_path = Path(__file__).parent.parent / "logging.ini"
 if logging_config_path.exists():
-    logging.config.fileConfig(logging_config_path, disable_existing_loggers=False)
+    logging.config.fileConfig(
+        logging_config_path, disable_existing_loggers=False)
     print(f"[Startup] Logging configured from {logging_config_path}")
 else:
     # Fallback to basic logging configuration
@@ -20,24 +39,9 @@ else:
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
     )
-    print(f"[Startup] Logging config file not found at {logging_config_path}, using basic configuration")
+    print(
+        f"[Startup] Logging config file not found at {logging_config_path}, using basic configuration")
 
-from src.config import settings
-from src.auth.router import router as auth_router
-from src.posts.router import router as posts_router
-from src.dictionary.router import router as dictionary_router
-from src.notifications.router import router as notifications_router
-from src.analytics.router import router as analytics_router
-from src.writing.router import router as writing_router
-from src.listening.router import router as listening_router
-from src.reading.router import router as reading_router
-from src.vocabulary.router import router as vocabulary_router
-from src.solo_study.router import router as sound_router
-from src.solo_study.background_video_type_router import router as background_video_type_router
-from src.solo_study.background_video_router import router as background_video_router
-from src.solo_study.session_goal_router import router as session_goal_router
-from src.solo_study.user_favorite_video_router import router as user_favorite_video_router
-from src.speaking.router import router as speaking_router
 
 # Combine solo study routers
 solo_study_router = APIRouter()
@@ -46,10 +50,8 @@ solo_study_router.include_router(background_video_type_router)
 solo_study_router.include_router(background_video_router)
 solo_study_router.include_router(session_goal_router)
 solo_study_router.include_router(user_favorite_video_router)
-from src.users.router import router as users_router
 
 # Import all models to ensure they are registered with SQLAlchemy
-import src.models
 
 # Create FastAPI app
 app = FastAPI(
@@ -64,7 +66,8 @@ app = FastAPI(
 if settings.BACKEND_CORS_ORIGINS:
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[str(origin) for origin in settings.BACKEND_CORS_ORIGINS],
+        allow_origins=[str(origin)
+                       for origin in settings.BACKEND_CORS_ORIGINS],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -81,10 +84,14 @@ app.include_router(dictionary_router, prefix=settings.API_V1_STR)
 app.include_router(vocabulary_router, prefix=settings.API_V1_STR)
 app.include_router(solo_study_router, prefix=settings.API_V1_STR)
 app.include_router(posts_router, prefix=settings.API_V1_STR)
-app.include_router(notifications_router, prefix=settings.API_V1_STR)
-app.include_router(analytics_router, prefix=settings.API_V1_STR)
+app.include_router(online_router, prefix=settings.API_V1_STR)
+
+# WebSocket endpoint (documentation in websocket_endpoint docstring)
+app.websocket("/online/ws")(websocket_endpoint)
 
 # Root endpoint
+
+
 @app.get("/")
 async def root():
     return {
@@ -95,16 +102,20 @@ async def root():
     }
 
 # Health check endpoint
+
+
 @app.get("/health")
 async def health_check():
     return {"status": "hoạt động bình thường"}
 
 # Startup event
+
+
 @app.on_event("startup")
 async def startup_event():
     logger = logging.getLogger(__name__)
     logger.info("Application starting up...")
-    
+
     # Optional: auto run alembic migrations on startup
     if settings.AUTO_MIGRATE_ON_STARTUP:
         try:
@@ -115,6 +126,8 @@ async def startup_event():
             logger.error(f"[Startup] Alembic migration failed: {e}")
 
 # Notify via WebSocket when an API call fails (4xx/5xx)
+
+
 @app.middleware("http")
 async def notify_on_api_error(request: Request, call_next):
     try:
@@ -122,16 +135,24 @@ async def notify_on_api_error(request: Request, call_next):
     except Exception as e:
         try:
             # Import here to avoid circular import issues at module load time
-            from src.notifications.router import manager  # type: ignore
-            await manager.broadcast_text(f"[500] {request.method} {request.url.path}: {str(e)}")
+            from src.online.dependencies import get_connection_manager  # type: ignore
+
+            manager = get_connection_manager()
+            await manager.broadcast(
+                f"[500] {request.method} {request.url.path}: {str(e)}"
+            )
         except Exception:
             pass
         raise
 
     try:
         if response.status_code >= 400:
-            from src.notifications.router import manager  # type: ignore
-            await manager.broadcast_text(f"[{response.status_code}] {request.method} {request.url.path}")
+            from src.online.dependencies import get_connection_manager  # type: ignore
+
+            manager = get_connection_manager()
+            await manager.broadcast(
+                f"[{response.status_code}] {request.method} {request.url.path}"
+            )
     except Exception:
         pass
 
@@ -139,4 +160,4 @@ async def notify_on_api_error(request: Request, call_next):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000) 
+    uvicorn.run(app, host="0.0.0.0", port=8000)
