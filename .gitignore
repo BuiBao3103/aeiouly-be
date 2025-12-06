@@ -149,3 +149,5 @@ logs/
 .DS_Store
 Thumbs.db 
 credentials/cloud-service.json
+
+app.reading.log.txt

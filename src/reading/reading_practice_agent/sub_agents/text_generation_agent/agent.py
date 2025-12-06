@@ -81,7 +81,7 @@ def after_text_generation_callback(callback_context: CallbackContext) -> Optiona
 
 text_generation_agent = LlmAgent(
     name="text_generation_agent",
-    model="gemini-2.0-flash",
+    model="gemini-2.5-flash-lite",
     description="Generates English reading texts for practice based on level, genre, and topic",
     instruction=create_cefr_instruction(),
     output_schema=TextGenerationResult,

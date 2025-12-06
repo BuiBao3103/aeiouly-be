@@ -84,7 +84,7 @@ def skip_current_sentence(tool_context: ToolContext) -> Dict[str, Any]:
 
 writing_practice = Agent(
     name="writing_practice",
-    model="gemini-2.0-flash",
+    model="gemini-2.5-flash-lite",
     description="Coordinates Vietnamese→English translation practice by routing requests to specialized tools.",
     instruction="""
     Orchestrate the translation practice workflow. Route requests based on SOURCE and respond in Vietnamese.

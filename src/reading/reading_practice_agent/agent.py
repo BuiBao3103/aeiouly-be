@@ -17,63 +17,37 @@ from .sub_agents.analyze_discussion_answer_agent.agent import analyze_discussion
 
 reading_practice = Agent(
     name="reading_practice",
-    model="gemini-2.0-flash",
+    model="gemini-2.5-flash-lite",
     description="Coordinates the reading practice workflow, delegating work to specialized tools.",
     instruction="""
-    You orchestrate the reading practice module. Analyze each request and select the correct tool.
-    When you speak to the user, respond in natural, supportive Vietnamese or English as appropriate.
+    You orchestrate the reading practice module. Your job is to route each request to the correct sub-agent/tool.
 
-    INPUT FORMAT:
-    - Every message arrives as two lines:
+    INPUT:
+    - Always exactly two lines:
       SOURCE:<origin>
       MESSAGE:<raw content>
-    - SOURCE indicates which action triggered the request (button vs. API call).
 
     SUPPORTED SOURCE VALUES:
-    - generate_text: Generate a new reading text.
-    - analyze_text: Analyze a custom text to determine level, genre, and topic.
-    - generate_quiz: Generate quiz questions from reading text.
-    - generate_discussion: Generate discussion questions from reading text.
-    - analyze_discussion_answer: Evaluate a user's answer to a discussion question.
+    - generate_text → generate a new reading text.
+    - analyze_text → analyze a custom text to determine level, genre, topic.
+    - generate_quiz → generate quiz questions from the reading text.
+    - generate_discussion → generate discussion questions from the reading text.
+    - analyze_discussion_answer → evaluate a user's answer to a discussion question.
 
-    SUB-AGENT USAGE RULES:
-    1. text_generation sub-agent:
-       - Trigger: SOURCE == generate_text
-       - Transfer to text_generation sub-agent with MESSAGE containing the generation parameters (level, genre, topic, word_count).
-       - The sub-agent will generate the text silently and store it. No user-facing response is needed.
+    ROUTING RULES:
+    - SOURCE == generate_text → call text_generation tool. Let the sub-agent write text into state; do NOT generate any natural-language reply.
+    - SOURCE == analyze_text → call text_analysis tool, then return the structured analysis (level, genre, topic) from sub-agent.
+    - SOURCE == generate_quiz → call quiz_generation tool, then return the quiz questions from sub-agent.
+    - SOURCE == generate_discussion → call discussion_generation tool, then return the discussion questions from sub-agent.
+    - SOURCE == analyze_discussion_answer → transfer to analyze_discussion_answer sub-agent with the full original two-line payload.
 
-    2. text_analysis sub-agent:
-       - Trigger: SOURCE == analyze_text
-       - Transfer to text_analysis sub-agent with MESSAGE containing the text to analyze.
-       - After receiving sub-agent output, return the analysis result (level, genre, topic).
-
-    3. quiz_generation sub-agent:
-       - Trigger: SOURCE == generate_quiz
-       - Transfer to quiz_generation sub-agent with MESSAGE containing the reading text and number of questions.
-       - After receiving sub-agent output, return the quiz questions.
-
-    4. discussion_generation sub-agent:
-       - Trigger: SOURCE == generate_discussion
-       - Transfer to discussion_generation sub-agent with MESSAGE containing the reading text and number of questions.
-       - After receiving sub-agent output, return the discussion questions.
-
-    5. analyze_discussion_answer sub-agent:
-       - Trigger: SOURCE == analyze_discussion_answer
-       - Transfer to analyze_discussion_answer sub-agent.
-       - This sub-agent handles routing based on answer language (Vietnamese or English).
-       - Pass the full two-line payload exactly as received (both SOURCE and MESSAGE lines).
-
-    STATE INFORMATION AVAILABLE:
-    - level: CEFR difficulty level.
-    - genre: Reading genre.
-    - topic: Practice topic.
-    - content: Reading text content.
+    STATE AVAILABLE:
+    - level, genre, topic, content (reading text and metadata).
 
     IMPORTANT:
-    - Always transfer to sub-agents; do not craft answers without sub-agent output.
-    - Study SOURCE and MESSAGE carefully before choosing a sub-agent.
-    - For generate_text: Transfer to text_generation sub-agent and do NOT generate any response text. The text generation is handled silently.
-    - For other sources: After receiving sub-agent output, format and return the result appropriately.
+    - Always use sub-agents/tools for real work; do not invent JSON structures yourself.
+    - For generate_text, respond only via state updates (no direct answer needed).
+    - For other sources, surface exactly the structured output produced by the sub-agents.
     """,
     sub_agents=[
         analyze_discussion_answer_agent,

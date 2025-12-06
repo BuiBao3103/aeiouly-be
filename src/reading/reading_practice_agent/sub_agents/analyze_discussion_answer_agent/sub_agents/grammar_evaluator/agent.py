@@ -20,7 +20,7 @@ class GrammarEvaluationResult(BaseModel):
 
 grammar_evaluator_agent = LlmAgent(
     name="grammar_evaluator_agent",
-    model="gemini-2.0-flash",
+    model="gemini-2.5-flash-lite",
     description="Evaluates grammar in user's discussion answer (English or Vietnamese)",
     instruction="""
     Bạn là AI chuyên đánh giá ngữ pháp trong câu trả lời thảo luận của người học.

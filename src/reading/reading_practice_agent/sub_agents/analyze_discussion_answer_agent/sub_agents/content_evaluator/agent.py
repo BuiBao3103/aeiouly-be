@@ -20,7 +20,7 @@ class ContentEvaluationResult(BaseModel):
 
 content_evaluator_agent = LlmAgent(
     name="content_evaluator_agent",
-    model="gemini-2.0-flash",
+    model="gemini-2.5-flash-lite",
     description="Evaluates whether user's answer demonstrates understanding of the reading text",
     instruction="""
     Bạn là AI chuyên đánh giá xem câu trả lời của người học có cho thấy họ hiểu nội dung bài đọc hay không.

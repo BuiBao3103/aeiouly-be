@@ -46,7 +46,7 @@ def after_text_generator_callback(callback_context: CallbackContext) -> Optional
 
 text_generator_agent = LlmAgent(
     name="text_generator",
-    model="gemini-2.0-flash",
+    model="gemini-2.5-flash-lite",
     description="Generate Vietnamese practice text based on topic, CEFR level, and desired sentence count from state.",
     instruction=f"""
     Generate Vietnamese source text for translation practice.

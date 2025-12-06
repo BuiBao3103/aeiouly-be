@@ -14,7 +14,7 @@ class AnswerFeedbackSynthesisResult(BaseModel):
 
 feedback_synthesizer_agent = LlmAgent(
     name="answer_feedback_synthesizer_agent",
-    model="gemini-2.0-flash",
+    model="gemini-2.5-flash-lite",
     description="Synthesizes content and grammar feedback into comprehensive answer evaluation",
     instruction="""
     Bạn là AI chuyên tổng hợp feedback từ đánh giá nội dung (và ngữ pháp nếu có) thành đánh giá tổng thể.

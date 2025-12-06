@@ -23,6 +23,8 @@ import os
 import logging.config
 from pathlib import Path
 
+from src.utils.logging import attach_strip_ansi_to_file_handlers
+
 # Load environment variables from .env file
 load_dotenv()
 
@@ -30,17 +32,21 @@ load_dotenv()
 logging_config_path = Path(__file__).parent.parent / "logging.ini"
 if logging_config_path.exists():
     logging.config.fileConfig(
-        logging_config_path, disable_existing_loggers=False)
+        logging_config_path, disable_existing_loggers=False
+    )
+    # Gắn filter xoá ANSI cho tất cả FileHandler (ví dụ app.log)
+    attach_strip_ansi_to_file_handlers()
     print(f"[Startup] Logging configured from {logging_config_path}")
 else:
-    # Fallback to basic logging configuration
+    # Fallback to basic logging configuration (không thêm màu)
     logging.basicConfig(
         level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
     )
     print(
-        f"[Startup] Logging config file not found at {logging_config_path}, using basic configuration")
+        f"[Startup] Logging config file not found at {logging_config_path}, using basic configuration"
+    )
 
 
 # Combine solo study routers

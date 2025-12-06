@@ -103,6 +103,16 @@ class LoginStreakService:
             streak = db.query(LoginStreak).filter(LoginStreak.user_id == user_id).first()
             if streak:
                 db.refresh(streak)
+                return streak
+            # Nếu có today_record nhưng không có streak record → tạo mới (edge case)
+            streak = LoginStreak(
+                user_id=user_id,
+                current_streak=1,
+                longest_streak=1,
+            )
+            db.add(streak)
+            db.commit()
+            db.refresh(streak)
             return streak
         
         # Kiểm tra hôm qua có streak không
@@ -121,22 +131,24 @@ class LoginStreakService:
         streak = db.query(LoginStreak).filter(LoginStreak.user_id == user_id).first()
         
         if not streak:
+            # Tạo mới streak record
             streak = LoginStreak(
                 user_id=user_id,
                 current_streak=1,
                 longest_streak=1,
             )
             db.add(streak)
-            db.flush()
+            db.flush()  # Flush để có streak.id cho daily_record
         else:
-            # Nếu hôm qua không có streak → reset về 1 (bắt đầu lại)
+            # Cập nhật current_streak dựa trên yesterday_record
             if not yesterday_record:
+                # Hôm qua không có streak → reset về 1 (bắt đầu lại)
                 streak.current_streak = 1
             else:
                 # Hôm qua có streak → tăng lên 1 (tiếp tục)
                 streak.current_streak += 1
             
-            # Cập nhật longest streak
+            # Cập nhật longest streak nếu cần
             if streak.current_streak > streak.longest_streak:
                 streak.longest_streak = streak.current_streak
         
@@ -148,6 +160,8 @@ class LoginStreakService:
         )
         db.add(daily_record)
         
+        # Flush trước commit để đảm bảo tất cả thay đổi được lưu
+        db.flush()
         db.commit()
         db.refresh(streak)
         return streak
@@ -226,12 +240,16 @@ class LoginStreakService:
         ]
 
     async def get_weekly_streak_status(self, user_id: int, db: Session) -> Dict:
-        """Get weekly streak status - danh sách các ngày trong tuần có streak hay không.
+        """Get weekly streak status - danh sách các ngày trong tuần hiện tại (thứ 2 đến chủ nhật).
         
         Tối ưu: Query streak và daily records trong 1 lần để giảm số queries.
         """
         today = date.today()
-        week_ago = today - timedelta(days=6)  # 7 ngày bao gồm cả hôm nay
+        # Tính ngày đầu tuần (thứ 2)
+        # weekday() trả về: 0=Monday, 1=Tuesday, ..., 6=Sunday
+        monday = today - timedelta(days=today.weekday())
+        # Ngày cuối tuần (chủ nhật)
+        sunday = monday + timedelta(days=6)
 
         # Tối ưu: Query cả streak và daily records cùng lúc
         streak = (
@@ -241,14 +259,14 @@ class LoginStreakService:
         )
         current_streak = streak.current_streak if streak else 0
 
-        # Query daily records trong 7 ngày gần nhất
+        # Query daily records trong tuần hiện tại (thứ 2 đến chủ nhật)
         daily_records = (
             db.query(LoginStreakDaily)
             .filter(
                 and_(
                     LoginStreakDaily.user_id == user_id,
-                    LoginStreakDaily.date >= week_ago,
-                    LoginStreakDaily.date <= today
+                    LoginStreakDaily.date >= monday,
+                    LoginStreakDaily.date <= sunday
                 )
             )
             .all()
@@ -264,11 +282,11 @@ class LoginStreakService:
         # Kiểm tra hôm nay đã có streak chưa
         today_has_streak = dates_with_streak.get(today, False)
 
-        # Tạo danh sách 7 ngày với trạng thái has_streak
+        # Tạo danh sách 7 ngày trong tuần (thứ 2 đến chủ nhật)
         # Tối ưu: Pre-generate dates list để tránh tính toán lặp lại
         weekly_days = []
         for i in range(7):
-            current_date = week_ago + timedelta(days=i)
+            current_date = monday + timedelta(days=i)
             weekly_days.append({
                 "date": current_date.isoformat(),
                 "has_streak": dates_with_streak.get(current_date, False),

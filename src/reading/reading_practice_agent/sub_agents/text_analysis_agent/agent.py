@@ -31,48 +31,36 @@ def after_text_analysis_callback(callback_context: CallbackContext) -> Optional[
 
 text_analysis_agent = LlmAgent(
     name="text_analysis_agent",
-    model="gemini-2.0-flash",
+    model="gemini-2.5-flash-lite",
     description="Analyzes English reading texts to determine level, genre, and topic",
     instruction=f"""
-    Bạn là AI chuyên phân tích bài đọc tiếng Anh để xác định level CEFR, genre và topic.
-    
-    DỮ LIỆU ĐẦU VÀO (TỪ STATE):
+    Bạn phân tích bài đọc tiếng Anh để xác định level CEFR, genre và topic.
+
+    INPUT (từ state):
     - content: {{content}}
-    
+
     NHIỆM VỤ:
-    - Phân tích độ khó của bài đọc và xác định level CEFR (A1-C2)
-    - Xác định genre của bài đọc
-    - Xác định topic/chủ đề chính
-    
+    - Xác định level CEFR (A1-C2) dựa trên từ vựng và ngữ pháp.
+    - Xác định genre chính xác của bài đọc.
+    - Xác định topic/chủ đề chính (trả về bằng TIẾNG VIỆT, ví dụ: "Du lịch", "Công nghệ").
+
+    CEFR REFERENCE:
     {get_cefr_definitions_string()}
-    
-    GENRE DETECTION (PHẢI XÁC ĐỊNH CHÍNH XÁC):
-    Phân tích kỹ cấu trúc, phong cách và mục đích của văn bản để xác định genre một cách chính xác:
-    
-    - Bài báo: Có tiêu đề báo chí, cấu trúc tin tức (5W1H), phong cách khách quan, báo cáo sự kiện/thời sự
-    - Email/Thư từ: Có phần chào hỏi/kết thúc, địa chỉ người nhận, mục đích giao tiếp cá nhân/công việc
-    - Truyện ngắn: Có cốt truyện, nhân vật, bối cảnh, diễn biến và kết thúc rõ ràng
-    - Hội thoại: Chủ yếu là đối thoại trực tiếp giữa các nhân vật, có dấu ngoặc kép hoặc dấu gạch ngang
-    - Bài luận: Có luận điểm, lập luận, ví dụ, kết luận; mang tính phân tích/argumentative
-    - Đánh giá sản phẩm: Nhận xét về sản phẩm/dịch vụ, liệt kê ưu/nhược điểm, đánh giá tổng thể
-    - Bài mạng xã hội: Phong cách informal, có hashtag, emoji, @mention, hoặc cấu trúc như post/blog
-    - Hướng dẫn sử dụng: Có các bước/lệnh, mệnh lệnh (imperative), số thứ tự, lưu ý/cảnh báo
-    
-    LƯU Ý: Chỉ chọn MỘT genre phù hợp nhất. Nếu văn bản có nhiều đặc điểm, chọn đặc điểm NỔI BẬT NHẤT.
-    
-    OUTPUT FORMAT:
-    Trả về JSON với cấu trúc:
+
+    GENRE GỢI Ý (chọn 1 phù hợp nhất):
+    - Bài báo, Email/Thư từ, Truyện ngắn, Hội thoại, Bài luận,
+      Đánh giá sản phẩm, Bài mạng xã hội, Hướng dẫn sử dụng.
+
+    OUTPUT (JSON duy nhất):
     {{
       "level": "level_detected",
       "genre": "genre_detected",
-      "topic": "topic_detected",
+      "topic": "topic_detected"
     }}
-    
-    QUAN TRỌNG:
-    - Phân tích chính xác level dựa trên từ vựng và ngữ pháp (sử dụng định nghĩa CEFR ở trên)
-    - Xác định đúng genre dựa trên phân tích kỹ cấu trúc và phong cách văn bản (xem hướng dẫn chi tiết ở trên)
-    - Topic phải được trả về BẰNG TIẾNG VIỆT (ví dụ: "Du lịch", "Công nghệ", "Giáo dục", "Sức khỏe")
-    - Trả về JSON format
+
+    QUY TẮC:
+    - Phân tích ngắn gọn, chỉ tập trung vào 3 trường level/genre/topic.
+    - Trả về CHỈ MỘT object JSON đúng schema, không thêm giải thích ngoài.
     """,
     output_schema=TextAnalysisResult,
     output_key="analysis_result",

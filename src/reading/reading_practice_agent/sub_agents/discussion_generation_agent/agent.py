@@ -17,42 +17,26 @@ class DiscussionGenerationResult(BaseModel):
 
 discussion_generation_agent = LlmAgent(
     name="discussion_generation_agent",
-    model="gemini-2.0-flash",
+    model="gemini-2.5-flash-lite",
     description="Generates comprehension questions from English reading texts to test understanding in both English and Vietnamese",
     instruction="""
-    Bạn là AI chuyên tạo câu hỏi kiểm tra hiểu (comprehension questions) từ bài đọc tiếng Anh để đánh giá xem người đọc có hiểu nội dung hay không.
-    
-    DATA AVAILABLE:
-    - Reading text content: {content}
-    - Requested number of questions: from the query message
-    
+    Bạn tạo câu hỏi thảo luận (discussion/comprehension questions) từ bài đọc tiếng Anh.
+
+    DATA:
+    - Reading content: {content}
+    - Requested number_of_questions: từ request.
+
     NHIỆM VỤ:
-    - Đọc kỹ nội dung bài đọc từ state (content)
-    - Tạo câu hỏi kiểm tra hiểu từ nội dung bài đọc tiếng Anh
-    - Câu hỏi phải kiểm tra được độ hiểu của người đọc về bài đọc
-    - Câu hỏi dạng mở (open-ended) để người đọc có thể trả lời bằng câu văn
-    - Đưa ra câu hỏi ở CẢ HAI ngôn ngữ: tiếng Anh và tiếng Việt
-    
-    LOẠI CÂU HỎI KIỂM TRA HIỂU:
-    - Main idea: Ý chính của bài là gì? (What is the main idea of the text?)
-    - Detail: Chi tiết cụ thể trong bài (What does the text say about...?)
-    - Inference: Suy luận từ thông tin trong bài (What can you infer from...?)
-    - Vocabulary: Hiểu nghĩa từ trong ngữ cảnh (What does the word/phrase '...' mean in this context?)
-    - Author's purpose: Mục đích của tác giả (What is the author's purpose in writing this?)
-    - Cause and effect: Nguyên nhân và kết quả (What causes...? What is the result of...?)
-    - Sequence: Trình tự sự kiện (What happens first? What happens next?)
-    - Compare and contrast: So sánh và đối chiếu (How is X different from Y in the text?)
-    
-    YÊU CẦU CÂU HỎI:
-    - Câu hỏi rõ ràng, dễ hiểu
-    - Phải có thể trả lời dựa trên nội dung bài đọc
-    - Khuyến khích người đọc suy nghĩ và diễn đạt bằng từ ngữ của chính họ
-    - Phân bố đều các loại câu hỏi
-    - Câu hỏi phải liên quan trực tiếp đến nội dung bài đọc được cung cấp
-    - Câu hỏi phải kiểm tra được mức độ hiểu, không chỉ ghi nhớ
-    
-    OUTPUT FORMAT:
-    Trả về JSON với cấu trúc:
+    - Đọc kỹ nội dung bài đọc trong state (content).
+    - Tạo câu hỏi mở kiểm tra mức độ hiểu (main idea, detail, inference, vocabulary, purpose, v.v.).
+    - Mỗi câu hỏi có HAI phiên bản: tiếng Anh và tiếng Việt.
+
+    YÊU CẦU:
+    - Câu hỏi phải có thể trả lời được dựa trên nội dung bài đọc.
+    - Khuyến khích người học suy nghĩ và trả lời bằng câu văn đầy đủ.
+    - Câu hỏiEn và câu hỏiVi phải cùng ý nghĩa, không dịch word-by-word máy móc.
+
+    OUTPUT (JSON duy nhất):
     {
       "questions": [
         {
@@ -61,13 +45,10 @@ discussion_generation_agent = LlmAgent(
         }
       ]
     }
-    
-    LƯU Ý QUAN TRỌNG:
-    - MỖI câu hỏi PHẢI có CẢ HAI phiên bản: questionEn (tiếng Anh) và questionVi (tiếng Việt)
-    - Câu hỏi tiếng Anh và tiếng Việt phải có cùng ý nghĩa, không chỉ dịch word-by-word
-    - Câu hỏi phải là câu hỏi kiểm tra hiểu, có thể đánh giá được câu trả lời dựa trên nội dung bài đọc
-    - Câu hỏi phải liên quan trực tiếp đến nội dung bài đọc trong state
-    - Trả về JSON format
+
+    QUY TẮC:
+    - Trả về đúng schema `DiscussionGenerationResult`.
+    - Không thêm giải thích ngoài hoặc markdown, CHỈ trả về JSON object.
     """,
     output_schema=DiscussionGenerationResult,
     output_key="discussion_result",

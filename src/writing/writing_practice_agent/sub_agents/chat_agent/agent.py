@@ -10,7 +10,7 @@ from .sub_agents.guidance_agent.agent import guidance_agent
 
 chat_agent = Agent(
     name="chat",
-    model="gemini-2.0-flash",
+    model="gemini-2.5-flash",
     description="Routes chat box messages to the correct tool while ensuring answers stay in Vietnamese.",
     instruction="""
     You coordinate messages coming from the learner's chat box.
