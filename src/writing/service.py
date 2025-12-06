@@ -22,7 +22,7 @@ from datetime import datetime
 import json
 from src.config import get_database_url
 from src.database import SessionLocal
-from src.utils.agent_utils import call_agent_with_logging
+from src.utils.agent_utils import call_agent_with_logging, build_agent_query
 import logging
 import random
 from fastapi import HTTPException
@@ -120,20 +120,6 @@ class WritingService:
         finally:
             db.close()
     
-    def _build_agent_query(self, source: str, message: str) -> str:
-        """
-        Build standardized query string for writing_practice with source metadata.
-        
-        Args:
-            source: Origin of the action (e.g., chat_input, hint_button, generate_button, final_evaluation_button)
-            message: The natural language message or trigger phrase
-        
-        Returns:
-            Formatted string consumed by writing_practice:
-                SOURCE:<source>\nMESSAGE:<message>
-        """
-        return f"SOURCE:{source}\nMESSAGE:{message}"
-    
     async def create_writing_session(
         self, 
         user_id: int, 
@@ -180,10 +166,7 @@ class WritingService:
             try:
                 # Query for writing_practice to call text_generator tool
                 # Using trigger phrase that matches writing_practice instruction
-                query = self._build_agent_query(
-                    source="generate_button",
-                    message="tạo văn bản"
-                )
+                query = build_agent_query(source="generate_button", message="")
                 
                 # call_agent_with_logging returns final_response_text (string), NOT the structured dict
                 # The structured output (dict) is automatically stored in state by ADK via output_key
@@ -420,7 +403,7 @@ class WritingService:
             # Query for writing_practice to route to appropriate tool/subagent
             # If it's a translation, it will route to translation_evaluator_agent
             # If it's a question, it will route to guidance_agent
-            query = self._build_agent_query(
+            query = build_agent_query(
                 source="chat_input",
                 message=message_data.content
             )
@@ -540,10 +523,7 @@ class WritingService:
             
             # Get hint from writing_practice (will call hint_provider tool)
             # Using trigger phrase that matches writing_practice instruction
-            query = self._build_agent_query(
-                source="hint_button",
-                message="gợi ý"
-            )
+            query = build_agent_query(source="hint_button", message="")
             
             try:
                 hint_response = await call_agent_with_logging(
@@ -629,10 +609,7 @@ class WritingService:
                 runner=self.runner,
                 user_id=str(user_id),
                 session_id=str(session_id),
-                query=self._build_agent_query(
-                    source="final_evaluation_button",
-                    message="đánh giá cuối"
-                ),
+                query=build_agent_query(source="final_evaluation_button", message=""),
                 logger=logger,
                 agent_name="writing_practice"
             )
@@ -751,10 +728,7 @@ class WritingService:
             if session.status == SessionStatus.COMPLETED:
                 raise HTTPException(status_code=400, detail="Phiên luyện viết đã hoàn thành")
             
-            query = self._build_agent_query(
-                source="skip_button",
-                message="Skip current sentence"
-            )
+            query = build_agent_query(source="skip_button", message="")
             
             try:
                 agent_reply = await call_agent_with_logging(

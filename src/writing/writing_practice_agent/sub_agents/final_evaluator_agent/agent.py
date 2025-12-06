@@ -19,7 +19,7 @@ class FinalEvaluationResult(BaseModel):
 
 final_evaluator_agent = LlmAgent(
     name="final_evaluator",
-    model="gemini-2.5-pro",
+    model="gemini-2.5-flash",
     description="Tạo đánh giá tổng kết cho phiên luyện viết dựa trên evaluation_history",
     instruction=f"""
     You are the AI Final Evaluator for a writing practice session.

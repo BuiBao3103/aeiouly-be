@@ -151,3 +151,4 @@ Thumbs.db
 credentials/cloud-service.json
 
 app.reading.log.txt
+app.log.*

@@ -10,14 +10,13 @@ from src.constants.cefr import get_cefr_definitions_string
 
 
 class VietnameseTextResult(BaseModel):
-    full_text: str = Field(description="The complete Vietnamese text that was generated")
     sentences: List[str] = Field(description="Array of individual Vietnamese sentences")
 
 
 def after_text_generator_callback(callback_context: CallbackContext) -> Optional[types.Content]:
     """
-    Callback that automatically updates current_vietnamese_sentence in state
-    after text_generator_agent generates Vietnamese text.
+    Callback that generates full_text from sentences and updates state
+    after text_generator_agent generates Vietnamese sentences.
     
     This is the CORRECT way to update state - using callback_context.state
     instead of directly modifying session.state from get_session().
@@ -33,11 +32,26 @@ def after_text_generator_callback(callback_context: CallbackContext) -> Optional
     # Get vietnamese_sentences from state (set by output_key)
     vietnamese_sentences_data = state.get("vietnamese_sentences", {})
     
-    # Update current_vietnamese_sentence to first sentence if available
+    # Process sentences and generate full_text
     if isinstance(vietnamese_sentences_data, dict):
         sentences = vietnamese_sentences_data.get("sentences", [])
         if sentences and isinstance(sentences, list) and len(sentences) > 0:
-            # Update state using callback_context.state (CORRECT way)
+            # Count actual number of sentences generated
+            actual_sentence_count = len(sentences)
+            
+            # Generate full_text by joining sentences with spaces
+            full_text = " ".join(sentences)
+            
+            # Update state with both full_text and sentences
+            state["vietnamese_sentences"] = {
+                "full_text": full_text,
+                "sentences": sentences
+            }
+            
+            # Update total_sentences to match actual count
+            state["total_sentences"] = actual_sentence_count
+            
+            # Update current_vietnamese_sentence to first sentence
             state["current_vietnamese_sentence"] = sentences[0]
             state["current_sentence_index"] = 0
     
@@ -69,7 +83,6 @@ text_generator_agent = LlmAgent(
     {get_cefr_definitions_string()}
 
     OUTPUT:
-    - full_text: Complete Vietnamese passage (concatenation of all sentences)
     - sentences: List of standalone Vietnamese sentences with punctuation
     """,
     output_schema=VietnameseTextResult,

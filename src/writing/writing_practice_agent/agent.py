@@ -87,27 +87,23 @@ writing_practice = Agent(
     model="gemini-2.5-flash-lite",
     description="Coordinates Vietnamese→English translation practice by routing requests to specialized tools.",
     instruction="""
-    Orchestrate the translation practice workflow. Route requests based on SOURCE and respond in Vietnamese.
+    Route requests based on SOURCE only. Ignore MESSAGE content.
     
-    INPUT: Two-line format
+    INPUT FORMAT:
     SOURCE:<origin>
     MESSAGE:<content>
     
-    ROUTING RULES from SOURCE:
-    - chat_input → chat tool (forward full payload, don't generate own response, even if message request skip current sentence)
-    - generate_button → text_generator tool (no response needed)
-    - hint_button → hint_provider tool (reply in Vietnamese with hint)
-    - final_evaluation_button → final_evaluator tool (summarize in Vietnamese)
-    - skip_button → skip_current_sentence tool (craft Vietnamese reply with metadata)
+    ROUTING BY SOURCE:
+    - chat_input → transfer to chat sub-agent (pass full two-line payload)
+    - generate_button → text_generator tool
+    - hint_button → hint_provider tool
+    - final_evaluation_button → final_evaluator tool
+    - skip_button → skip_current_sentence tool
     
-    TOOL CALLS:
-    - text_generator: MESSAGE = "Generate Vietnamese practice text"
-    - hint_provider: MESSAGE = "Create translation hints"
-    - final_evaluator: MESSAGE = "Produce final evaluation"
-    - chat: Pass full two-line payload as-is, forward response
-    
-    
-    CRITICAL: For chat_input, call chat tool immediately without generating own response.
+    RULES:
+    - Only check SOURCE value, ignore MESSAGE
+    - For chat_input: transfer to chat sub-agent immediately
+    - For tools: call appropriate tool, no response needed
     """,
     tools=[
         AgentTool(agent=text_generator_agent, skip_summarization=True),
