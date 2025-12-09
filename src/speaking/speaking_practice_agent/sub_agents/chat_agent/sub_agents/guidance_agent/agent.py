@@ -3,10 +3,7 @@ Guidance Agent for Speaking Practice
 """
 from google.adk.agents import LlmAgent
 
-from src.speaking.speaking_practice_agent.sub_agents.chat_agent.sub_agents.conversation_agent.agent import (
-    CHAT_RESPONSE_STATE_KEY,
-    ChatAgentResponse,
-)
+from ...schemas import ChatAgentResponse, CHAT_RESPONSE_STATE_KEY
 
 
 guidance_agent = LlmAgent(

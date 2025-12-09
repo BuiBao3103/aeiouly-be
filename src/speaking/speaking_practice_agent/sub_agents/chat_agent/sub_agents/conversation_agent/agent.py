@@ -9,21 +9,9 @@ from google.adk.agents import LlmAgent
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.tools.tool_context import ToolContext
 from google.genai import types
-from pydantic import BaseModel, Field
 from src.constants.cefr import get_cefr_definitions_string
 
-
-class ChatAgentResponse(BaseModel):
-    response_text: str = Field(
-        description="Final message for learner (English here, Vietnamese for guidance)"
-    )
-    translation_sentence: Optional[str] = Field(
-        default=None,
-        description="Optional single Vietnamese sentence translating response_text",
-    )
-
-
-CHAT_RESPONSE_STATE_KEY = "chat_response"
+from ...schemas import ChatAgentResponse, CHAT_RESPONSE_STATE_KEY
 
 
 def end_conversation(tool_context: ToolContext) -> Dict[str, Any]:

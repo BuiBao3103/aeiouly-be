@@ -7,10 +7,8 @@ from pydantic import BaseModel, Field
 from typing import Optional
 from google.genai import types
 from src.constants.cefr import get_cefr_definitions_string
+from ...schemas import HintResult
 
-
-class HintResult(BaseModel):
-    hint_text: str = Field(description="Vietnamese Markdown hint (vocabulary + grammar) using '- ' list syntax per line")
 
 
 def after_hint_provider_callback(callback_context: CallbackContext) -> Optional[types.Content]:
@@ -47,7 +45,7 @@ def after_hint_provider_callback(callback_context: CallbackContext) -> Optional[
 
 hint_provider_agent = LlmAgent(
     name="hint_provider",
-    model="gemini-2.0-flash",
+    model="gemini-2.5-flash-lite",
     description="Generate Vietnamese translation hints (vocabulary + grammar) for the current sentence.",
     instruction=f"""
     You provide concise translation hints in Vietnamese for the sentence "{{current_vietnamese_sentence}}".
@@ -57,11 +55,13 @@ hint_provider_agent = LlmAgent(
     **Từ vựng:**
     - `vocabulary 1` → English meaning
     - `vocabulary 2` → English meaning
+    - *(Add enough items so tổng cộng 4-6 từ/cụm từ phủ đều động từ, danh từ, tính từ quan trọng của câu)*
 
     **Ngữ pháp:**
     - Grammar guidance: Suggest what English grammar structures to use
 
     ### RULES
+    - Provide 4-6 vocabulary bullets total (ưu tiên động từ, danh từ, tính từ then trạng từ nếu hữu ích).
     - Each bullet point starts with "- " and occupies its own line.
     - Leave exactly one blank line between the vocabulary and grammar sections.
     - Grammar section: Focus on WHAT ENGLISH GRAMMAR STRUCTURES to use. Suggest the English grammar patterns, tenses, or structures needed to translate the sentence correctly.

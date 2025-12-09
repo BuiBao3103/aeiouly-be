@@ -4,10 +4,14 @@ Utility functions for AI Agent logging and event processing
 
 from google.genai import types
 from google.adk.events import Event, EventActions
+from google.adk.agents.callback_context import CallbackContext
+from google.adk.agents.llm_agent import LlmResponse, LlmRequest
 import logging
 import time
-from typing import Optional, List, Dict, Any, Iterable
+from typing import Optional, List, Dict, Any, Iterable, Tuple, Callable
 import json
+import re
+import copy
 logging.getLogger('google_genai.types').setLevel(logging.ERROR)
 # ANSI color codes for terminal output
 class Colors:
@@ -192,13 +196,138 @@ def process_agent_response(event, logger: logging.Logger = None):
     return None
 
 
+def extract_tool_response(event) -> Optional[Dict[str, Any]]:
+    """
+    Extract tool response from agent event.
+    
+    Args:
+        event: Event from agent runner
+        
+    Returns:
+        Tool response dict if found, None otherwise
+    """
+    if not event or not event.content or not event.content.parts:
+        return None
+    
+    for part in event.content.parts:
+        # Check tool_response
+        if hasattr(part, "tool_response") and part.tool_response:
+            output = part.tool_response.output
+            if isinstance(output, dict):
+                return output
+            elif isinstance(output, str):
+                try:
+                    import json
+                    return json.loads(output)
+                except json.JSONDecodeError:
+                    pass
+        
+        # Check function_response (tools are also functions in ADK)
+        if hasattr(part, "function_response") and part.function_response:
+            func_response = part.function_response
+            
+            # Debug: log function_response structure
+            import logging
+            debug_logger = logging.getLogger(__name__)
+            debug_logger.debug(f"Function response type: {type(func_response)}")
+            debug_logger.debug(f"Function response: {func_response}")
+            if hasattr(func_response, "__dict__"):
+                debug_logger.debug(f"Function response __dict__: {func_response.__dict__}")
+            
+            # Try different ways to access the response data
+            # Method 1: Direct dict
+            if isinstance(func_response, dict):
+                return func_response
+            
+            # Method 2: Check for result attribute
+            if hasattr(func_response, "result"):
+                result = func_response.result
+                if isinstance(result, dict):
+                    return result
+                elif isinstance(result, str):
+                    try:
+                        import json
+                        parsed = json.loads(result)
+                        if isinstance(parsed, dict):
+                            return parsed
+                    except json.JSONDecodeError:
+                        pass
+            
+            # Method 3: Check for output attribute
+            if hasattr(func_response, "output"):
+                output = func_response.output
+                if isinstance(output, dict):
+                    return output
+                elif isinstance(output, str):
+                    try:
+                        import json
+                        parsed = json.loads(output)
+                        if isinstance(parsed, dict):
+                            return parsed
+                    except json.JSONDecodeError:
+                        pass
+            
+            # Method 4: Check for response attribute
+            if hasattr(func_response, "response"):
+                response = func_response.response
+                if isinstance(response, dict):
+                    return response
+                elif isinstance(response, str):
+                    try:
+                        import json
+                        parsed = json.loads(response)
+                        if isinstance(parsed, dict):
+                            return parsed
+                    except json.JSONDecodeError:
+                        pass
+            
+            # Method 5: Try to convert function_response to dict if it has __dict__
+            if hasattr(func_response, "__dict__"):
+                func_dict = func_response.__dict__
+                # Look for common keys that might contain the result
+                for key in ["result", "output", "response", "data", "value"]:
+                    if key in func_dict:
+                        value = func_dict[key]
+                        if isinstance(value, dict):
+                            return value
+                        elif isinstance(value, str):
+                            try:
+                                import json
+                                parsed = json.loads(value)
+                                if isinstance(parsed, dict):
+                                    return parsed
+                            except json.JSONDecodeError:
+                                pass
+                # If no common key found, return the dict itself if it looks like a result
+                if func_dict and not any(k.startswith("_") for k in func_dict.keys()):
+                    return func_dict
+    
+    # Also check if final response text contains JSON with translation_message
+    if event.is_final_response() and event.content and event.content.parts:
+        for part in event.content.parts:
+            if hasattr(part, "text") and part.text:
+                text = part.text.strip()
+                # Try to parse as JSON
+                if text.startswith("{") and text.endswith("}"):
+                    try:
+                        import json
+                        parsed = json.loads(text)
+                        if isinstance(parsed, dict) and "translation_message" in parsed:
+                            return parsed
+                    except json.JSONDecodeError:
+                        pass
+    
+    return None
+
+
 async def call_agent_with_logging(
     runner,
     user_id: str,
     session_id: str,
     query: str,
     logger: logging.Logger = None,
-    agent_name: str = None
+    agent_name: str = None,
+    return_tool_response: bool = False
 ):
     """
     Call agent with comprehensive logging including timing information.
@@ -210,9 +339,10 @@ async def call_agent_with_logging(
         query: User query
         logger: Optional logger instance
         agent_name: Optional agent name (will try to extract from runner if not provided)
+        return_tool_response: If True, also return tool response dict
         
     Returns:
-        Final response text from agent
+        Final response text from agent, or tuple (final_response, tool_response) if return_tool_response=True
     """
     log_func = logger.info if logger else print
     
@@ -261,6 +391,7 @@ async def call_agent_with_logging(
         )
     
     final_response_text = None
+    tool_response = None
     
     try:
         async for event in runner.run_async(
@@ -274,10 +405,43 @@ async def call_agent_with_logging(
             # Log event details
             log_event(event, logger)
             
-            # Process and extract final response
-            response = process_agent_response(event, logger)
-            if response:
-                final_response_text = response
+            # Extract tool response from function_response event (not final response)
+            if return_tool_response and not tool_response:
+                if event.content and event.content.parts:
+                    for part in event.content.parts:
+                        # Check function_response (tools return values are in function_response)
+                        if hasattr(part, "function_response") and part.function_response:
+                            func_response = part.function_response
+                            # Try to get the response as dict
+                            if isinstance(func_response, dict):
+                                tool_response = func_response
+                            elif hasattr(func_response, "result"):
+                                result = func_response.result
+                                if isinstance(result, dict):
+                                    tool_response = result
+                            elif hasattr(func_response, "__dict__"):
+                                # Try to access the actual return value
+                                func_dict = func_response.__dict__
+                                # Look for the return value in common attributes
+                                for key in ["result", "output", "response", "value", "data"]:
+                                    if key in func_dict:
+                                        value = func_dict[key]
+                                        if isinstance(value, dict):
+                                            tool_response = value
+                                            break
+                            if tool_response and logger:
+                                logger.debug(f"Extracted tool response: {tool_response}")
+                            break
+            
+            # Process and extract final response (similar to file mẫu)
+            if event.is_final_response():
+                if event.content and event.content.parts:
+                    # Iterate through all parts to find text parts (skip function_call parts)
+                    # This avoids the warning about non-text parts in response
+                    for part in event.content.parts:
+                        if hasattr(part, "text") and part.text:
+                            final_response_text = part.text.strip()
+                            break  # Use first text part found
                 
     except Exception as e:
         # Record end time even on error
@@ -304,6 +468,8 @@ async def call_agent_with_logging(
         f"[AGENT: {agent_name}] End time: {end_time_str} | Duration: {duration:.2f}s{Colors.RESET}"
     )
     
+    if return_tool_response:
+        return final_response_text, tool_response
     return final_response_text
 
 
@@ -338,6 +504,126 @@ def extract_agent_response_text(
             pass
 
     return text
+
+
+def extract_json_from_markdown(text: str) -> Optional[str]:
+    """
+    Extract JSON from markdown code blocks.
+    
+    Args:
+        text: Text that may contain JSON in markdown code blocks
+        
+    Returns:
+        Extracted JSON string if found, None otherwise
+    """
+    if not text:
+        return None
+    
+    text = text.strip()
+    
+    # Try to parse as-is first
+    try:
+        json.loads(text)
+        return text
+    except json.JSONDecodeError:
+        pass
+    
+    # Try to extract from markdown code blocks
+    # Pattern: ```json ... ``` or ``` ... ```
+    json_pattern = r'```(?:json)?\s*(.*?)\s*```'
+    match = re.search(json_pattern, text, re.DOTALL)
+    if match:
+        json_text = match.group(1).strip()
+        try:
+            json.loads(json_text)
+            return json_text
+        except json.JSONDecodeError:
+            pass
+    
+    # Try to find JSON object in text (between { and })
+    json_obj_pattern = r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}'
+    match = re.search(json_obj_pattern, text, re.DOTALL)
+    if match:
+        json_text = match.group(0).strip()
+        try:
+            json.loads(json_text)
+            return json_text
+        except json.JSONDecodeError:
+            pass
+    
+    return None
+
+
+def create_json_extraction_callback(
+    fallback_wrapper: Optional[Callable[[str], Dict[str, Any]]] = None
+) -> Callable[[CallbackContext, LlmResponse], Optional[LlmResponse]]:
+    """
+    Create an after_model_callback that extracts JSON from markdown code blocks.
+    
+    Args:
+        fallback_wrapper: Optional function to wrap plain text into JSON dict if JSON extraction fails.
+                         Should take text as input and return a dict.
+    
+    Returns:
+        Callback function for after_model_callback
+    """
+    def after_model_callback(
+        callback_context: CallbackContext, llm_response: LlmResponse
+    ) -> Optional[LlmResponse]:
+        """
+        Callback to extract JSON from markdown response or wrap plain text into JSON.
+        
+        Args:
+            callback_context: Contains state and context information
+            llm_response: The LLM response received
+            
+        Returns:
+            Optional LlmResponse with JSON-formatted text if transformation was needed
+        """
+        # Skip if response is empty
+        if not llm_response or not llm_response.content or not llm_response.content.parts:
+            return None
+        
+        # Extract text from response
+        response_text = ""
+        for part in llm_response.content.parts:
+            if hasattr(part, "text") and part.text:
+                response_text += part.text
+        
+        if not response_text:
+            return None
+        
+        # Check if response is already valid JSON
+        try:
+            json.loads(response_text.strip())
+            # Already valid JSON, no transformation needed
+            return None
+        except json.JSONDecodeError:
+            pass
+        
+        # Try to extract JSON from markdown
+        extracted_json = extract_json_from_markdown(response_text)
+        if extracted_json:
+            # Found valid JSON in markdown, use it
+            json_response = extracted_json
+        elif fallback_wrapper:
+            # No JSON found, use fallback wrapper to create JSON from plain text
+            wrapped_dict = fallback_wrapper(response_text)
+            json_response = json.dumps(wrapped_dict, ensure_ascii=False)
+        else:
+            # No JSON and no fallback, return None (no transformation)
+            return None
+        
+        # Create modified response
+        modified_parts = [copy.deepcopy(part) for part in llm_response.content.parts]
+        for i, part in enumerate(modified_parts):
+            if hasattr(part, "text") and part.text:
+                modified_parts[i].text = json_response
+                break
+        
+        return LlmResponse(content=types.Content(role="model", parts=modified_parts))
+    
+    return after_model_callback
 
 
 async def get_agent_state(

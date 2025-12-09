@@ -1,12 +1,14 @@
 """
 Guidance Agent for Writing Practice
 """
-from google.adk.agents import Agent
+from google.adk.agents import LlmAgent
+
+from ...schemas import ChatAgentResponse
 
 
-guidance_agent = Agent(
+guidance_agent = LlmAgent(
     name="guidance",
-    model="gemini-2.0-flash",
+    model="gemini-2.5-flash-lite",
     description="Provide guidance when the learner is unsure, off-topic, or needs help",
     instruction="""
     You are an AI tutor for the writing practice flow. You MUST respond in Vietnamese.
@@ -52,7 +54,17 @@ guidance_agent = Agent(
     - Mention the 'Bỏ qua' button when learner wants to skip or expresses difficulty.
     - Never provide the translation or hints directly; just guide them.
     - If asked "bạn là ai?" or similar questions, redirect: "Tôi là AI hỗ trợ bạn luyện dịch tiếng Anh. Hãy dịch câu tiếng Việt hiện tại sang tiếng Anh nhé!"
+    
+    OUTPUT FORMAT:
+    You MUST respond with ONLY a raw JSON object. NO markdown code blocks, NO explanations, NO plain text.
+    {{"response_text": "Your Vietnamese guidance response here"}}
+    
+    CRITICAL: 
+    - Output ONLY the JSON object, nothing else.
+    - Do NOT wrap it in ```json or ``` markdown code blocks.
     """,
+    output_schema=ChatAgentResponse,
+    output_key="chat_response",
     disallow_transfer_to_parent=True,
     disallow_transfer_to_peers=True
 )
