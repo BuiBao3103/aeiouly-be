@@ -6,7 +6,7 @@ from google.adk.agents.callback_context import CallbackContext
 from typing import Optional
 from google.genai import types
 from src.constants.cefr import get_cefr_definitions_string
-from ...schemas import VietnameseTextResult
+from src.writing.agents.schemas import VietnameseTextResult
 
 
 def after_text_generator_callback(callback_context: CallbackContext) -> Optional[types.Content]:

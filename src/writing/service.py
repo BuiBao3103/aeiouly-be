@@ -22,14 +22,18 @@ from datetime import datetime
 import json
 from src.config import get_database_url
 from src.database import SessionLocal
-from src.utils.agent_utils import call_agent_with_logging, build_agent_query, get_agent_state
+from src.utils.agent_utils import call_agent_with_logging, build_agent_query, get_agent_state, update_session_state
 import logging
 import random
 from fastapi import HTTPException
 
+from src.writing.agents.chat_agent.agent import chat_agent
+from src.writing.agents.hint_provider_agent.agent import hint_provider_agent
+from src.writing.agents.final_evaluator_agent.agent import final_evaluator_agent
+from src.writing.agents.text_generator_agent.agent import text_generator_agent
 # Constants
 SESSION_NOT_FOUND_MSG = "Không tìm thấy phiên luyện viết"
-
+APP_NAME = "WritingPractice"
 # Logger for writing service
 logger = logging.getLogger(__name__)
 
@@ -40,12 +44,26 @@ class WritingService:
         self.session_service = DatabaseSessionService(
             db_url=get_database_url())
 
-        # Initialize runner with writing_practice (coordinator)
-        # Local import to avoid circular dependency
-        from src.writing.writing_practice_agent.agent import writing_practice
-        self.runner = Runner(
-            agent=writing_practice,
-            app_name="WritingPractice",
+        # Initialize runners for each agent
+        # chat_agent handles chat_input and skip_button
+        self.chat_runner = Runner(
+            agent=chat_agent,
+            app_name=APP_NAME,
+            session_service=self.session_service
+        )
+        self.text_generator_runner = Runner(
+            agent=text_generator_agent,
+            app_name=APP_NAME,
+            session_service=self.session_service
+        )
+        self.hint_provider_runner = Runner(
+            agent=hint_provider_agent,
+            app_name=APP_NAME,
+            session_service=self.session_service
+        )
+        self.final_evaluator_runner = Runner(
+            agent=final_evaluator_agent,
+            app_name=APP_NAME,
             session_service=self.session_service
         )
 
@@ -148,7 +166,7 @@ class WritingService:
             # Initialize agent session
             # Note: vietnamese_sentences will be created by agent's output_key when it runs
             await self.session_service.create_session(
-                app_name="WritingPractice",
+                app_name=APP_NAME,
                 user_id=str(user_id),
                 session_id=str(db_session.id),
                 state={
@@ -176,19 +194,19 @@ class WritingService:
                 # The structured output (dict) is automatically stored in state by ADK via output_key
                 # We don't need the response text, only the structured output in state
                 await call_agent_with_logging(
-                    runner=self.runner,
+                    runner=self.text_generator_runner,
                     user_id=str(user_id),
                     session_id=str(db_session.id),
                     query=query,
                     logger=logger,
-                    agent_name="writing_practice"
+                    agent_name=text_generator_agent.name
                 )
 
                 # Get structured output from agent session state (ADK stores it automatically)
                 # Note: We read from state, NOT from response_text (which is just a string)
                 try:
                     agent_session = await self.session_service.get_session(
-                        app_name="WritingPractice",
+                        app_name=APP_NAME,
                         user_id=str(user_id),
                         session_id=str(db_session.id)
                     )
@@ -286,7 +304,7 @@ class WritingService:
         # Get data from session state if available, otherwise use fallback
         try:
             agent_session = await self.session_service.get_session(
-                app_name="WritingPractice",
+                app_name=APP_NAME,
                 user_id=str(user_id),
                 session_id=str(session_id)
             )
@@ -426,9 +444,9 @@ class WritingService:
             # If it's a translation, it will route to translation_evaluator_agent
             # If it's a question, it will route to guidance_agent
 
-            # Get agent response with logging (writing_practice will route appropriately)
+            # Get agent response with logging (chat_agent will route to translation_evaluator or guidance)
             await call_agent_with_logging(
-                runner=self.runner,
+                runner=self.chat_runner,
                 user_id=str(user_id),
                 session_id=str(session_id),
                 query=build_agent_query(
@@ -436,26 +454,30 @@ class WritingService:
                     message=message_data.content
                 ),
                 logger=logger,
-                agent_name="writing_practice"
+                agent_name=chat_agent.name
             )
-            
+
             # Get response from state (using chat_response key)
             state = await get_agent_state(
                 session_service=self.session_service,
-                app_name="WritingPractice",
+                app_name=APP_NAME,
                 user_id=str(user_id),
                 session_id=str(session_id),
             )
-            
-            chat_response_data = state.get("chat_response", {}) if isinstance(state, dict) else {}
-            
+
+            chat_response_data = state.get(
+                "chat_response", {}) if isinstance(state, dict) else {}
+
             if not isinstance(chat_response_data, dict):
-                raise HTTPException(status_code=500, detail="Agent không trả về dữ liệu hợp lệ")
-            
-            agent_response = (chat_response_data.get("response_text") or "").strip()
+                raise HTTPException(
+                    status_code=500, detail="Agent không trả về dữ liệu hợp lệ")
+
+            agent_response = (chat_response_data.get(
+                "response_text") or "").strip()
             if not agent_response:
-                raise HTTPException(status_code=500, detail="Agent không tạo được phản hồi")
-            
+                raise HTTPException(
+                    status_code=500, detail="Agent không tạo được phản hồi")
+
             db.refresh(session)
             # Save agent response
             agent_message = WritingChatMessage(
@@ -530,7 +552,7 @@ class WritingService:
 
             # Get agent session (should already exist)
             agent_session = await self.session_service.get_session(
-                app_name="WritingPractice",
+                app_name=APP_NAME,
                 user_id=str(user_id),
                 session_id=str(session_id)
             )
@@ -565,18 +587,15 @@ class WritingService:
                     sentence_index=current_sentence_index
                 )
 
-            # Get hint from writing_practice (will call hint_provider tool)
-            # Using trigger phrase that matches writing_practice instruction
-            query = build_agent_query(source="hint_button", message="")
-
+            # Get hint directly from hint_provider_agent
             try:
                 hint_response = await call_agent_with_logging(
-                    runner=self.runner,
+                    runner=self.hint_provider_runner,
                     user_id=str(user_id),
                     session_id=str(session_id),
-                    query=query,
+                    query=build_agent_query(source="hint_button", message=""),
                     logger=logger,
-                    agent_name="writing_practice"
+                    agent_name=hint_provider_agent.name
                 )
             except Exception as agent_error:
                 logger.error(f"Error calling hint agent: {agent_error}")
@@ -588,7 +607,7 @@ class WritingService:
             # The after_agent_callback automatically saves it to hint_history
             try:
                 agent_session_after = await self.session_service.get_session(
-                    app_name="WritingPractice",
+                    app_name=APP_NAME,
                     user_id=str(user_id),
                     session_id=str(session_id)
                 )
@@ -657,25 +676,24 @@ class WritingService:
                 raise HTTPException(
                     status_code=404, detail=SESSION_NOT_FOUND_MSG)
 
-            # Get final evaluation from writing_practice (will call final_evaluator tool)
-            # Using trigger phrase that matches writing_practice instruction
+            # Get final evaluation directly from final_evaluator_agent
             evaluation_response = await call_agent_with_logging(
-                runner=self.runner,
+                runner=self.final_evaluator_runner,
                 user_id=str(user_id),
                 session_id=str(session_id),
                 query=build_agent_query(
                     source="final_evaluation_button", message=""),
                 logger=logger,
-                agent_name="writing_practice"
+                agent_name=final_evaluator_agent.name
             )
 
             # Get structured output from agent session state
             try:
                 # Get the structured output from the agent's session state
                 agent_session = await self.session_service.get_session(
-                    app_name="WritingPractice",
+                    app_name=APP_NAME,
                     user_id=str(user_id),
-                    session_id=str(session_id)
+                    session_id=str(session_id)  
                 )
 
                 # Extract structured evaluation from session state
@@ -770,7 +788,7 @@ class WritingService:
         return None
 
     async def skip_current_sentence(self, session_id: int, user_id: int, db: Session) -> ChatMessageResponse:
-        """Skip current sentence via agent tool and return a chat-style assistant response."""
+        """Skip current sentence and move to next one, updating state directly."""
         try:
             session = db.query(WritingSession).filter(
                 WritingSession.id == session_id,
@@ -785,51 +803,123 @@ class WritingService:
                 raise HTTPException(
                     status_code=400, detail="Phiên luyện viết đã hoàn thành")
 
-            try:
-                await call_agent_with_logging(
-                    runner=self.runner,
+            # Get current state
+            agent_session = await self.session_service.get_session(
+                app_name=APP_NAME,
+                user_id=str(user_id),
+                session_id=str(session_id)
+            )
+            state = agent_session.state or {}
+            
+            current_index = state.get("current_sentence_index", session.current_sentence_index)
+            total_sentences = state.get("total_sentences", session.total_sentences)
+            vietnamese_sentences_data = state.get("vietnamese_sentences", {})
+            
+            # Check if this is the last sentence
+            if current_index >= total_sentences - 1:
+                # Session complete
+                next_index = total_sentences
+                message = "Đã bỏ qua câu cuối cùng. Phiên học kết thúc! Bạn có thể xem phần đánh giá tổng kết khi sẵn sàng."
+                
+                # Update state
+                state["current_sentence_index"] = total_sentences
+                state["current_vietnamese_sentence"] = "Tất cả các câu đã được dịch xong. Phiên học hoàn thành!"
+                
+                # Update database
+                session.current_sentence_index = total_sentences
+                session.status = SessionStatus.COMPLETED
+                db.commit()
+                
+                # Update agent state
+                await update_session_state(
+                    session_service=self.session_service,
+                    app_name=APP_NAME,
                     user_id=str(user_id),
                     session_id=str(session_id),
-                    query=build_agent_query(source="skip_button", message=""),
-                    logger=logger,
-                    agent_name="writing_practice",
+                    state_delta={
+                        "current_sentence_index": total_sentences,
+                        "current_vietnamese_sentence": "Tất cả các câu đã được dịch xong. Phiên học hoàn thành!"
+                    },
+                    author="system",
+                    invocation_id_prefix="skip_sentence",
+                    logger=logger
                 )
-            except Exception as agent_error:
-                logger.error("Agent skip error: %s",
-                             agent_error, exc_info=True)
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Lỗi khi bỏ qua câu qua agent: {agent_error}"
+            else:
+                # Move to next sentence
+                next_index = current_index + 1
+                
+                # Get next sentence
+                sentences = vietnamese_sentences_data.get("sentences", []) if isinstance(vietnamese_sentences_data, dict) else []
+                if not sentences:
+                    # Fallback to database
+                    sentences = self._parse_sentences_from_db(session.vietnamese_sentences)
+                
+                next_sentence = sentences[next_index] if next_index < len(sentences) else None
+                
+                # Generate translation request message
+                if next_sentence:
+                    templates = [
+                        f"Hãy dịch câu sau: \"{next_sentence}\"",
+                        f"Dịch câu này sang tiếng Anh: \"{next_sentence}\"",
+                        f"Hãy thử dịch câu: \"{next_sentence}\"",
+                        f"Câu tiếp theo cần dịch là: \"{next_sentence}\"",
+                        f"Hãy dịch câu \"{next_sentence}\" sang tiếng Anh nhé!",
+                        f"Dịch câu này: \"{next_sentence}\"",
+                        f"Hãy dịch câu \"{next_sentence}\"",
+                        f"Dịch câu sau sang tiếng Anh: \"{next_sentence}\"",
+                        f"Câu tiếp theo: \"{next_sentence}\". Hãy dịch nó nhé!",
+                    ]
+                    message = random.choice(templates)
+                else:
+                    message = "Hãy dịch câu tiếp theo."
+                
+                # Update database
+                session.current_sentence_index = next_index
+                db.commit()
+                
+                # Update agent state
+                state_delta = {
+                    "current_sentence_index": next_index
+                }
+                if next_sentence:
+                    state_delta["current_vietnamese_sentence"] = next_sentence
+                
+                await update_session_state(
+                    session_service=self.session_service,
+                    app_name=APP_NAME,
+                    user_id=str(user_id),
+                    session_id=str(session_id),
+                    state_delta=state_delta,
+                    author="system",
+                    invocation_id_prefix="skip_sentence",
+                    logger=logger
                 )
-
-            # Message is already created by agent tool, just get the latest message
-            db.refresh(session)
-
-            # Get the latest assistant message created by tool
-            latest_message = db.query(WritingChatMessage).filter(
-                WritingChatMessage.session_id == session_id,
-                WritingChatMessage.role == "assistant"
-            ).order_by(WritingChatMessage.created_at.desc()).first()
-
-            if not latest_message:
-                raise HTTPException(
-                    status_code=500,
-                    detail="Không tìm thấy message được tạo bởi agent tool"
-                )
+            
+            # Create assistant message
+            assistant_message = WritingChatMessage(
+                session_id=session_id,
+                role="assistant",
+                content=message,
+                sentence_index=next_index
+            )
+            db.add(assistant_message)
+            db.commit()
+            db.refresh(assistant_message)
 
             return ChatMessageResponse(
-                id=latest_message.id,
-                session_id=latest_message.session_id,
-                role=latest_message.role,
-                content=latest_message.content,
-                sentence_index=latest_message.sentence_index,
+                id=assistant_message.id,
+                session_id=assistant_message.session_id,
+                role=assistant_message.role,
+                content=assistant_message.content,
+                sentence_index=assistant_message.sentence_index,
                 status=session.status,
-                created_at=latest_message.created_at
+                created_at=assistant_message.created_at
             )
 
         except HTTPException:
             raise
         except Exception as e:
             db.rollback()
+            logger.error(f"Error skipping sentence: {e}", exc_info=True)
             raise HTTPException(
                 status_code=500, detail=f"Lỗi khi bỏ qua câu: {str(e)}")

@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 from typing import Optional
 from google.genai import types
 from src.constants.cefr import get_cefr_definitions_string
-from ...schemas import HintResult
+from src.writing.agents.schemas import HintResult
 
 
 

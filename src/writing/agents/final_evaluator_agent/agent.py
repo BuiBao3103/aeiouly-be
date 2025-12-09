@@ -3,14 +3,14 @@ Final Evaluator Agent for Writing Practice
 """
 from google.adk.agents import LlmAgent
 from src.constants.cefr import get_cefr_definitions_string
-from ...schemas import FinalEvaluationResult
+from src.writing.agents.schemas import FinalEvaluationResult
 
 
 
 
 final_evaluator_agent = LlmAgent(
     name="final_evaluator",
-    model="gemini-2.5-pro",
+    model="gemini-2.5-flash",
     description="Generate final evaluation summary for writing practice session based on evaluation_history",
     instruction=f"""
     You are the AI Final Evaluator for a writing practice session.

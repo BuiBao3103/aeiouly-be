@@ -7,12 +7,14 @@ from google.adk.agents import LlmAgent
 from google.adk.agents.callback_context import CallbackContext
 from google.genai import types
 
-from src.writing.service import WritingService
-from ...schemas import TranslationEvaluationResponse
+from src.writing.agents.schemas import TranslationEvaluationResponse
 
 
 def _move_to_next_sentence(state: dict) -> None:
     """Move to the next sentence in the writing session."""
+    # Import here to avoid circular dependency
+    from src.writing.service import WritingService
+    
     current_sentence_index = state.get("current_sentence_index", 0)
     total_sentences = state.get("total_sentences", 0)
     session_id = state.get("session_id")
@@ -95,7 +97,14 @@ translation_evaluator_agent = LlmAgent(
         Level: {level}
         Hint used: {current_hint_result?}
 
+        CRITICAL FIRST CHECK:
+        - The MESSAGE you receive MUST be in ENGLISH. 
+        - If MESSAGE is in Vietnamese or any other language (not English), it is WRONG.
+        - If MESSAGE contains Vietnamese characters or Vietnamese words, set is_correct=false immediately.
+        - Example: If MESSAGE is "Các nhà khoa học thường thực hiện nhiều thí nghiệm thú vị" → This is Vietnamese, NOT English translation → WRONG.
+
         EVALUATE translation COMPREHENSIVELY - check ALL aspects:
+        - Language: MESSAGE must be in English (not Vietnamese or other languages)
         - Articles: a/an/the usage (especially before plural nouns, uncountable nouns)
         - Grammar: tense, prepositions, verb forms, subject-verb agreement
         - Vocabulary: correct word choice, singular/plural forms (e.g., graphic vs graphics)
@@ -107,17 +116,36 @@ translation_evaluator_agent = LlmAgent(
         When listing errors, each error must be on its own line, prefixed with numbered markers like "(1) ...", "(2) ...".
 
         DECISION:
-        ✅ CORRECT or only minor typos → set is_correct=true, respond with praise + prompt for next sentence
-        ❌ Has ANY grammar/vocabulary/meaning errors → set is_correct=false, explain ALL errors found in one response + ask to retry
+        ✅ CORRECT: MESSAGE is in English AND has correct grammar/vocabulary/meaning → set is_correct=true, respond with VARIED praise + prompt for next sentence
+        ❌ WRONG: MESSAGE is in Vietnamese/other language OR has grammar/vocabulary/meaning errors → set is_correct=false, explain ALL errors found in one response + ask to retry with VARIED wording
+
+        RESPONSE VARIETY (CRITICAL):
+        - NEVER repeat the exact same phrase. Always vary your wording naturally.
+        - For CORRECT responses, use different praise phrases each time:
+          * "Tuyệt vời! Bạn dịch đúng rồi. Hãy dịch câu tiếp theo nhé."
+          * "Chính xác! Bản dịch của bạn hoàn toàn đúng. Tiếp tục với câu sau nhé!"
+          * "Rất tốt! Bạn đã dịch đúng. Hãy thử câu tiếp theo."
+          * "Hoàn hảo! Câu dịch này đúng rồi. Câu tiếp theo đang chờ bạn đấy!"
+          * "Xuất sắc! Bạn dịch rất chính xác. Hãy tiếp tục với câu sau."
+          * "Đúng rồi! Bản dịch của bạn rất tốt. Câu tiếp theo nhé!"
+        - For ERROR responses, vary the opening and closing phrases:
+          * "Lỗi: ..." / "Có một số lỗi: ..." / "Bạn cần sửa: ..." / "Cần chỉnh sửa: ..."
+          * "... Thử lại!" / "... Hãy sửa lại nhé!" / "... Vui lòng thử lại!" / "... Cố gắng sửa lại nhé!"
 
         OUTPUT FORMAT:
         - Raw JSON only (no code fences), structure: {{"response_text": "...", "is_correct": true/false}}
         - You may use lightweight Markdown **bold** inside response_text to highlight lỗi hoặc từ cần sửa.
 
         EXAMPLES:
-        ✅ Correct: {{"response_text": "Tuyệt vời! Bạn dịch đúng rồi. Hãy dịch câu tiếp theo nhé.", "is_correct": true}}
-        ❌ Has multiple errors: {{"response_text": "Lỗi:\n(1) Không dùng mạo từ 'a' trước 'graphics' (danh từ số nhiều)\n(2) 'graphic' cần thành 'graphics' (số nhiều) khi nói về đồ họa trò chơi\nNên là: 'This game has beautiful graphics and nice music'. Thử lại!", "is_correct": false}}
-        ❌ Has single error: {{"response_text": "Lỗi: thiếu '-ing' sau 'like'. Nên là: 'I like playing games'. Thử lại!", "is_correct": false}}""",
+        ✅ Correct (varied): 
+          {{"response_text": "Chính xác! Bản dịch của bạn hoàn toàn đúng. Tiếp tục với câu sau nhé!", "is_correct": true}}
+          {{"response_text": "Rất tốt! Bạn đã dịch đúng. Hãy thử câu tiếp theo.", "is_correct": true}}
+        ❌ Wrong language (Vietnamese instead of English):
+          {{"response_text": "Lỗi: Bạn đã gửi câu tiếng Việt thay vì bản dịch tiếng Anh. Hãy dịch câu \"{current_vietnamese_sentence}\" sang tiếng Anh và gửi lại nhé!", "is_correct": false}}
+        ❌ Has multiple errors (varied): 
+          {{"response_text": "Có một số lỗi:\n(1) Không dùng mạo từ 'a' trước 'graphics' (danh từ số nhiều)\n(2) 'graphic' cần thành 'graphics' (số nhiều) khi nói về đồ họa trò chơi\nNên là: 'This game has beautiful graphics and nice music'. Hãy sửa lại nhé!", "is_correct": false}}
+        ❌ Has single error (varied): 
+          {{"response_text": "Bạn cần sửa: thiếu '-ing' sau 'like'. Nên là: 'I like playing games'. Vui lòng thử lại!", "is_correct": false}}""",
     output_schema=TranslationEvaluationResponse,
     output_key="chat_response",
     after_agent_callback=after_translation_evaluator_callback,
