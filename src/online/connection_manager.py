@@ -3,8 +3,9 @@ import asyncio
 
 from fastapi import WebSocket
 from sqlalchemy.orm import Session
-
+from datetime import datetime
 from src.users.models import User
+from src.online.models import LoginStreakDaily
 
 
 class ConnectionManager:
@@ -32,10 +33,9 @@ class ConnectionManager:
         if was_empty:
             # First connection for this user → set online status
             await self._set_user_online_status(user_id, True, db)
-            # Kiểm tra và cập nhật streak đăng nhập hằng ngày
-            needs_timer = await self._check_and_update_daily_streak(user_id, db)
-            # Nếu cần timer 5 phút → bắt đầu timer
-            if needs_timer:
+            
+            # Nếu hôm nay chưa có streak → bắt đầu timer
+            if not await self._check_today_has_streak(user_id, db):
                 await self._start_streak_timer(user_id)
 
     async def disconnect(self, websocket: WebSocket, db: Session) -> None:
@@ -79,18 +79,16 @@ class ConnectionManager:
             print(f"Error setting online status for user {user_id}: {e}")
             db.rollback()
 
-    async def _check_and_update_daily_streak(self, user_id: int, db: Session) -> bool:
+    async def _check_today_has_streak(self, user_id: int, db: Session) -> bool:
         """Kiểm tra và cập nhật streak đăng nhập hằng ngày khi user kết nối socket.
         
         Returns:
             bool: True nếu cần timer 5 phút, False nếu không cần
         """
         try:
-            from src.online.service import LoginStreakService  # local import to avoid cycles
-
-            streak_service = LoginStreakService()
-            _, needs_timer = await streak_service.check_and_update_daily_streak(user_id, db)
-            return needs_timer
+            daily_record = db.query(LoginStreakDaily).filter(LoginStreakDaily.user_id == user_id, LoginStreakDaily.date == datetime.now().date()).first()
+           
+            return daily_record is not None
         except Exception as e:  # pragma: no cover - just logging
             print(f"Error checking daily streak for user {user_id}: {e}")
             db.rollback()
@@ -108,7 +106,7 @@ class ConnectionManager:
             db_new = next(get_db())
             try:
                 # Đợi 5 phút
-                await asyncio.sleep(10)
+                await asyncio.sleep(20)
                 # Nếu user vẫn còn online thì tăng streak + gửi thông báo
                 if user_id not in self.user_connections:
                     return

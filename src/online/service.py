@@ -18,37 +18,15 @@ class LoginStreakService:
     - Mỗi ngày chỉ được tính 1 lần đăng nhập
     """
 
-    async def check_and_update_daily_streak(self, user_id: int, db: Session) -> tuple[LoginStreak, bool]:
+    def update_daily_streak(self, user_id: int, db: Session) -> None:
         """Kiểm tra và cập nhật streak đăng nhập hằng ngày.
         
         Logic:
         - Kiểm tra hôm qua có streak không
         - Nếu hôm qua không có streak → reset streak về 0
-        - Nếu hôm nay chưa có streak → cần timer 5 phút (MỖI NGÀY đều phải online 5 phút mới tính streak)
         - Mỗi ngày chỉ được tính 1 lần streak
-        
-        Returns:
-            (streak, needs_timer): streak object và boolean cho biết có cần timer 5 phút không
         """
-        today = date.today()
-        yesterday = today - timedelta(days=1)
-
-        # Tối ưu: Query cả yesterday và today records trong 1 lần
-        daily_records = (
-            db.query(LoginStreakDaily)
-            .filter(
-                and_(
-                    LoginStreakDaily.user_id == user_id,
-                    LoginStreakDaily.date.in_([yesterday, today])
-                )
-            )
-            .all()
-        )
-
-        # Tách ra yesterday và today records
-        yesterday_record = next((r for r in daily_records if r.date == yesterday), None)
-        today_record = next((r for r in daily_records if r.date == today), None)
-
+    
         # Lấy hoặc tạo streak record (dùng get_or_create pattern)
         streak = db.query(LoginStreak).filter(LoginStreak.user_id == user_id).first()
         
@@ -59,18 +37,29 @@ class LoginStreakService:
                 longest_streak=0,
             )
             db.add(streak)
-            db.flush()  # Flush để có streak.id
+            db.flush()
+        else:
+            today = date.today()
+            yesterday = today - timedelta(days=1)
 
-        # Nếu hôm qua không có streak → reset streak về 0
-        if not yesterday_record:
-            streak.current_streak = 0
+            # Query yesterday record
+            daily_records = (
+                db.query(LoginStreakDaily)
+                .filter(
+                    and_(
+                        LoginStreakDaily.user_id == user_id,
+                        LoginStreakDaily.date.in_([today, yesterday])
+                    )
+                )
+                .all()
+            )
+            yesterday_record = next((r for r in daily_records if r.date == yesterday), None)
+            today_record = next((r for r in daily_records if r.date == today), None)
+            if not today_record and not yesterday_record:
+                streak.current_streak = 0
 
-        # Nếu hôm nay chưa có streak → cần timer 5 phút (MỖI NGÀY đều phải online 5 phút)
-        needs_timer = not today_record
-
-        db.commit()
-        db.refresh(streak)
-        return streak, needs_timer
+            db.commit()
+            db.refresh(streak)
 
     async def increment_streak_after_timer(self, user_id: int, db: Session) -> LoginStreak:
         """Tăng streak sau khi timer 5 phút hoàn thành.
@@ -78,79 +67,35 @@ class LoginStreakService:
         Chỉ được gọi khi:
         - Hôm nay chưa có streak
         - User đã online đủ 5 phút
+        - Việc kiểm tra và reset streak về 0 (nếu hôm qua không có streak) đã được xử lý ở chỗ khác
         
         Logic:
-        - Nếu hôm qua không có streak → streak = 1 (bắt đầu lại)
-        - Nếu hôm qua có streak → streak += 1 (tiếp tục)
+        - Tăng current_streak lên 1
+        - Tạo daily record mới cho hôm nay
+        - Cập nhật longest_streak nếu cần
         """
+        print(f"Incrementing streak for user {user_id}")
         today = date.today()
-        yesterday = today - timedelta(days=1)
         
-        # Kiểm tra lại hôm nay đã có streak chưa (tránh race condition)
-        today_record = (
-            db.query(LoginStreakDaily)
-            .filter(
-                and_(
-                    LoginStreakDaily.user_id == user_id,
-                    LoginStreakDaily.date == today
-                )
-            )
-            .first()
-        )
-        
-        # Nếu đã có record rồi thì không làm gì (có thể đã được tạo bởi request khác)
-        if today_record:
-            streak = db.query(LoginStreak).filter(LoginStreak.user_id == user_id).first()
-            if streak:
-                db.refresh(streak)
-                return streak
-            # Nếu có today_record nhưng không có streak record → tạo mới (edge case)
-            streak = LoginStreak(
-                user_id=user_id,
-                current_streak=1,
-                longest_streak=1,
-            )
-            db.add(streak)
-            db.commit()
-            db.refresh(streak)
-            return streak
-        
-        # Kiểm tra hôm qua có streak không
-        yesterday_record = (
-            db.query(LoginStreakDaily)
-            .filter(
-                and_(
-                    LoginStreakDaily.user_id == user_id,
-                    LoginStreakDaily.date == yesterday
-                )
-            )
-            .first()
-        )
-        
-        # Lấy streak record
+        # Lấy hoặc tạo streak record
         streak = db.query(LoginStreak).filter(LoginStreak.user_id == user_id).first()
         
         if not streak:
             # Tạo mới streak record
             streak = LoginStreak(
                 user_id=user_id,
-                current_streak=1,
-                longest_streak=1,
+                current_streak=0,
+                longest_streak=0,
             )
             db.add(streak)
             db.flush()  # Flush để có streak.id cho daily_record
-        else:
-            # Cập nhật current_streak dựa trên yesterday_record
-            if not yesterday_record:
-                # Hôm qua không có streak → reset về 1 (bắt đầu lại)
-                streak.current_streak = 1
-            else:
-                # Hôm qua có streak → tăng lên 1 (tiếp tục)
-                streak.current_streak += 1
-            
-            # Cập nhật longest streak nếu cần
-            if streak.current_streak > streak.longest_streak:
-                streak.longest_streak = streak.current_streak
+        
+        # Tăng current_streak lên 1
+        streak.current_streak += 1
+        
+        # Cập nhật longest_streak nếu cần
+        if streak.current_streak > streak.longest_streak:
+            streak.longest_streak = streak.current_streak
         
         # Tạo daily record cho hôm nay (record tồn tại = đã có streak)
         daily_record = LoginStreakDaily(
@@ -160,8 +105,7 @@ class LoginStreakService:
         )
         db.add(daily_record)
         
-        # Flush trước commit để đảm bảo tất cả thay đổi được lưu
-        db.flush()
+        # Commit tất cả thay đổi
         db.commit()
         db.refresh(streak)
         return streak
@@ -242,7 +186,7 @@ class LoginStreakService:
     async def get_weekly_streak_status(self, user_id: int, db: Session) -> Dict:
         """Get weekly streak status - danh sách các ngày trong tuần hiện tại (thứ 2 đến chủ nhật).
         
-        Tối ưu: Query streak và daily records trong 1 lần để giảm số queries.
+        Sử dụng update_daily_streak để kiểm tra và cập nhật streak.
         """
         today = date.today()
         # Tính ngày đầu tuần (thứ 2)
@@ -251,15 +195,15 @@ class LoginStreakService:
         # Ngày cuối tuần (chủ nhật)
         sunday = monday + timedelta(days=6)
 
-        # Tối ưu: Query cả streak và daily records cùng lúc
-        streak = (
-            db.query(LoginStreak)
-            .filter(LoginStreak.user_id == user_id)
-            .first()
-        )
+        # Sử dụng update_daily_streak để kiểm tra và cập nhật streak
+        self.update_daily_streak(user_id, db)
+        
+        # Lấy streak sau khi đã cập nhật
+        streak = db.query(LoginStreak).filter(LoginStreak.user_id == user_id).first()
         current_streak = streak.current_streak if streak else 0
 
-        # Query daily records trong tuần hiện tại (thứ 2 đến chủ nhật)
+        # Query daily records trong tuần hiện tại (thứ 2 đến chủ nhật) để thống kê
+        # Bao gồm cả hôm nay để kiểm tra today_has_streak
         daily_records = (
             db.query(LoginStreakDaily)
             .filter(
@@ -273,17 +217,15 @@ class LoginStreakService:
         )
 
         # Tạo dict để dễ lookup: ngày nào có streak
-        # Record tồn tại trong LoginStreakDaily = đã có streak (đã online 5 phút hoặc đã được tính streak)
         dates_with_streak = {
             record.date: True 
             for record in daily_records
         }
 
-        # Kiểm tra hôm nay đã có streak chưa
+        # Kiểm tra hôm nay có streak không
         today_has_streak = dates_with_streak.get(today, False)
 
         # Tạo danh sách 7 ngày trong tuần (thứ 2 đến chủ nhật)
-        # Tối ưu: Pre-generate dates list để tránh tính toán lặp lại
         weekly_days = []
         for i in range(7):
             current_date = monday + timedelta(days=i)
