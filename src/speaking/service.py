@@ -3,6 +3,7 @@ import os
 import tempfile
 import sys
 import asyncio
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from fastapi import UploadFile
 # Fix for Python 3.13+: ensure audioop-lts is used if available
 try:
@@ -57,6 +58,11 @@ import logging
 from fastapi import HTTPException
 from datetime import datetime
 from langdetect import detect, LangDetectException
+from src.speaking.agents.chat_agent.agent import chat_agent
+from src.speaking.agents.skip_response_agent.agent import skip_response_agent
+from src.speaking.agents.final_evaluator_agent.agent import final_evaluator_agent
+from src.speaking.agents.hint_provider_agent.agent import hint_provider_agent
+from src.speaking.agents.intro_message_agent.agent import intro_message_agent
 
 
 # Logger for speaking service
@@ -64,7 +70,7 @@ logger = logging.getLogger(__name__)
 
 # Constants
 SESSION_NOT_FOUND_MSG = "Không tìm thấy phiên luyện nói"
-
+APP_NAME = "SpeakingPractice"
 class SpeakingService:
     """Service for speaking practice and speech-to-text conversion"""
     
@@ -104,10 +110,30 @@ class SpeakingService:
         self.session_service = DatabaseSessionService(db_url=get_database_url())
         
         # Initialize runner with speaking_practice (coordinator)
-        from src.speaking.speaking_practice_agent.agent import speaking_practice
-        self.runner = Runner(
-            agent=speaking_practice,
-            app_name="SpeakingPractice",
+
+        self.chat_runner = Runner(
+            agent=chat_agent,
+            app_name=APP_NAME,
+            session_service=self.session_service
+        )
+        self.skip_response_runner = Runner(
+            agent=skip_response_agent,
+            app_name=APP_NAME,
+            session_service=self.session_service
+        )
+        self.final_evaluator_runner = Runner(
+            agent=final_evaluator_agent,
+            app_name=APP_NAME,
+            session_service=self.session_service
+        )
+        self.hint_provider_runner = Runner(
+            agent=hint_provider_agent,
+            app_name=APP_NAME,
+            session_service=self.session_service
+        )
+        self.intro_message_runner = Runner(
+            agent=intro_message_agent,
+            app_name=APP_NAME,
             session_service=self.session_service
         )
         try:
@@ -301,6 +327,7 @@ class SpeakingService:
             auto_detect: If True, automatically detects between English (en-US) and Vietnamese (vi-VN)
                 using Chirp 3's native auto-detection feature
         """
+        # Early validation - check before expensive operations
         if not self.client:
             logger.error("Google Cloud Speech client chưa được khởi tạo")
             raise SpeechToTextException("Google Cloud Speech client chưa được khởi tạo")
@@ -315,6 +342,10 @@ class SpeakingService:
         try:
             # Build config for v2 API with Chirp 3 model
             # Chirp 3 supports native auto-detect with language_codes=["auto"] or hint with specific languages
+            features = cloud_speech.RecognitionFeatures(
+                enable_automatic_punctuation=True,
+            )
+            
             if auto_detect:
                 # Use language hints ["en-US", "vi-VN"] to improve accuracy (better than ["auto"])
                 # Chirp 3 will automatically detect which language is being spoken
@@ -322,10 +353,7 @@ class SpeakingService:
                     auto_decoding_config=cloud_speech.AutoDetectDecodingConfig(),
                     language_codes=["en-US", "vi-VN"],  # Hint languages to improve accuracy
                     model=self.TARGET_MODEL,  # chirp_3
-                    features=cloud_speech.RecognitionFeatures(
-                        enable_automatic_punctuation=True,
-                        # Note: enable_denoiser not available in current SDK version
-                    )
+                    features=features,
                 )
             else:
                 # Use specified language code with explicit decoding
@@ -337,10 +365,7 @@ class SpeakingService:
                     ),
                     language_codes=[language_code],
                     model=self.TARGET_MODEL,  # chirp_3
-                    features=cloud_speech.RecognitionFeatures(
-                        enable_automatic_punctuation=True,
-                        # Note: enable_denoiser not available in current SDK version
-                    )
+                    features=features,
                 )
             
             # Create request for v2 API with regional recognizer path
@@ -351,54 +376,60 @@ class SpeakingService:
                 content=audio_data,
             )
             
-            # Perform speech recognition
-            response = self.client.recognize(request=request)
+            # Process recognition and upload in parallel if is_save=True
+            if is_save:
+                # Reset audio file pointer for upload (needed because _prepare_audio_data may have read it)
+                try:
+                    audio_file.file.seek(0)
+                except Exception:
+                    pass  # Will be handled in _upload_user_audio
+                
+                # Run recognition and upload in parallel
+                with ThreadPoolExecutor(max_workers=2) as executor:
+                    # Submit both tasks
+                    recognition_future = executor.submit(self.client.recognize, request)
+                    upload_future = executor.submit(self._upload_user_audio, audio_file)
+                    
+                    # Wait for recognition to complete first (needed for response)
+                    response = recognition_future.result()
+                    
+                    # Get upload result (may still be in progress)
+                    audio_url = upload_future.result()
+            else:
+                # Only perform speech recognition
+                response = self.client.recognize(request=request)
+                audio_url = None
             
-            # Extract text and detected language
-            transcribed_text = ""
+            # Extract text and detected language - optimize string concatenation
+            transcripts = []
             detected_language = None
             
             for result in response.results:
                 if not result.alternatives:
                     continue
                 top_alternative = result.alternatives[0]
-                transcript = top_alternative.transcript
-                transcribed_text += transcript + " "
+                transcripts.append(top_alternative.transcript)
                 
                 # In Chirp 3, language_code is returned in the result when using auto-detect
-                if auto_detect:
+                if auto_detect and detected_language is None:
                     result_language = getattr(result, "language_code", None)
                     if result_language:
                         detected_language = result_language
             
-            transcribed_text = transcribed_text.strip()
+            transcribed_text = " ".join(transcripts).strip()
             
             if not transcribed_text:
                 logger.error("No transcript found in API response")
                 raise SpeechToTextException("Không thể nhận dạng giọng nói từ file âm thanh")
 
-            # If auto_detect but no language_code in results, use langdetect as fallback
+            # Lazy language detection - only if auto_detect and not found in API response
             if auto_detect and not detected_language:
                 try:
                     lang_code = detect(transcribed_text)
-                    language_map = {
-                        "en": "en-US",
-                        "vi": "vi-VN",
-                    }
+                    language_map = {"en": "en-US", "vi": "vi-VN"}
                     detected_language = language_map.get(lang_code, "en-US")
                 except LangDetectException:
                     detected_language = "en-US"
-
-            # Upload audio if needed
-            audio_url = None
-            if is_save:
-                audio_url = self._upload_user_audio(audio_file)
-            
-            # Log final result only
-            logger.info(
-                f"Speech-to-text result: text='{transcribed_text[:100]}{'...' if len(transcribed_text) > 100 else ''}', "
-                f"detected_language={detected_language}, audio_url={'yes' if audio_url else 'no'}"
-            )
             
             return SpeechToTextResponse(
                 text=transcribed_text,
@@ -479,12 +510,12 @@ class SpeakingService:
             )
             
             await call_agent_with_logging(
-                runner=self.runner,
+                runner=self.intro_message_runner,
                 user_id=str(user_id),
                 session_id=str(db_session.id),
                 query=query,
                 logger=logger,
-                agent_name="speaking_practice"
+                agent_name=intro_message_agent.name
             )
             
             state = await get_agent_state(
@@ -663,14 +694,14 @@ class SpeakingService:
                 message=user_message_text
             )
             
-            # Get agent response with logging (speaking_practice will route appropriately)
+            # Get agent response with logging (chat_agent will route to conversation or guidance)
             await call_agent_with_logging(
-                runner=self.runner,
+                runner=self.chat_runner,
                 user_id=str(user_id),
                 session_id=str(session_id),
                 query=query,
                 logger=logger,
-                agent_name="speaking_practice"
+                agent_name=chat_agent.name
             )
             
             # Query state only once after agent call (reuse for all checks)
@@ -836,12 +867,12 @@ class SpeakingService:
             
             try:
                 hint_response = await call_agent_with_logging(
-                    runner=self.runner,
+                    runner=self.hint_provider_runner,
                     user_id=str(user_id),
                     session_id=str(session_id),
                     query=query,
                     logger=logger,
-                    agent_name="speaking_practice"
+                    agent_name=hint_provider_agent.name
                 )
             except Exception as agent_error:
                 logger.error(f"Error calling hint agent: {agent_error}")
@@ -911,12 +942,12 @@ class SpeakingService:
         
         try:
             await call_agent_with_logging(
-                runner=self.runner,
+                runner=self.skip_response_runner,
                 user_id=str(user_id),
                 session_id=str(session_id),
                 query=query,
                 logger=logger,
-                agent_name="speaking_practice"
+                agent_name=skip_response_agent.name
             )
         except Exception as agent_error:
             logger.error(f"Error calling skip agent: {agent_error}", exc_info=True)
@@ -1007,10 +1038,9 @@ class SpeakingService:
             session.status = "completed"
             db.commit()
             
-            # Get final evaluation from speaking_practice (will call final_evaluator tool)
-            # Using trigger phrase that matches speaking_practice instruction
+            # Get final evaluation directly from final_evaluator_agent
             evaluation_response = await call_agent_with_logging(
-                runner=self.runner,
+                runner=self.final_evaluator_runner,
                 user_id=str(user_id),
                 session_id=str(session_id),
                 query=build_agent_query(
@@ -1018,7 +1048,7 @@ class SpeakingService:
                     message="đánh giá cuối"
                 ),
                 logger=logger,
-                agent_name="speaking_practice"
+                agent_name=final_evaluator_agent.name
             )
             
             # Get structured output from agent session state

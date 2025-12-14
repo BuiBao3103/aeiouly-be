@@ -8,7 +8,7 @@ from google.adk.agents.callback_context import CallbackContext
 from google.genai import types
 from pydantic import BaseModel, Field
 
-from src.speaking.speaking_practice_agent.sub_agents.chat_agent.sub_agents.conversation_agent.agent import (
+from src.speaking.agents.chat_agent.sub_agents.conversation_agent.agent import (
     CHAT_RESPONSE_STATE_KEY,
     after_conversation_callback,
 )

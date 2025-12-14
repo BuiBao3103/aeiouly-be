@@ -3,12 +3,12 @@ Guidance Agent for Speaking Practice
 """
 from google.adk.agents import LlmAgent
 
-from ...schemas import ChatAgentResponse, CHAT_RESPONSE_STATE_KEY
+from src.speaking.agents.schemas import ChatAgentResponse
 
 
 guidance_agent = LlmAgent(
     name="guidance",
-    model="gemini-2.0-flash",
+    model="gemini-2.5-flash-lite",
     description="Provide guidance when the learner is unsure, off-topic, or needs help in speaking practice",
     instruction="""
     You are an AI tutor for speaking practice. Respond ONLY in Vietnamese, briefly and friendly.
@@ -44,11 +44,10 @@ guidance_agent = LlmAgent(
     OUTPUT: JSON only:
     {
         "response_text": "Câu trả lời bằng tiếng Việt",
-        "translation_sentence": null
     }
     """,
     output_schema=ChatAgentResponse,
-    output_key=CHAT_RESPONSE_STATE_KEY,
+    output_key="chat_response",
     disallow_transfer_to_parent=True,
     disallow_transfer_to_peers=True,
 )
