@@ -15,6 +15,7 @@ from src.online.router import router as online_router
 from src.dictionary.router import router as dictionary_router
 from src.posts.router import router as posts_router
 from src.auth.router import router as auth_router
+from src.chatbot.router import router as chatbot_router
 from src.config import settings
 from fastapi import FastAPI, APIRouter, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -91,6 +92,7 @@ app.include_router(vocabulary_router, prefix=settings.API_V1_STR)
 app.include_router(solo_study_router, prefix=settings.API_V1_STR)
 app.include_router(posts_router, prefix=settings.API_V1_STR)
 app.include_router(online_router, prefix=settings.API_V1_STR)
+app.include_router(chatbot_router, prefix=settings.API_V1_STR)
 
 # WebSocket endpoint (documentation in websocket_endpoint docstring)
 app.websocket("/online/ws")(websocket_endpoint)
