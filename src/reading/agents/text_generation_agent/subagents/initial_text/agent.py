@@ -1,12 +1,17 @@
-from google.adk.agents import LlmAgent
+"""
+Initial Text Generator Agent
+
+This agent generates the initial reading text before refinement.
+"""
+
+from google.adk.agents.llm_agent import LlmAgent
 from google.adk.agents.callback_context import CallbackContext
 from pydantic import BaseModel, Field
-from typing import Dict, Any, Optional
-from src.constants.cefr import CEFRLevel, get_cefr_definitions_string
-from src.reading.models import ReadingGenre
+from typing import Optional
+from src.constants.cefr import get_cefr_definitions_string
 
-# Use CEFRLevel from constants
-ReadingLevel = CEFRLevel
+# Constants
+GEMINI_MODEL = "gemini-2.5-flash"
 
 
 class TextGenerationResult(BaseModel):
@@ -14,8 +19,8 @@ class TextGenerationResult(BaseModel):
     content: str = Field(..., description="Generated reading text content")
 
 
-def create_cefr_instruction() -> str:
-    """Create instruction with dynamic CEFR level information"""
+def create_generator_instruction() -> str:
+    """Create instruction for initial text generator"""
     instruction = """
     Bạn là AI chuyên tạo bài đọc tiếng Anh cho việc luyện tập theo thang CEFR (A1-C2).
     
@@ -28,7 +33,7 @@ def create_cefr_instruction() -> str:
     NHIỆM VỤ:
     - Tạo bài đọc tiếng Anh phù hợp với level được yêu cầu
     - Đảm bảo nội dung phù hợp với genre và topic
-    - Kiểm soát độ dài theo word_count yêu cầu (xấp xỉ ±10%)
+    - Cố gắng đạt độ dài gần với target_word_count (sẽ được kiểm tra và tinh chỉnh sau)
     - Sử dụng từ vựng và ngữ pháp phù hợp với level
     
     """
@@ -47,47 +52,35 @@ def create_cefr_instruction() -> str:
     - Bài mạng xã hội: Phong cách informal, hashtag
     - Hướng dẫn sử dụng: Các bước, lưu ý, cách làm
     
-    QUAN TRỌNG:
-    - Nội dung phù hợp với level CEFR (sử dụng định nghĩa chi tiết ở trên)
-    - Đúng genre và topic
-    - Độ dài xấp xỉ word_count (±10%)
-    
     OUTPUT FORMAT:
     Trả về JSON:
-    {
+    {{
       "content": "Toàn bộ nội dung bài đọc..."
-    }
+    }}
     """
     
     return instruction
 
 
-class TextGenerationRequest(BaseModel):
-    """Request schema for text generation"""
-    level: ReadingLevel = Field(..., description="Reading level (A1-C2)")
-    genre: ReadingGenre = Field(..., description="Reading genre")
-    word_count: int = Field(..., description="Target word count")
-    topic: str = Field(..., description="Reading topic")
-
-
-def after_text_generation_callback(callback_context: CallbackContext) -> Optional[None]:
-    """Persist generated content into state for later use."""
+def after_generator_callback(callback_context: CallbackContext) -> Optional[None]:
+    """Store generated content into state for review and refinement."""
     state = callback_context.state or {}
     result = state.get("text_generation_result", {})
     if isinstance(result, dict) and result.get("content"):
-        state["content"] = result["content"]
+        state["current_text"] = result["content"]
     return None
 
 
-text_generation_agent = LlmAgent(
-    name="text_generation_agent",
-    model="gemini-2.5-flash-lite",
-    description="Generates English reading texts for practice based on level, genre, and topic",
-    instruction=create_cefr_instruction(),
+# Define the Initial Text Generator Agent
+initial_text_agent = LlmAgent(
+    name="initial_text_agent",
+    model=GEMINI_MODEL,
+    instruction=create_generator_instruction(),
+    description="Generates the initial reading text to start the refinement process",
     output_schema=TextGenerationResult,
     output_key="text_generation_result",
-    after_agent_callback=after_text_generation_callback,
+    after_agent_callback=after_generator_callback,
     disallow_transfer_to_parent=True,
-    disallow_transfer_to_peers=True
+    disallow_transfer_to_peers=True,
 )
 

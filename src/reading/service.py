@@ -17,7 +17,11 @@ from src.reading.schemas import (
     AnswerFeedback, QuizGenerationRequest, QuizResponse,
     DiscussionGenerationRequest, DiscussionResponse
 )
-from src.reading.reading_practice_agent.agent import reading_practice
+from src.reading.agents.text_generation_agent.agent import text_generation_agent
+from src.reading.agents.text_analysis_agent.agent import text_analysis_agent
+from src.reading.agents.quiz_generation_agent.agent import quiz_generation_agent
+from src.reading.agents.discussion_generation_agent.agent import discussion_generation_agent
+from src.reading.agents.analyze_discussion_answer_agent.agent import analyze_discussion_answer_agent
 from src.reading.exceptions import (
     ReadingSessionNotFoundException, TextGenerationFailedException,
     TextAnalysisFailedException, QuizGenerationFailedException
@@ -31,6 +35,7 @@ from src.utils.agent_utils import call_agent_with_logging
 # Constants
 NO_AI_RESPONSE_ERROR = "No response from AI agent"
 DEFAULT_FEEDBACK = "Đánh giá tự động dựa trên nội dung tóm tắt."
+APP_NAME = "ReadingPractice"
 
 class ReadingService:
     def __init__(self):
@@ -38,9 +43,29 @@ class ReadingService:
         self.session_service = DatabaseSessionService(db_url=get_database_url())
         self.logger = logging.getLogger(__name__)
         
-        self.runner = Runner(
-            agent=reading_practice,
-            app_name="ReadingPractice",
+        self.text_generation_runner = Runner(
+            agent=text_generation_agent,
+            app_name=APP_NAME,
+            session_service=self.session_service
+        )
+        self.text_analysis_runner = Runner(
+            agent=text_analysis_agent,
+            app_name=APP_NAME,
+            session_service=self.session_service
+        )
+        self.quiz_generation_runner = Runner(
+            agent=quiz_generation_agent,
+            app_name=APP_NAME,
+            session_service=self.session_service
+        )
+        self.discussion_generation_runner = Runner(
+            agent=discussion_generation_agent,
+            app_name=APP_NAME,
+            session_service=self.session_service
+        )
+        self.analyze_discussion_answer_runner = Runner(
+            agent=analyze_discussion_answer_agent,
+            app_name=APP_NAME,
             session_service=self.session_service
         )
     
@@ -92,9 +117,6 @@ class ReadingService:
                 "word_count": word_count,
                 "is_custom": is_custom,
                 "target_word_count": session_data.word_count or self._get_default_word_count(requested_level),
-                "quiz_result": {},
-                "discussion_result": {},
-                "synthesis_result": {},
             }
             try:
                 await self.session_service.create_session(
@@ -114,12 +136,12 @@ class ReadingService:
                 try:
                     message = "Analyze the reading text available in state (key: content) and update analysis_result."
                     await call_agent_with_logging(
-                        runner=self.runner,
+                        runner=self.text_analysis_runner,
                         user_id=str(user_id),
                         session_id=agent_session_id,
                         query=self._build_agent_query(source="analyze_text", message=message),
                         logger=self.logger,
-                        agent_name="reading_practice"
+                        agent_name=text_analysis_agent.name
                     )
                     agent_session = await self.session_service.get_session(
                         app_name="ReadingPractice",
@@ -149,12 +171,12 @@ class ReadingService:
                 try:
                     message = "Generate the reading text using the parameters stored in state."
                     await call_agent_with_logging(
-                        runner=self.runner,
+                        runner=self.text_generation_runner,
                         user_id=str(user_id),
                         session_id=agent_session_id,
                         query=self._build_agent_query(source="generate_text", message=message),
                         logger=self.logger,
-                        agent_name="reading_practice"
+                        agent_name=text_generation_agent.name
                     )
                     agent_session = await self.session_service.get_session(
                         app_name="ReadingPractice",
@@ -295,12 +317,12 @@ class ReadingService:
             query = self._build_agent_query(source="analyze_discussion_answer", message=message)
             
             await call_agent_with_logging(
-                runner=self.runner,
+                runner=self.analyze_discussion_answer_runner,
                 user_id=str(user_id),
                 session_id=agent_session_id,
                 query=query,
                 logger=self.logger,
-                agent_name="reading_practice"
+                agent_name=analyze_discussion_answer_agent.name
             )
             
             try:
@@ -358,12 +380,12 @@ class ReadingService:
             query = self._build_agent_query(source="generate_quiz", message=message)
             
             await call_agent_with_logging(
-                runner=self.runner,
+                runner=self.quiz_generation_runner,
                 user_id=str(user_id),
                 session_id=agent_session_id,
                 query=query,
                 logger=self.logger,
-                agent_name="reading_practice"
+                agent_name=quiz_generation_agent.name
             )
             
             try:
@@ -441,12 +463,12 @@ class ReadingService:
             query = self._build_agent_query(source="generate_discussion", message=message)
             
             await call_agent_with_logging(
-                runner=self.runner,
+                runner=self.discussion_generation_runner,
                 user_id=str(user_id),
                 session_id=agent_session_id,
                 query=query,
                 logger=self.logger,
-                agent_name="reading_practice"
+                agent_name=discussion_generation_agent.name
             )
             
             try:
