@@ -93,6 +93,10 @@ class ReadingService:
             topic = session_data.topic or "General"
             word_count = self._count_words(content) if content else 0
             
+            # NOTE:
+            # We create the DB session row inside the same transaction as the AI generation.
+            # Use flush() instead of commit() so that if the agent fails, a rollback will
+            # completely remove this row (no \"ghost\" sessions with word_count=0).
             db_session = ReadingSession(
                 user_id=user_id,
                 level=requested_level.value,
@@ -104,8 +108,8 @@ class ReadingService:
             )
             
             db.add(db_session)
-            db.commit()
-            db.refresh(db_session)
+            # Flush to get primary key (id) without committing the transaction yet
+            db.flush()
             
             agent_session_id = str(db_session.id)
             base_state = {
@@ -211,6 +215,10 @@ class ReadingService:
             db_session.topic = topic
             db_session.word_count = word_count
             db_session.is_custom = is_custom
+
+            # Only commit AFTER AI generation / analysis has succeeded and
+            # we have valid content + word_count. This ensures we never persist
+            # a reading session with word_count=0 due to agent errors.
             db.commit()
             
             return ReadingSessionResponse(

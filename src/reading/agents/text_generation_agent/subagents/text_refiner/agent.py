@@ -30,8 +30,8 @@ def create_refiner_instruction() -> str:
     **Current Text:**
     {current_text}
     
-    **Review Feedback:**
-    {review_feedback}
+    **Review Feedback (if available):**
+    {{review_feedback?}}
     
     ## TASK
     Carefully apply the feedback to improve the text.
