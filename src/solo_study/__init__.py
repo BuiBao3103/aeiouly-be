@@ -1,0 +1,2 @@
+# Solo Study module
+

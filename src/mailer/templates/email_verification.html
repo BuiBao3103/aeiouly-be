@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="greeting">
+    Xin chào <strong>{{ username }}</strong>! ✉️
+</div>
+
+<div class="message">
+    <p>Cảm ơn bạn đã đăng ký <strong>{{ app_name }}</strong> — nền tảng luyện tiếng Anh với AI Agent.</p>
+    <p>Để bắt đầu luyện tập và nhận phản hồi từ AI, vui lòng xác thực email của bạn bằng cách nhấp vào nút bên dưới:</p>
+</div>
+
+<div style="text-align: center;">
+    <a href="{{ verification_url }}" class="button">
+        ✅ Xác thực email
+    </a>
+</div>
+
+<div class="info-box">
+    <h3>🔍 Tại sao cần xác thực email?</h3>
+    <ul style="margin-left: 20px; margin-top: 10px;">
+        <li>Bảo vệ tài khoản học tập của bạn</li>
+        <li>Nhận thông báo về phản hồi và tiến độ luyện tập</li>
+        <li>Khôi phục mật khẩu khi cần</li>
+        <li>Đảm bảo thông tin liên hệ là chính xác</li>
+    </ul>
+</div>
+
+<div class="warning-box">
+    <h3>⚠️ Lưu ý:</h3>
+    <ul style="margin-left: 20px; margin-top: 10px;">
+        <li>Liên kết xác thực sẽ hết hạn sau 24 giờ</li>
+        <li>Nếu bạn không nhấp vào liên kết, một số tính năng có thể bị hạn chế</li>
+        <li>Bạn có thể yêu cầu gửi lại email xác thực</li>
+    </ul>
+</div>
+
+<div class="message">
+    <p>Nếu nút không hoạt động, bạn có thể copy và paste link sau vào trình duyệt:</p>
+    <div class="token-box">
+        {{ verification_url }}
+    </div>
+</div>
+
+<div class="message">
+    <p>Nếu bạn gặp vấn đề, vui lòng liên hệ với chúng tôi qua email <a href="mailto:{{ support_email }}">{{ support_email }}</a></p>
+</div>
+{% endblock %} 

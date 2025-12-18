@@ -1,0 +1,45 @@
+from datetime import datetime
+from zoneinfo import ZoneInfo
+from typing import Any, Dict
+
+from fastapi.encoders import jsonable_encoder
+from pydantic import BaseModel, ConfigDict
+
+
+def datetime_to_gmt_str(dt: datetime) -> str:
+    """Convert datetime to GMT string format"""
+    if not dt.tzinfo:
+        dt = dt.replace(tzinfo=ZoneInfo("UTC"))
+    return dt.strftime("%Y-%m-%dT%H:%M:%S%z")
+
+
+class CustomModel(BaseModel):
+    """Custom base model with global configurations"""
+    model_config = ConfigDict(
+        json_encoders={datetime: datetime_to_gmt_str},
+        populate_by_name=True,
+        from_attributes=True,
+    )
+
+    def serializable_dict(self, **kwargs) -> Dict[str, Any]:
+        """Return a dict which contains only serializable fields."""
+        default_dict = self.model_dump()
+        return jsonable_encoder(default_dict)
+
+
+# Import all SQLAlchemy models to ensure they are registered with Base.metadata
+# This is needed for Alembic to detect all models
+from src.users.models import User, UserRole
+from src.auth.models import PasswordResetToken, RefreshToken
+from src.online.models import LoginStreak
+from src.posts.models import Post, PostLike
+from src.dictionary.models import Dictionary
+from src.writing.models import WritingSession, WritingChatMessage
+from src.reading.models import ReadingSession, ReadingLevel, ReadingGenre
+from src.listening.models import ListenLesson, Sentence, ListeningSession
+from src.vocabulary.models import VocabularySet, VocabularyItem
+from src.solo_study.models import (
+    SessionGoalsStatus, BackgroundVideoType, BackgroundVideo, 
+    SessionGoal, UserFavoriteVideo, Sound
+)
+from src.speaking.models import SpeakingSession, SpeakingChatMessage
