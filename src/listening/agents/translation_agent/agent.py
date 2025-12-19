@@ -17,7 +17,7 @@ class BatchTranslationResult(BaseModel):
 
 translation_agent = LlmAgent(
     name="translation_agent",
-    model="gemini-2.5-pro",
+    model="gemini-2.5-flash",
     description="Dịch câu tiếng Anh sang tiếng Việt cho bài luyện nghe",
     instruction="""
     Bạn là AI chuyên dịch câu tiếng Anh sang tiếng Việt cho bài luyện nghe.

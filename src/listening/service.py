@@ -22,7 +22,6 @@ from src.listening.exceptions import (
     DifficultyAnalysisFailedException, SessionCreationFailedException,
     ProgressUpdateFailedException, SessionCompletionFailedException
 )
-from src.listening.listening_lesson_agent.agent import listening_lesson_agent
 from google.adk.runners import Runner
 from google.adk.sessions import DatabaseSessionService
 from src.config import get_database_url
@@ -31,13 +30,21 @@ from datetime import datetime, timezone
 import logging
 import json
 from src.utils.agent_utils import call_agent_with_logging
+from src.listening.agents.determine_level_agent.agent import determine_level_agent
+from src.listening.agents.translation_agent.agent import translation_agent
+APP_NAME = "ListeningLesson"
 
 class ListeningService:
     def __init__(self):
         self.session_service = DatabaseSessionService(db_url=get_database_url())
-        self.runner = Runner(
-            agent=listening_lesson_agent,
-            app_name="ListeningLesson",
+        self.determine_difficulty_runner = Runner(
+            agent=determine_level_agent,
+            app_name=APP_NAME,
+            session_service=self.session_service,
+        )
+        self.translate_sentences_runner = Runner(
+            agent=translation_agent,
+            app_name=APP_NAME,
             session_service=self.session_service,
         )
         self.agent_user_id = "system"
@@ -74,14 +81,25 @@ class ListeningService:
         return f"SOURCE:{source}\nMESSAGE:{message}"
 
     async def _call_listening_agent(self, session_id: str, source: str, message: str) -> str:
+        """Call the appropriate agent based on source"""
         query = self._build_agent_query(source, message)
+        
+        # Select runner based on source
+        if source == "translate_sentences":
+            runner = self.translate_sentences_runner
+            agent_name = translation_agent.name
+        else:
+            # Default to determine_difficulty_runner (for "determine_level" or unknown sources)
+            runner = self.determine_difficulty_runner
+            agent_name = determine_level_agent.name
+        
         return await call_agent_with_logging(
-            runner=self.runner,
+            runner=runner,
             user_id=self.agent_user_id,
             session_id=str(session_id),
             query=query,
             logger=self.logger,
-            agent_name="listening_lesson"
+            agent_name=agent_name
         )
 
     async def _get_state_value(self, session_id: str, key: str):
@@ -156,16 +174,28 @@ class ListeningService:
             if not subtitles:
                 raise InvalidSRTContentException("Không thể parse được nội dung SRT")
             
-            # Create lesson early to obtain ID for agent session (temporary level)
+            # Normalize and filter subtitles early (before creating DB record)
+            original_count = len(subtitles)
+            # Normalize subtitle text
+            for s in subtitles:
+                s.text = sanitize_subtitle_text(s.text)
+            # Filter out non-speech subtitles
+            subtitles = [s for s in subtitles if not is_non_speech_subtitle(s.text)]
+            filtered_count = len(subtitles)
+            if filtered_count != original_count:
+                self.logger.debug(f"Filtered non-speech subtitles: removed {original_count - filtered_count} items")
+            
+            # Create lesson record (use flush to get ID without committing transaction)
+            # This ensures if agent fails, rollback will remove the lesson record
             db_lesson = ListenLesson(
                 title=lesson_data.lesson_data.title,
                 youtube_url=lesson_data.lesson_data.youtube_url,
-                level=CEFRLevel.B1.value,
-                total_sentences=len(subtitles),
+                level=CEFRLevel.B1.value,  # Temporary, will be updated after agent analysis
+                total_sentences=filtered_count,  # Use filtered count
             )
             db.add(db_lesson)
-            db.commit()
-            db.refresh(db_lesson)
+            # Flush to get primary key (id) without committing the transaction yet
+            db.flush()
 
             lesson_session_id = str(db_lesson.id)
             # Create agent session for this lesson
@@ -186,78 +216,37 @@ class ListeningService:
                 db_lesson.title,
                 lesson_data.srt_content,
             )
-            db_lesson.level = difficulty_level
-            db.commit()
             
-            # Normalize and filter subtitles
-            original_count = len(subtitles)
-            for s in subtitles:
-                s.text = sanitize_subtitle_text(s.text)
-            subtitles = [s for s in subtitles if not is_non_speech_subtitle(s.text)]
-            filtered_count = len(subtitles)
-            if filtered_count != original_count:
-                self.logger.debug(f"Filtered non-speech subtitles: removed {original_count - filtered_count} items")
-
             # Translate sentences in batches to avoid token limits
-            all_translations = []
-            all_confidences = []  # Store confidences for each sentence
-            
-            # Split sentences into batches
-            sentence_texts = [sub.text for sub in subtitles]
-            for i in range(0, len(sentence_texts), self.MAX_SENTENCES_PER_BATCH):
-                batch = sentence_texts[i:i + self.MAX_SENTENCES_PER_BATCH]
-                batch_num = i//self.MAX_SENTENCES_PER_BATCH + 1
-                self.logger.info(f"Translating batch {batch_num}: {len(batch)} sentences")
-                
-                try:
-                    # Pass difficulty level to translation
-                    batch_translations, batch_confidences = await self._translate_all_sentences(
-                        lesson_id=db_lesson.id,
-                        english_sentences=batch,
-                        difficulty_level=difficulty_level,
-                    )
-                    all_translations.extend(batch_translations)
-                    # Store confidence for each sentence in this batch
-                    all_confidences.extend(batch_confidences)
-                    self.logger.debug(f"Batch {batch_num} completed. Total translations so far: {len(all_translations)}. Confidences: {batch_confidences}")
-                except Exception as e:
-                    self.logger.warning(f"Error in batch {batch_num}: {e}")
-                    # Fallback: create placeholder translations for this batch
-                    fallback_translations = [f"[Translation for: {sentence}]" for sentence in batch]
-                    all_translations.extend(fallback_translations)
-                    # Low confidence for fallback
-                    fallback_confidences = [0.3] * len(fallback_translations)
-                    all_confidences.extend(fallback_confidences)
-                    self.logger.warning(f"Using fallback translations for batch {batch_num}")
+            all_translations, all_confidences = await self._translate_sentences_in_batches(
+                lesson_id=db_lesson.id,
+                subtitles=subtitles,
+                difficulty_level=difficulty_level,
+            )
             
             # Create sentences with translation
-            sentences = []
-            for i, subtitle in enumerate(subtitles):
-                # Get translation from batch result
-                translation = all_translations[i] if i < len(all_translations) else f"[Translation for: {subtitle.text}]"
-                
-                # Get confidence for this sentence from accumulated confidences
-                sentence_confidence = all_confidences[i] if i < len(all_confidences) else 0.8
-                
-                sentence = Sentence(
+            sentences = [
+                Sentence(
                     lesson_id=db_lesson.id,
                     index=i,
                     text=subtitle.text,
-                    translation=translation,
+                    translation=all_translations[i] if i < len(all_translations) else f"[Translation for: {subtitle.text}]",
                     start_time=subtitle.start_time,
                     end_time=subtitle.end_time,
-                    confidence=sentence_confidence
+                    confidence=all_confidences[i] if i < len(all_confidences) else 0.8,
                 )
-                sentences.append(sentence)
+                for i, subtitle in enumerate(subtitles)
+            ]
             
-            db.add_all(sentences)
-            db.commit()
-            
-            # Update lesson's updated_at timestamp
+            # Update lesson with final values and add all sentences
+            db_lesson.level = difficulty_level
+            db_lesson.total_sentences = filtered_count
             db_lesson.updated_at = datetime.now(timezone.utc)
-            # Also ensure total_sentences matches filtered list
-            db_lesson.total_sentences = len(subtitles)
+            db.add_all(sentences)
+            
+            # Single commit at the end - only if everything succeeds
             db.commit()
+            db.refresh(db_lesson)
             
             return LessonResponse(
                 id=db_lesson.id,
@@ -272,6 +261,44 @@ class ListeningService:
         except Exception as e:
             db.rollback()
             raise LessonCreationFailedException(f"Lỗi khi tạo bài học: {str(e)}")
+    
+    async def _translate_sentences_in_batches(
+        self,
+        lesson_id: int,
+        subtitles: List,
+        difficulty_level: str,
+    ) -> tuple[List[str], List[float]]:
+        """Translate sentences in batches and return all translations with confidences"""
+        all_translations = []
+        all_confidences = []
+        
+        # Split sentences into batches
+        sentence_texts = [sub.text for sub in subtitles]
+        total_batches = (len(sentence_texts) + self.MAX_SENTENCES_PER_BATCH - 1) // self.MAX_SENTENCES_PER_BATCH
+        
+        for i in range(0, len(sentence_texts), self.MAX_SENTENCES_PER_BATCH):
+            batch = sentence_texts[i:i + self.MAX_SENTENCES_PER_BATCH]
+            batch_num = i // self.MAX_SENTENCES_PER_BATCH + 1
+            self.logger.info(f"Translating batch {batch_num}/{total_batches}: {len(batch)} sentences")
+            
+            try:
+                batch_translations, batch_confidences = await self._translate_all_sentences(
+                    lesson_id=lesson_id,
+                    english_sentences=batch,
+                    difficulty_level=difficulty_level,
+                )
+                all_translations.extend(batch_translations)
+                all_confidences.extend(batch_confidences)
+                self.logger.debug(f"Batch {batch_num} completed. Total translations: {len(all_translations)}")
+            except Exception as e:
+                self.logger.warning(f"Error in batch {batch_num}: {e}")
+                # Fallback: create placeholder translations for this batch
+                fallback_translations = [f"[Translation for: {sentence}]" for sentence in batch]
+                all_translations.extend(fallback_translations)
+                all_confidences.extend([0.3] * len(fallback_translations))
+                self.logger.warning(f"Using fallback translations for batch {batch_num}")
+        
+        return all_translations, all_confidences
     
     async def _determine_difficulty(self, lesson_session_id: str, title: str, srt_content: str) -> str:
         """Determine difficulty level using the listening_lesson coordinator."""

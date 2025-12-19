@@ -17,7 +17,7 @@ class DetermineLevelResult(BaseModel):
 
 determine_level_agent = LlmAgent(
     name="determine_level",
-    model="gemini-2.0-flash",
+    model="gemini-2.5-flash",
     description="Xác định độ khó CEFR từ tiêu đề và nội dung SRT",
     instruction=f"""
     Bạn là một AI chuyên gia đánh giá độ khó tiếng Anh theo thang CEFR (A1-C2).
