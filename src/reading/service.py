@@ -1,16 +1,12 @@
 from typing import Optional, List, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import desc, select, and_
+from sqlalchemy import desc, select, and_, func
 import time
 import json
 import logging
 from datetime import datetime, timezone
+from src.reading.models import ReadingSession, ReadingGenre, ReadingLevel
 
-from src.constants.cefr import CEFRLevel
-from src.reading.models import ReadingSession, ReadingGenre
-
-# Use CEFRLevel from constants
-ReadingLevel = CEFRLevel
 from src.reading.schemas import (
     ReadingSessionCreate, ReadingSessionResponse, ReadingSessionSummary,
     ReadingSessionDetail, ReadingSessionFilter, AnswerSubmission,
@@ -31,6 +27,7 @@ from google.adk.runners import Runner
 from google.adk.sessions import DatabaseSessionService
 from src.config import get_database_url, get_sync_database_url
 from src.utils.agent_utils import call_agent_with_logging
+from src.constants.cefr import CEFRLevel
 
 # Constants
 NO_AI_RESPONSE_ERROR = "No response from AI agent"
@@ -533,16 +530,3 @@ class ReadingService:
         # Remove extra whitespace and split by whitespace
         words = re.findall(r'\b\w+\b', text.lower())
         return len(words)
-    
-    def _get_default_word_count(self, level: ReadingLevel) -> int:
-        """Get default word count based on level"""
-        # Simple default word counts
-        word_counts = {
-            ReadingLevel.A1: 150,
-            ReadingLevel.A2: 250,
-            ReadingLevel.B1: 400,
-            ReadingLevel.B2: 500,
-            ReadingLevel.C1: 650,
-            ReadingLevel.C2: 800
-        }
-        return word_counts.get(level, 400)
