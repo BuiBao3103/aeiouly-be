@@ -2,7 +2,7 @@
 Router for Auth module with DI pattern
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Response, UploadFile
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from src.auth.schemas import (
     UserCreate, 
     UserResponse, 
@@ -33,7 +33,7 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 async def register(
     user_data: UserCreate, 
     service: AuthService = Depends(AuthService),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Register a new user"""
     return await service.register_user(user_data, db)
@@ -43,7 +43,7 @@ async def login(
     response: Response,
     login_data: LoginRequest,
     service: AuthService = Depends(AuthService),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Login user and return access token with cookies"""
     token_data = await service.login(
@@ -83,7 +83,7 @@ async def login_with_google(
     response: Response,
     payload: GoogleLoginRequest,
     service: AuthService = Depends(AuthService),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Login via Google ID token, then issue our tokens and set cookies."""
     token_data = await service.login_with_google(payload.id_token, db)
@@ -119,7 +119,7 @@ async def refresh_token(
     request: Request,
     response: Response,
     service: AuthService = Depends(AuthService),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Refresh access token using refresh token"""
     refresh_token = await get_refresh_token_from_cookie(request)
@@ -161,7 +161,7 @@ async def logout(
     request: Request,
     response: Response,
     service: AuthService = Depends(AuthService),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Logout user and revoke refresh token"""
     refresh_token = await get_refresh_token_from_cookie(request)
@@ -185,7 +185,7 @@ async def logout(
 async def request_password_reset(
     reset_request: PasswordResetRequest,
     service: AuthService = Depends(AuthService),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Request password reset via email"""
     await service.request_password_reset(reset_request.email, db)
@@ -195,7 +195,7 @@ async def request_password_reset(
 async def reset_password(
     reset_data: PasswordResetConfirm,
     service: AuthService = Depends(AuthService),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Confirm password reset with token"""
     await service.reset_password(reset_data, db)
@@ -206,7 +206,7 @@ async def change_password(
     password_data: PasswordChange,
     current_user = Depends(get_current_active_user),
     service: AuthService = Depends(AuthService),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Change password for authenticated user"""
     await service.change_password(current_user, password_data.current_password, password_data.new_password, db)
@@ -224,7 +224,7 @@ async def delete_account(
     response: Response,
     current_user = Depends(get_current_active_user),
     service: AuthService = Depends(AuthService),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Soft delete: set is_active=False, revoke refresh tokens, clear cookies"""
     ok = await service.deactivate_user(current_user, db)
@@ -248,7 +248,7 @@ async def delete_account(
 async def update_user_profile(
     update_data: UserUpdate,
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     service: AuthService = Depends(AuthService)
 ):
     """Update current user's profile (username, full_name)"""
@@ -282,7 +282,7 @@ async def update_user_profile(
 async def upload_user_avatar(
     image: UploadFile,
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     service: AuthService = Depends(AuthService)
 ):
     """Upload avatar for current user"""

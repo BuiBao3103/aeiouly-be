@@ -3,16 +3,17 @@ from typing import Optional
 import logging
 from google.adk.runners import Runner
 from google.adk.sessions import DatabaseSessionService
-from src.config import settings, get_database_url
+from src.config import settings, get_database_url, get_sync_database_url
 from src.utils.agent_utils import call_agent_with_logging, build_agent_query
 from src.chatbot.exceptions import ChatbotAgentException, ChatbotSessionNotFoundException
 from src.chatbot.agents.chat_agent.agent import chat_agent
-from src.database import SessionLocal
+from src.database import AsyncSessionLocal
 from src.speaking.models import SpeakingSession
 from src.writing.models import WritingSession
 from src.reading.models import ReadingSession
 from src.listening.models import ListeningSession, ListenLesson
-from sqlalchemy import desc
+from sqlalchemy import desc, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 # Logger for chatbot service
 logger = logging.getLogger(__name__)
@@ -29,7 +30,8 @@ class ChatbotService:
         """Initialize ChatbotService with ADK runner and DB-backed session service"""
         try:
             # Use DatabaseSessionService so chatbot conversations are persisted in PostgreSQL
-            self.session_service = DatabaseSessionService(db_url=get_database_url())
+            # DatabaseSessionService needs sync URL, not async
+            self.session_service = DatabaseSessionService(db_url=get_sync_database_url())
             
             # Create runner for chatbot agent
             self.runner = Runner(
@@ -144,7 +146,7 @@ class ChatbotService:
 
 
     @staticmethod
-    def get_user_learning_sessions_data(user_id: int, limit: int = 20) -> dict:
+    async def get_user_learning_sessions_data(user_id: int, limit: int = 20) -> dict:
         """
         Lấy danh sách phiên học (speaking, reading, writing, listening) của người dùng.
 
@@ -155,45 +157,43 @@ class ChatbotService:
         Returns:
             dict chứa danh sách phiên học theo từng loại
         """
-        db = SessionLocal()
-        try:
-            speaking_list = ChatbotService._get_speaking_sessions(db, user_id, limit)
-            writing_list = ChatbotService._get_writing_sessions(db, user_id, limit)
-            reading_list = ChatbotService._get_reading_sessions(db, user_id, limit)
-            listening_list = ChatbotService._get_listening_sessions(db, user_id, limit)
+        async with AsyncSessionLocal() as db:
+            try:
+                speaking_list = await ChatbotService._get_speaking_sessions(db, user_id, limit)
+                writing_list = await ChatbotService._get_writing_sessions(db, user_id, limit)
+                reading_list = await ChatbotService._get_reading_sessions(db, user_id, limit)
+                listening_list = await ChatbotService._get_listening_sessions(db, user_id, limit)
 
-            return {
-                "speaking_sessions": speaking_list,
-                "reading_sessions": reading_list,
-                "writing_sessions": writing_list,
-                "listening_sessions": listening_list,
-                "total_speaking": len(speaking_list),
-                "total_reading": len(reading_list),
-                "total_writing": len(writing_list),
-                "total_listening": len(listening_list),
-                "total_sessions": len(speaking_list) + len(reading_list) + len(writing_list) + len(listening_list),
-            }
-        except Exception as e:
-            logger.error(f"Error getting user learning sessions: {e}", exc_info=True)
-            return {
-                "error": f"Lỗi khi lấy danh sách phiên học: {str(e)}",
-                "speaking_sessions": [],
-                "reading_sessions": [],
-                "writing_sessions": [],
-                "listening_sessions": [],
-            }
-        finally:
-            db.close()
+                return {
+                    "speaking_sessions": speaking_list,
+                    "reading_sessions": reading_list,
+                    "writing_sessions": writing_list,
+                    "listening_sessions": listening_list,
+                    "total_speaking": len(speaking_list),
+                    "total_reading": len(reading_list),
+                    "total_writing": len(writing_list),
+                    "total_listening": len(listening_list),
+                    "total_sessions": len(speaking_list) + len(reading_list) + len(writing_list) + len(listening_list),
+                }
+            except Exception as e:
+                logger.error(f"Error getting user learning sessions: {e}", exc_info=True)
+                return {
+                    "error": f"Lỗi khi lấy danh sách phiên học: {str(e)}",
+                    "speaking_sessions": [],
+                    "reading_sessions": [],
+                    "writing_sessions": [],
+                    "listening_sessions": [],
+                }
 
     @staticmethod
-    def _get_speaking_sessions(db, user_id: int, limit: int) -> list[dict]:
-        speaking_sessions = (
-            db.query(SpeakingSession)
-            .filter(SpeakingSession.user_id == user_id)
+    async def _get_speaking_sessions(db: AsyncSession, user_id: int, limit: int) -> list[dict]:
+        result = await db.execute(
+            select(SpeakingSession)
+            .where(SpeakingSession.user_id == user_id)
             .order_by(desc(SpeakingSession.created_at))
             .limit(limit)
-            .all()
         )
+        speaking_sessions = result.scalars().all()
         return [
             {
                 "id": session.id,
@@ -209,14 +209,14 @@ class ChatbotService:
         ]
 
     @staticmethod
-    def _get_writing_sessions(db, user_id: int, limit: int) -> list[dict]:
-        writing_sessions = (
-            db.query(WritingSession)
-            .filter(WritingSession.user_id == user_id)
+    async def _get_writing_sessions(db: AsyncSession, user_id: int, limit: int) -> list[dict]:
+        result = await db.execute(
+            select(WritingSession)
+            .where(WritingSession.user_id == user_id)
             .order_by(desc(WritingSession.created_at))
             .limit(limit)
-            .all()
         )
+        writing_sessions = result.scalars().all()
         return [
             {
                 "id": session.id,
@@ -232,14 +232,14 @@ class ChatbotService:
         ]
 
     @staticmethod
-    def _get_reading_sessions(db, user_id: int, limit: int) -> list[dict]:
-        reading_sessions = (
-            db.query(ReadingSession)
-            .filter(ReadingSession.user_id == user_id)
+    async def _get_reading_sessions(db: AsyncSession, user_id: int, limit: int) -> list[dict]:
+        result = await db.execute(
+            select(ReadingSession)
+            .where(ReadingSession.user_id == user_id)
             .order_by(desc(ReadingSession.created_at))
             .limit(limit)
-            .all()
         )
+        reading_sessions = result.scalars().all()
         return [
             {
                 "id": session.id,
@@ -255,14 +255,14 @@ class ChatbotService:
         ]
 
     @staticmethod
-    def _get_listening_sessions(db, user_id: int, limit: int) -> list[dict]:
-        listening_sessions = (
-            db.query(ListeningSession)
-            .filter(ListeningSession.user_id == user_id)
+    async def _get_listening_sessions(db: AsyncSession, user_id: int, limit: int) -> list[dict]:
+        result = await db.execute(
+            select(ListeningSession)
+            .where(ListeningSession.user_id == user_id)
             .order_by(desc(ListeningSession.created_at))
             .limit(limit)
-            .all()
         )
+        listening_sessions = result.scalars().all()
         result: list[dict] = []
         for session in listening_sessions:
             lesson: ListenLesson | None = session.lesson  # type: ignore[attr-defined]

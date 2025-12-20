@@ -1,6 +1,6 @@
 from typing import Optional, List, Dict, Any
-from sqlalchemy.orm import Session
-from sqlalchemy import desc, and_
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import desc, select, and_
 import time
 import json
 import logging
@@ -29,7 +29,7 @@ from src.reading.exceptions import (
 from src.pagination import PaginationParams, PaginatedResponse, paginate
 from google.adk.runners import Runner
 from google.adk.sessions import DatabaseSessionService
-from src.config import get_database_url
+from src.config import get_database_url, get_sync_database_url
 from src.utils.agent_utils import call_agent_with_logging
 
 # Constants
@@ -40,7 +40,8 @@ APP_NAME = "ReadingPractice"
 class ReadingService:
     def __init__(self):
         # Use application DB config so ADK session tables live in the same PostgreSQL database
-        self.session_service = DatabaseSessionService(db_url=get_database_url())
+        # DatabaseSessionService needs sync URL, not async
+        self.session_service = DatabaseSessionService(db_url=get_sync_database_url())
         self.logger = logging.getLogger(__name__)
         
         self.text_generation_runner = Runner(
@@ -83,7 +84,7 @@ class ReadingService:
         """
         return f"SOURCE:{source}\nMESSAGE:{message}"
     
-    async def create_reading_session(self, user_id: int, session_data: ReadingSessionCreate, db: Session) -> ReadingSessionResponse:
+    async def create_reading_session(self, user_id: int, session_data: ReadingSessionCreate, db: AsyncSession) -> ReadingSessionResponse:
         """Create a new reading session"""
         try:
             is_custom = bool(session_data.custom_text)
@@ -219,7 +220,7 @@ class ReadingService:
             # Only commit AFTER AI generation / analysis has succeeded and
             # we have valid content + word_count. This ensures we never persist
             # a reading session with word_count=0 due to agent errors.
-            db.commit()
+            await db.commit()
             
             return ReadingSessionResponse(
                 id=db_session.id,
@@ -232,27 +233,34 @@ class ReadingService:
             )
             
         except Exception as e:
-            db.rollback()
+            await db.rollback()
             raise TextGenerationFailedException(f"Failed to create reading session: {str(e)}")
     
-    def get_reading_sessions(self, user_id: int, filters: ReadingSessionFilter, pagination: PaginationParams, db: Session) -> PaginatedResponse[ReadingSessionSummary]:
+    async def get_reading_sessions(self, user_id: int, filters: ReadingSessionFilter, pagination: PaginationParams, db: AsyncSession) -> PaginatedResponse[ReadingSessionSummary]:
         """Get paginated list of reading sessions"""
-        query = db.query(ReadingSession).filter(ReadingSession.user_id == user_id)
-        
-        # Apply filters
+        # Build query conditions
+        conditions = [ReadingSession.user_id == user_id]
         if filters.level:
-            query = query.filter(ReadingSession.level == filters.level.value)
+            conditions.append(ReadingSession.level == filters.level.value)
         if filters.genre:
-            query = query.filter(ReadingSession.genre == filters.genre.value)
+            conditions.append(ReadingSession.genre == filters.genre.value)
         if filters.is_custom is not None:
-            query = query.filter(ReadingSession.is_custom == filters.is_custom)
+            conditions.append(ReadingSession.is_custom == filters.is_custom)
         
         # Get total count
-        total = query.count()
+        count_result = await db.execute(
+            select(func.count(ReadingSession.id)).where(and_(*conditions))
+        )
+        total = count_result.scalar() or 0
         
         # Apply pagination
         offset = (pagination.page - 1) * pagination.size
-        sessions = query.order_by(desc(ReadingSession.created_at)).offset(offset).limit(pagination.size).all()
+        result = await db.execute(
+            select(ReadingSession).where(and_(*conditions))
+            .order_by(desc(ReadingSession.created_at))
+            .offset(offset).limit(pagination.size)
+        )
+        sessions = result.scalars().all()
         
         # Convert to response
         session_summaries = [
@@ -269,14 +277,17 @@ class ReadingService:
         
         return paginate(session_summaries, total, pagination.page, pagination.size)
     
-    def get_reading_session_detail(self, session_id: int, user_id: int, db: Session) -> ReadingSessionDetail:
+    async def get_reading_session_detail(self, session_id: int, user_id: int, db: AsyncSession) -> ReadingSessionDetail:
         """Get reading session detail"""
-        session = db.query(ReadingSession).filter(
-            and_(
-                ReadingSession.id == session_id,
-                ReadingSession.user_id == user_id
+        result = await db.execute(
+            select(ReadingSession).where(
+                and_(
+                    ReadingSession.id == session_id,
+                    ReadingSession.user_id == user_id
+                )
             )
-        ).first()
+        )
+        session = result.scalar_one_or_none()
         
         if not session:
             raise ReadingSessionNotFoundException()
@@ -291,14 +302,17 @@ class ReadingService:
             is_custom=session.is_custom
         )
     
-    async def evaluate_answer(self, session_id: int, user_id: int, answer_data: AnswerSubmission, db: Session) -> AnswerFeedback:
+    async def evaluate_answer(self, session_id: int, user_id: int, answer_data: AnswerSubmission, db: AsyncSession) -> AnswerFeedback:
         """Evaluate discussion answer (Vietnamese or English)"""
-        session = db.query(ReadingSession).filter(
-            and_(
-                ReadingSession.id == session_id,
-                ReadingSession.user_id == user_id
+        result = await db.execute(
+            select(ReadingSession).where(
+                and_(
+                    ReadingSession.id == session_id,
+                    ReadingSession.user_id == user_id
+                )
             )
-        ).first()
+        )
+        session = result.scalar_one_or_none()
         
         if not session:
             raise ReadingSessionNotFoundException()
@@ -358,14 +372,17 @@ class ReadingService:
         except Exception as e:
             raise Exception(f"Failed to evaluate answer: {str(e)}")
     
-    async def generate_quiz(self, session_id: int, user_id: int, quiz_request: QuizGenerationRequest, db: Session) -> QuizResponse:
+    async def generate_quiz(self, session_id: int, user_id: int, quiz_request: QuizGenerationRequest, db: AsyncSession) -> QuizResponse:
         """Generate quiz from reading session"""
-        session = db.query(ReadingSession).filter(
-            and_(
-                ReadingSession.id == session_id,
-                ReadingSession.user_id == user_id
+        result = await db.execute(
+            select(ReadingSession).where(
+                and_(
+                    ReadingSession.id == session_id,
+                    ReadingSession.user_id == user_id
+                )
             )
-        ).first()
+        )
+        session = result.scalar_one_or_none()
         
         if not session:
             raise ReadingSessionNotFoundException()
@@ -421,34 +438,40 @@ class ReadingService:
         except Exception as e:
             raise QuizGenerationFailedException(f"Failed to generate quiz: {str(e)}")
     
-    def delete_reading_session(self, session_id: int, user_id: int, db: Session) -> bool:
+    async def delete_reading_session(self, session_id: int, user_id: int, db: AsyncSession) -> bool:
         """Soft delete a reading session"""
-        session = db.query(ReadingSession).filter(
-            and_(
-                ReadingSession.id == session_id,
-                ReadingSession.user_id == user_id,
-                ReadingSession.deleted_at.is_(None)
+        result = await db.execute(
+            select(ReadingSession).where(
+                and_(
+                    ReadingSession.id == session_id,
+                    ReadingSession.user_id == user_id,
+                    ReadingSession.deleted_at.is_(None)
+                )
             )
-        ).first()
+        )
+        session = result.scalar_one_or_none()
         
         if not session:
             return False
         
         # Soft delete by setting deleted_at timestamp
         session.deleted_at = datetime.now(timezone.utc)
-        db.commit()
+        await db.commit()
         
         return True
     
     # Private helper methods
-    async def generate_discussion(self, session_id: int, user_id: int, discussion_request: DiscussionGenerationRequest, db: Session) -> DiscussionResponse:
+    async def generate_discussion(self, session_id: int, user_id: int, discussion_request: DiscussionGenerationRequest, db: AsyncSession) -> DiscussionResponse:
         """Generate discussion questions from reading session"""
-        session = db.query(ReadingSession).filter(
-            and_(
-                ReadingSession.id == session_id,
-                ReadingSession.user_id == user_id
+        result = await db.execute(
+            select(ReadingSession).where(
+                and_(
+                    ReadingSession.id == session_id,
+                    ReadingSession.user_id == user_id
+                )
             )
-        ).first()
+        )
+        session = result.scalar_one_or_none()
         
         if not session:
             raise ReadingSessionNotFoundException()

@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, File, UploadFile, Form, HTTPException, status
 from typing import Optional
 from src.database import get_db
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from src.auth.dependencies import get_current_active_user
 from src.users.models import User
 from typing import List
@@ -36,7 +36,7 @@ async def create_speaking_session(
     session_data: SpeakingSessionCreate,
     current_user: User = Depends(get_current_active_user),
     service: SpeakingService = Depends(get_speaking_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Tạo phiên luyện nói mới"""
     try:
@@ -55,7 +55,7 @@ async def get_speaking_session(
     session_id: int,
     current_user: User = Depends(get_current_active_user),
     service: SpeakingService = Depends(get_speaking_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Lấy thông tin phiên luyện nói"""
     session = await service.get_speaking_session(session_id, current_user.id, db)
@@ -72,11 +72,11 @@ async def get_speaking_sessions(
     pagination: PaginationParams = Depends(),
     current_user: User = Depends(get_current_active_user),
     service: SpeakingService = Depends(get_speaking_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Lấy danh sách các phiên luyện nói (có phân trang)"""
     try:
-        sessions = service.get_user_speaking_sessions(current_user.id, db)
+        sessions = await service.get_user_speaking_sessions(current_user.id, db)
         total = len(sessions)
         offset = get_offset(pagination.page, pagination.size)
         items = sessions[offset: offset + pagination.size]
@@ -95,10 +95,10 @@ async def delete_speaking_session(
     session_id: int,
     current_user: User = Depends(get_current_active_user),
     service: SpeakingService = Depends(get_speaking_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Xóa phiên luyện nói"""
-    success = service.delete_speaking_session(session_id, current_user.id, db)
+    success = await service.delete_speaking_session(session_id, current_user.id, db)
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -113,7 +113,7 @@ async def send_chat_message(
     audio_url: Optional[str] = Form(None, description="URL của file âm thanh (nếu có)"),
     current_user: User = Depends(get_current_active_user),
     service: SpeakingService = Depends(get_speaking_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Gửi tin nhắn (text) và nhận phản hồi từ AI (tiếng Anh)
@@ -151,7 +151,7 @@ async def skip_conversation_turn(
     session_id: int,
     current_user: User = Depends(get_current_active_user),
     service: SpeakingService = Depends(get_speaking_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Bỏ qua lượt hiện tại và để AI tiếp tục cuộc hội thoại."""
     try:
@@ -170,11 +170,11 @@ async def get_chat_history(
     session_id: int,
     current_user: User = Depends(get_current_active_user),
     service: SpeakingService = Depends(get_speaking_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Lấy lịch sử chat của phiên"""
     try:
-        return service.get_chat_history(session_id, current_user.id, db)
+        return await service.get_chat_history(session_id, current_user.id, db)
     except HTTPException as e:
         raise e
     except Exception as e:
@@ -189,7 +189,7 @@ async def get_conversation_hint(
     session_id: int,
     current_user: User = Depends(get_current_active_user),
     service: SpeakingService = Depends(get_speaking_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Lấy gợi ý cho câu trả lời dựa trên tin nhắn cuối của AI (tiếng Việt)"""
     try:
@@ -208,7 +208,7 @@ async def get_final_evaluation(
     session_id: int,
     current_user: User = Depends(get_current_active_user),
     service: SpeakingService = Depends(get_speaking_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Lấy đánh giá tổng thể của phiên luyện nói"""
     try:
@@ -230,7 +230,7 @@ async def convert_speech_to_text(
     auto_detect: bool = Form(default=False, description="Tự động nhận diện ngôn ngữ giữa tiếng Anh (en-US) và tiếng Việt (vi-VN)"),
     current_user: User = Depends(get_current_active_user),
     service: SpeakingService = Depends(get_speaking_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Chuyển đổi giọng nói sang văn bản bằng Google Cloud Speech-to-Text API
@@ -253,7 +253,7 @@ async def convert_speech_to_text(
     - Ngôn ngữ được phát hiện (nếu auto_detect=true)
     """
     try:
-        return service.speech_to_text(
+        return await service.speech_to_text(
             audio_file=audio_file,
             language_code=language_code,
             is_save=is_save,

@@ -1,8 +1,8 @@
 from datetime import date, datetime, timedelta
 from typing import Dict, List
 
-from sqlalchemy import desc, and_
-from sqlalchemy.orm import Session
+from sqlalchemy import desc, select, and_
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.online.connection_manager import ConnectionManager
 from src.online.models import LoginStreak, LoginStreakDaily
@@ -18,7 +18,7 @@ class LoginStreakService:
     - Mỗi ngày chỉ được tính 1 lần đăng nhập
     """
 
-    def update_daily_streak(self, user_id: int, db: Session) -> None:
+    async def update_daily_streak(self, user_id: int, db: AsyncSession) -> None:
         """Kiểm tra và cập nhật streak đăng nhập hằng ngày.
         
         Logic:
@@ -28,7 +28,10 @@ class LoginStreakService:
         """
     
         # Lấy hoặc tạo streak record (dùng get_or_create pattern)
-        streak = db.query(LoginStreak).filter(LoginStreak.user_id == user_id).first()
+        result = await db.execute(
+            select(LoginStreak).where(LoginStreak.user_id == user_id)
+        )
+        streak = result.scalar_one_or_none()
         
         if not streak:
             streak = LoginStreak(
@@ -37,31 +40,30 @@ class LoginStreakService:
                 longest_streak=0,
             )
             db.add(streak)
-            db.flush()
+            await db.flush()
         else:
             today = date.today()
             yesterday = today - timedelta(days=1)
 
             # Query yesterday record
-            daily_records = (
-                db.query(LoginStreakDaily)
-                .filter(
+            result = await db.execute(
+                select(LoginStreakDaily).where(
                     and_(
                         LoginStreakDaily.user_id == user_id,
                         LoginStreakDaily.date.in_([today, yesterday])
                     )
                 )
-                .all()
             )
+            daily_records = result.scalars().all()
             yesterday_record = next((r for r in daily_records if r.date == yesterday), None)
             today_record = next((r for r in daily_records if r.date == today), None)
             if not today_record and not yesterday_record:
                 streak.current_streak = 0
 
-            db.commit()
-            db.refresh(streak)
+            await db.commit()
+            await db.refresh(streak)
 
-    async def increment_streak_after_timer(self, user_id: int, db: Session) -> LoginStreak:
+    async def increment_streak_after_timer(self, user_id: int, db: AsyncSession) -> LoginStreak:
         """Tăng streak sau khi timer 5 phút hoàn thành.
         
         Chỉ được gọi khi:
@@ -78,7 +80,10 @@ class LoginStreakService:
         today = date.today()
         
         # Lấy hoặc tạo streak record
-        streak = db.query(LoginStreak).filter(LoginStreak.user_id == user_id).first()
+        result = await db.execute(
+            select(LoginStreak).where(LoginStreak.user_id == user_id)
+        )
+        streak = result.scalar_one_or_none()
         
         if not streak:
             # Tạo mới streak record
@@ -88,7 +93,7 @@ class LoginStreakService:
                 longest_streak=0,
             )
             db.add(streak)
-            db.flush()  # Flush để có streak.id cho daily_record
+            await db.flush()  # Flush để có streak.id cho daily_record
         
         # Tăng current_streak lên 1
         streak.current_streak += 1
@@ -106,14 +111,14 @@ class LoginStreakService:
         db.add(daily_record)
         
         # Commit tất cả thay đổi
-        db.commit()
-        db.refresh(streak)
+        await db.commit()
+        await db.refresh(streak)
         return streak
 
     async def increment_streak_and_notify(
         self, 
         user_id: int, 
-        db: Session, 
+        db: AsyncSession, 
         connection_manager: ConnectionManager
     ) -> LoginStreak:
         """Tăng streak sau timer 5 phút và gửi notification.
@@ -144,13 +149,12 @@ class LoginStreakService:
         
         return streak
 
-    async def get_user_streak_stats(self, user_id: int, db: Session) -> Dict:
+    async def get_user_streak_stats(self, user_id: int, db: AsyncSession) -> Dict:
         """Get user's streak statistics from aggregate row."""
-        streak = (
-            db.query(LoginStreak)
-            .filter(LoginStreak.user_id == user_id)
-            .first()
+        result = await db.execute(
+            select(LoginStreak).where(LoginStreak.user_id == user_id)
         )
+        streak = result.scalar_one_or_none()
 
         if not streak:
             return {
@@ -164,15 +168,15 @@ class LoginStreakService:
         }
 
     async def get_top_streak_users(
-        self, db: Session, limit: int = 10
+        self, db: AsyncSession, limit: int = 10
     ) -> List[Dict]:
         """Get users with highest current streaks (aggregate per user)."""
-        top_users = (
-            db.query(LoginStreak)
+        result = await db.execute(
+            select(LoginStreak)
             .order_by(desc(LoginStreak.current_streak))
             .limit(limit)
-            .all()
         )
+        top_users = result.scalars().all()
 
         return [
             {
@@ -183,7 +187,7 @@ class LoginStreakService:
             for streak in top_users
         ]
 
-    async def get_weekly_streak_status(self, user_id: int, db: Session) -> Dict:
+    async def get_weekly_streak_status(self, user_id: int, db: AsyncSession) -> Dict:
         """Get weekly streak status - danh sách các ngày trong tuần hiện tại (thứ 2 đến chủ nhật).
         
         Sử dụng update_daily_streak để kiểm tra và cập nhật streak.
@@ -196,25 +200,27 @@ class LoginStreakService:
         sunday = monday + timedelta(days=6)
 
         # Sử dụng update_daily_streak để kiểm tra và cập nhật streak
-        self.update_daily_streak(user_id, db)
+        await self.update_daily_streak(user_id, db)
         
         # Lấy streak sau khi đã cập nhật
-        streak = db.query(LoginStreak).filter(LoginStreak.user_id == user_id).first()
+        result = await db.execute(
+            select(LoginStreak).where(LoginStreak.user_id == user_id)
+        )
+        streak = result.scalar_one_or_none()
         current_streak = streak.current_streak if streak else 0
 
         # Query daily records trong tuần hiện tại (thứ 2 đến chủ nhật) để thống kê
         # Bao gồm cả hôm nay để kiểm tra today_has_streak
-        daily_records = (
-            db.query(LoginStreakDaily)
-            .filter(
+        result = await db.execute(
+            select(LoginStreakDaily).where(
                 and_(
                     LoginStreakDaily.user_id == user_id,
                     LoginStreakDaily.date >= monday,
                     LoginStreakDaily.date <= sunday
                 )
             )
-            .all()
         )
+        daily_records = result.scalars().all()
 
         # Tạo dict để dễ lookup: ngày nào có streak
         dates_with_streak = {

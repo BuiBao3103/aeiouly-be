@@ -3,8 +3,8 @@ Service layer for Listening module
 """
 
 from typing import List, Optional
-from sqlalchemy.orm import Session
-from sqlalchemy import desc, and_, or_
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import desc, and_, or_, select, func
 from src.constants.cefr import CEFRLevel
 from src.listening.models import ListenLesson, Sentence, ListeningSession, SessionStatus
 from src.listening.schemas import (
@@ -24,7 +24,7 @@ from src.listening.exceptions import (
 )
 from google.adk.runners import Runner
 from google.adk.sessions import DatabaseSessionService
-from src.config import get_database_url
+from src.config import get_database_url, get_sync_database_url
 import asyncio
 from datetime import datetime, timezone
 import logging
@@ -36,7 +36,8 @@ APP_NAME = "ListeningLesson"
 
 class ListeningService:
     def __init__(self):
-        self.session_service = DatabaseSessionService(db_url=get_database_url())
+        # DatabaseSessionService needs sync URL, not async
+        self.session_service = DatabaseSessionService(db_url=get_sync_database_url())
         self.determine_difficulty_runner = Runner(
             agent=determine_level_agent,
             app_name=APP_NAME,
@@ -164,7 +165,7 @@ class ListeningService:
         confidences = [0.8] * len(translations)
         return translations, confidences
 
-    async def create_lesson(self, lesson_data: LessonUpload, db: Session) -> LessonResponse:
+    async def create_lesson(self, lesson_data: LessonUpload, db: AsyncSession) -> LessonResponse:
         """Create a new listening lesson with SRT parsing and translation"""
         try:
             # Parse SRT content
@@ -195,7 +196,7 @@ class ListeningService:
             )
             db.add(db_lesson)
             # Flush to get primary key (id) without committing the transaction yet
-            db.flush()
+            await db.flush()
 
             lesson_session_id = str(db_lesson.id)
             # Create agent session for this lesson
@@ -245,8 +246,8 @@ class ListeningService:
             db.add_all(sentences)
             
             # Single commit at the end - only if everything succeeds
-            db.commit()
-            db.refresh(db_lesson)
+            await db.commit()
+            await db.refresh(db_lesson)
             
             return LessonResponse(
                 id=db_lesson.id,
@@ -259,7 +260,7 @@ class ListeningService:
             )
             
         except Exception as e:
-            db.rollback()
+            await db.rollback()
             raise LessonCreationFailedException(f"Lỗi khi tạo bài học: {str(e)}")
     
     async def _translate_sentences_in_batches(
@@ -390,19 +391,19 @@ class ListeningService:
                 [0.3] * len(english_sentences),
             )
     
-    def get_lessons(self, filters: LessonFilter, pagination: PaginationParams, db: Session) -> PaginatedResponse:
+    async def get_lessons(self, filters: LessonFilter, pagination: PaginationParams, db: AsyncSession) -> PaginatedResponse:
         """Get paginated list of lessons with filters"""
-        query = db.query(ListenLesson)
+        query = select(ListenLesson)
         
         # Apply filters
         if filters.level:
-            query = query.filter(ListenLesson.level == filters.level)
+            query = query.where(ListenLesson.level == filters.level)
         
         # Tags filtering removed - tags column no longer exists
         
         if filters.search:
             search_term = f"%{filters.search}%"
-            query = query.filter(
+            query = query.where(
                 or_(
                     ListenLesson.title.ilike(search_term),
                     ListenLesson.youtube_url.ilike(search_term)
@@ -410,11 +411,25 @@ class ListeningService:
             )
         
         # Get total count
-        total = query.count()
+        count_query = select(func.count(ListenLesson.id))
+        if filters.level:
+            count_query = count_query.where(ListenLesson.level == filters.level)
+        if filters.search:
+            search_term = f"%{filters.search}%"
+            count_query = count_query.where(
+                or_(
+                    ListenLesson.title.ilike(search_term),
+                    ListenLesson.youtube_url.ilike(search_term)
+                )
+            )
+        count_result = await db.execute(count_query)
+        total = count_result.scalar() or 0
         
         # Apply pagination
         offset = (pagination.page - 1) * pagination.size
-        lessons = query.order_by(desc(ListenLesson.created_at)).offset(offset).limit(pagination.size).all()
+        query = query.order_by(desc(ListenLesson.created_at)).offset(offset).limit(pagination.size)
+        result = await db.execute(query)
+        lessons = result.scalars().all()
         
         # Convert to response
         lesson_responses = [
@@ -432,9 +447,12 @@ class ListeningService:
         
         return paginate(lesson_responses, total, pagination.page, pagination.size)
     
-    def update_lesson(self, lesson_id: int, lesson_data: LessonUpdate, db: Session) -> LessonResponse:
+    async def update_lesson(self, lesson_id: int, lesson_data: LessonUpdate, db: AsyncSession) -> LessonResponse:
         """Update a listening lesson"""
-        lesson = db.query(ListenLesson).filter(ListenLesson.id == lesson_id).first()
+        result = await db.execute(
+            select(ListenLesson).where(ListenLesson.id == lesson_id)
+        )
+        lesson = result.scalar_one_or_none()
         if not lesson:
             raise LessonNotFoundException()
         
@@ -447,8 +465,8 @@ class ListeningService:
             lesson.level = lesson_data.level
         # Tags update removed - tags column no longer exists
         
-        db.commit()
-        db.refresh(lesson)
+        await db.commit()
+        await db.refresh(lesson)
         
         return LessonResponse(
             id=lesson.id,
@@ -460,26 +478,34 @@ class ListeningService:
             updated_at=lesson.updated_at
         )
     
-    def delete_lesson(self, lesson_id: int, db: Session) -> bool:
+    async def delete_lesson(self, lesson_id: int, db: AsyncSession) -> bool:
         """Soft delete a listening lesson"""
-        lesson = db.query(ListenLesson).filter(ListenLesson.id == lesson_id).first()
+        result = await db.execute(
+            select(ListenLesson).where(ListenLesson.id == lesson_id)
+        )
+        lesson = result.scalar_one_or_none()
         if not lesson:
             raise LessonNotFoundException()
         
         # Soft delete the lesson (sets deleted_at timestamp)
         lesson.deleted_at = datetime.now(timezone.utc)
-        db.commit()
+        await db.commit()
         return True
     
-    def get_lesson_detail(self, lesson_id: int, db: Session) -> Optional[LessonDetailResponse]:
+    async def get_lesson_detail(self, lesson_id: int, db: AsyncSession) -> Optional[LessonDetailResponse]:
         """Get lesson detail with all sentences"""
-        lesson = db.query(ListenLesson).filter(ListenLesson.id == lesson_id).first()
+        result = await db.execute(
+            select(ListenLesson).where(ListenLesson.id == lesson_id)
+        )
+        lesson = result.scalar_one_or_none()
         if not lesson:
             return None
         
-        sentences = db.query(Sentence).filter(
-            Sentence.lesson_id == lesson_id
-        ).order_by(Sentence.index).all()
+        sentences_result = await db.execute(
+            select(Sentence).where(Sentence.lesson_id == lesson_id)
+            .order_by(Sentence.index)
+        )
+        sentences = sentences_result.scalars().all()
         
         sentence_responses = [
             {
@@ -505,20 +531,26 @@ class ListeningService:
             updated_at=lesson.updated_at
         )
     
-    def create_session(self, user_id: int, session_data: SessionCreate, db: Session) -> SessionResponse:
+    async def create_session(self, user_id: int, session_data: SessionCreate, db: AsyncSession) -> SessionResponse:
         """Create a new listening session or return existing active session"""
         # Check if lesson exists
-        lesson = db.query(ListenLesson).filter(ListenLesson.id == session_data.lesson_id).first()
+        result = await db.execute(
+            select(ListenLesson).where(ListenLesson.id == session_data.lesson_id)
+        )
+        lesson = result.scalar_one_or_none()
         if not lesson:
             raise ValueError("Lesson not found")
         
         # Check if user already has a session for this lesson (active or completed)
-        existing_session = db.query(ListeningSession).filter(
-            and_(
-                ListeningSession.user_id == user_id,
-                ListeningSession.lesson_id == session_data.lesson_id
+        result = await db.execute(
+            select(ListeningSession).where(
+                and_(
+                    ListeningSession.user_id == user_id,
+                    ListeningSession.lesson_id == session_data.lesson_id
+                )
             )
-        ).first()
+        )
+        existing_session = result.scalar_one_or_none()
         
         if existing_session:
             if existing_session.status == "completed":
@@ -526,8 +558,8 @@ class ListeningService:
                 existing_session.status = "active"
                 existing_session.current_sentence_index = 0
                 existing_session.attempts += 1  # Increment attempts counter
-                db.commit()
-                db.refresh(existing_session)
+                await db.commit()
+                await db.refresh(existing_session)
                 
                 return SessionResponse(
                     id=existing_session.id,
@@ -560,8 +592,8 @@ class ListeningService:
             status="active"
         )
         db.add(db_session)
-        db.commit()
-        db.refresh(db_session)
+        await db.commit()
+        await db.refresh(db_session)
         
         return SessionResponse(
             id=db_session.id,
@@ -574,20 +606,26 @@ class ListeningService:
             updated_at=db_session.updated_at
         )
     
-    def get_session(self, session_id: int, user_id: int, db: Session) -> SessionDetailResponse:
+    async def get_session(self, session_id: int, user_id: int, db: AsyncSession) -> SessionDetailResponse:
         """Get session detail with lesson info"""
-        session = db.query(ListeningSession).filter(
-            and_(
-                ListeningSession.id == session_id,
-                ListeningSession.user_id == user_id
+        result = await db.execute(
+            select(ListeningSession).where(
+                and_(
+                    ListeningSession.id == session_id,
+                    ListeningSession.user_id == user_id
+                )
             )
-        ).first()
+        )
+        session = result.scalar_one_or_none()
         
         if not session:
             raise SessionNotFoundException()
         
         # Get lesson info
-        lesson = db.query(ListenLesson).filter(ListenLesson.id == session.lesson_id).first()
+        result = await db.execute(
+            select(ListenLesson).where(ListenLesson.id == session.lesson_id)
+        )
+        lesson = result.scalar_one_or_none()
         lesson_response = LessonResponse(
             id=lesson.id,
             title=lesson.title,
@@ -601,12 +639,15 @@ class ListeningService:
         # Get current sentence
         current_sentence = None
         if session.current_sentence_index < lesson.total_sentences:
-            sentence = db.query(Sentence).filter(
-                and_(
-                    Sentence.lesson_id == session.lesson_id,
-                    Sentence.index == session.current_sentence_index
+            result = await db.execute(
+                select(Sentence).where(
+                    and_(
+                        Sentence.lesson_id == session.lesson_id,
+                        Sentence.index == session.current_sentence_index
+                    )
                 )
-            ).first()
+            )
+            sentence = result.scalar_one_or_none()
             
             if sentence:
                 current_sentence = {
@@ -632,14 +673,17 @@ class ListeningService:
             updated_at=session.updated_at
         )
     
-    def get_next_sentence(self, session_id: int, user_id: int, db: Session) -> SessionNextResponse:
+    async def get_next_sentence(self, session_id: int, user_id: int, db: AsyncSession) -> SessionNextResponse:
         """Move to next sentence and return session detail with current sentence"""
-        session = db.query(ListeningSession).filter(
+        result = await db.execute(
+            select(ListeningSession).where(
             and_(
                 ListeningSession.id == session_id,
                 ListeningSession.user_id == user_id
             )
-        ).first()
+            )
+        )
+        session = result.scalar_one_or_none()
         
         if not session:
             raise SessionNotFoundException()
@@ -651,7 +695,10 @@ class ListeningService:
         session.current_sentence_index += 1
         
         # Get lesson info
-        lesson = db.query(ListenLesson).filter(ListenLesson.id == session.lesson_id).first()
+        result = await db.execute(
+            select(ListenLesson).where(ListenLesson.id == session.lesson_id)
+        )
+        lesson = result.scalar_one_or_none()
         lesson_response = LessonResponse(
             id=lesson.id,
             title=lesson.title,
@@ -668,12 +715,15 @@ class ListeningService:
             current_sentence = None  # No more sentences
         else:
             # Get current sentence
-            sentence = db.query(Sentence).filter(
+            result = await db.execute(
+                select(Sentence).where(
                 and_(
                     Sentence.lesson_id == session.lesson_id,
                     Sentence.index == session.current_sentence_index
                 )
-            ).first()
+                )
+            )
+            sentence = result.scalar_one_or_none()
             
             current_sentence = {
                 "id": sentence.id,
@@ -685,7 +735,7 @@ class ListeningService:
                 "end_time": sentence.end_time,
             } if sentence else None
         
-        db.commit()
+        await db.commit()
         
         return SessionNextResponse(
             id=session.id,
@@ -700,26 +750,35 @@ class ListeningService:
             updated_at=session.updated_at
         )
     
-    def get_user_sessions(self, user_id: int, pagination: PaginationParams, db: Session) -> PaginatedResponse[UserSessionResponse]:
+    async def get_user_sessions(self, user_id: int, pagination: PaginationParams, db: AsyncSession) -> PaginatedResponse[UserSessionResponse]:
         """Get all active sessions for a user with pagination"""
         # Base query for user's active sessions
-        query = db.query(ListeningSession).filter(
-            and_(
-                ListeningSession.user_id == user_id,
-            )
+        base_query = select(ListeningSession).where(
+            ListeningSession.user_id == user_id
         )
         
         # Get total count
-        total = query.count()
+        count_result = await db.execute(
+            select(func.count(ListeningSession.id)).where(
+                ListeningSession.user_id == user_id
+            )
+        )
+        total = count_result.scalar() or 0
         
         # Apply pagination
         offset = (pagination.page - 1) * pagination.size
-        sessions = query.order_by(desc(ListeningSession.created_at)).offset(offset).limit(pagination.size).all()
+        result = await db.execute(
+            base_query.order_by(desc(ListeningSession.created_at)).offset(offset).limit(pagination.size)
+        )
+        sessions = result.scalars().all()
         
         user_sessions = []
         for session in sessions:
             # Get lesson info
-            lesson = db.query(ListenLesson).filter(ListenLesson.id == session.lesson_id).first()
+            lesson_result = await db.execute(
+                select(ListenLesson).where(ListenLesson.id == session.lesson_id)
+            )
+            lesson = lesson_result.scalar_one_or_none()
             lesson_response = LessonResponse(
                 id=lesson.id,
                 title=lesson.title,

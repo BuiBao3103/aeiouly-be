@@ -7,7 +7,7 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
 from src.database import get_db
@@ -27,7 +27,7 @@ router = APIRouter(prefix="/online", tags=["Online"])
 @router.get("/streak/stats")
 async def get_login_streak_stats(
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Get user's login streak statistics"""
     service = LoginStreakService()
@@ -69,7 +69,7 @@ async def get_login_streak_stats(
 async def get_login_streak_leaderboard(
     limit: int = Query(10, description="Number of top users to return"),
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     service: LoginStreakService = Depends(get_login_streak_service)
 ):
     """Get top users by login streak"""
@@ -84,7 +84,7 @@ async def get_login_streak_leaderboard(
 @router.get("/streak/weekly")
 async def get_weekly_streak_status(
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     service: LoginStreakService = Depends(get_login_streak_service)
 ):
     """Get weekly streak statistics for the last 7 days"""

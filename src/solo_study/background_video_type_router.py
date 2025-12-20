@@ -1,6 +1,6 @@
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import get_db
 from src.pagination import PaginationParams, PaginatedResponse
@@ -21,7 +21,7 @@ router = APIRouter(prefix="/background-video-types", tags=["Background Video Typ
 async def create_background_video_type(
     type_data: BackgroundVideoTypeCreate,
     service: BackgroundVideoTypeService = Depends(get_background_video_type_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Tạo loại video nền mới
@@ -29,7 +29,7 @@ async def create_background_video_type(
     - **description**: Mô tả loại video nền (optional)
     """
     try:
-        return service.create_type(type_data, db)
+        return await service.create_type(type_data, db)
     except BackgroundVideoTypeValidationException as e:
         raise background_video_type_validation_exception(str(e))
     except Exception as e:
@@ -40,7 +40,7 @@ async def create_background_video_type(
 async def get_background_video_types(
     pagination: PaginationParams = Depends(),
     service: BackgroundVideoTypeService = Depends(get_background_video_type_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Lấy danh sách loại video nền với phân trang
@@ -48,7 +48,7 @@ async def get_background_video_types(
     - **size**: Số bản ghi mỗi trang (mặc định: 10, tối đa: 100)
     """
     try:
-        return service.get_types(db, pagination)
+        return await service.get_types(db, pagination)
     except BackgroundVideoTypeValidationException as e:
         raise background_video_type_validation_exception(str(e))
     except Exception as e:
@@ -59,14 +59,14 @@ async def get_background_video_types(
 async def get_background_video_type(
     type_id: int,
     service: BackgroundVideoTypeService = Depends(get_background_video_type_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Lấy thông tin loại video nền theo ID
     - **type_id**: ID của loại video nền
     """
     try:
-        return service.get_type_by_id(type_id, db)
+        return await service.get_type_by_id(type_id, db)
     except BackgroundVideoTypeNotFoundException as e:
         raise background_video_type_not_found_exception(type_id)
     except Exception as e:
@@ -78,7 +78,7 @@ async def update_background_video_type(
     type_id: int,
     type_data: BackgroundVideoTypeUpdate,
     service: BackgroundVideoTypeService = Depends(get_background_video_type_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Cập nhật loại video nền
@@ -87,7 +87,7 @@ async def update_background_video_type(
     - **description**: Mô tả loại video nền (optional)
     """
     try:
-        return service.update_type(type_id, type_data, db)
+        return await service.update_type(type_id, type_data, db)
     except BackgroundVideoTypeNotFoundException as e:
         raise background_video_type_not_found_exception(type_id)
     except BackgroundVideoTypeValidationException as e:
@@ -100,14 +100,14 @@ async def update_background_video_type(
 async def delete_background_video_type(
     type_id: int,
     service: BackgroundVideoTypeService = Depends(get_background_video_type_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Xóa loại video nền (soft delete)
     - **type_id**: ID của loại video nền
     """
     try:
-        success = service.delete_type(type_id, db)
+        success = await service.delete_type(type_id, db)
         if success:
             return {"message": f"Đã xóa loại video nền với ID {type_id}"}
         else:

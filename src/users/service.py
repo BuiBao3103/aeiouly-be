@@ -5,8 +5,8 @@ import bcrypt
 import logging
 from datetime import datetime, timezone
 from typing import List, Optional
-from sqlalchemy.orm import Session
-from sqlalchemy import and_
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import and_, select, func
 
 from src.users.models import User, UserRole
 from src.users.schemas import UserCreate, UserUpdate, UserResponse, UserResetPassword
@@ -34,21 +34,27 @@ class UsersService:
         hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
         return hashed.decode('utf-8')
 
-    def create_user(self, user_data: UserCreate, db: Session) -> UserResponse:
+    async def create_user(self, user_data: UserCreate, db: AsyncSession) -> UserResponse:
         """Create a new user"""
         # Check if user already exists
-        existing_user = db.query(User).filter(
-            User.username == user_data.username,
-            User.deleted_at.is_(None)
-        ).first()
+        result = await db.execute(
+            select(User).where(
+                User.username == user_data.username,
+                User.deleted_at.is_(None)
+            )
+        )
+        existing_user = result.scalar_one_or_none()
         if existing_user:
             raise UserAlreadyExistsException("Tên đăng nhập đã tồn tại")
 
         # Check if email already exists
-        existing_email = db.query(User).filter(
-            User.email == user_data.email,
-            User.deleted_at.is_(None)
-        ).first()
+        result = await db.execute(
+            select(User).where(
+                User.email == user_data.email,
+                User.deleted_at.is_(None)
+            )
+        )
+        existing_email = result.scalar_one_or_none()
         if existing_email:
             raise UserAlreadyExistsException("Email đã được sử dụng")
 
@@ -69,7 +75,7 @@ class UsersService:
             db.add(db_user)
 
             # Flush to assign ID without committing the transaction yet
-            db.flush()
+            await db.flush()
 
             # Create default vocabulary set for the new user
             default_vocabulary_set = VocabularySet(
@@ -80,25 +86,31 @@ class UsersService:
             )
             db.add(default_vocabulary_set)
 
-            db.commit()
-            db.refresh(db_user)
+            await db.commit()
+            await db.refresh(db_user)
 
             return UserResponse.from_orm(db_user)
         except Exception as e:
-            db.rollback()
+            await db.rollback()
             raise UserValidationException(f"Lỗi khi tạo user: {str(e)}")
 
-    def get_users(self, db: Session, pagination: PaginationParams) -> PaginatedResponse[UserResponse]:
+    async def get_users(self, db: AsyncSession, pagination: PaginationParams) -> PaginatedResponse[UserResponse]:
         """Get all users with pagination"""
         try:
             # Get total count
-            total = db.query(User).filter(User.deleted_at.is_(None)).count()
+            count_result = await db.execute(
+                select(func.count(User.id)).where(User.deleted_at.is_(None))
+            )
+            total = count_result.scalar() or 0
 
             # Get paginated results
             offset = (pagination.page - 1) * pagination.size
-            users = db.query(User).filter(
-                User.deleted_at.is_(None)
-            ).offset(offset).limit(pagination.size).all()
+            result = await db.execute(
+                select(User).where(
+                    User.deleted_at.is_(None)
+                ).offset(offset).limit(pagination.size)
+            )
+            users = result.scalars().all()
 
             # Convert to response objects
             user_responses = [UserResponse.from_orm(user) for user in users]
@@ -108,36 +120,45 @@ class UsersService:
         except Exception as e:
             raise UserValidationException(f"Lỗi khi lấy danh sách users: {str(e)}")
 
-    def get_user_by_id(self, user_id: int, db: Session) -> UserResponse:
+    async def get_user_by_id(self, user_id: int, db: AsyncSession) -> UserResponse:
         """Get user by ID"""
-        user = db.query(User).filter(
-            User.id == user_id,
-            User.deleted_at.is_(None)
-        ).first()
+        result = await db.execute(
+            select(User).where(
+                User.id == user_id,
+                User.deleted_at.is_(None)
+            )
+        )
+        user = result.scalar_one_or_none()
 
         if not user:
             raise UserNotFoundException(f"Không tìm thấy user với ID {user_id}")
 
         return UserResponse.from_orm(user)
 
-    def get_user_by_username(self, username: str, db: Session) -> UserResponse:
+    async def get_user_by_username(self, username: str, db: AsyncSession) -> UserResponse:
         """Get user by username"""
-        user = db.query(User).filter(
-            User.username == username,
-            User.deleted_at.is_(None)
-        ).first()
+        result = await db.execute(
+            select(User).where(
+                User.username == username,
+                User.deleted_at.is_(None)
+            )
+        )
+        user = result.scalar_one_or_none()
 
         if not user:
             raise UserNotFoundException(f"Không tìm thấy user với username {username}")
 
         return UserResponse.from_orm(user)
 
-    def update_user(self, user_id: int, user_data: UserUpdate, db: Session) -> UserResponse:
+    async def update_user(self, user_id: int, user_data: UserUpdate, db: AsyncSession) -> UserResponse:
         """Update user"""
-        user = db.query(User).filter(
-            User.id == user_id,
-            User.deleted_at.is_(None)
-        ).first()
+        result = await db.execute(
+            select(User).where(
+                User.id == user_id,
+                User.deleted_at.is_(None)
+            )
+        )
+        user = result.scalar_one_or_none()
 
         if not user:
             raise UserNotFoundException(f"Không tìm thấy user với ID {user_id}")
@@ -146,13 +167,16 @@ class UsersService:
             # Update fields
             if user_data.email is not None:
                 # Check if email is already used by another user
-                existing_email = db.query(User).filter(
-                    and_(
-                        User.email == user_data.email,
-                        User.id != user_id,
-                        User.deleted_at.is_(None)
+                result = await db.execute(
+                    select(User).where(
+                        and_(
+                            User.email == user_data.email,
+                            User.id != user_id,
+                            User.deleted_at.is_(None)
+                        )
                     )
-                ).first()
+                )
+                existing_email = result.scalar_one_or_none()
                 if existing_email:
                     raise UserAlreadyExistsException("Email đã được sử dụng bởi user khác")
                 user.email = user_data.email
@@ -166,20 +190,23 @@ class UsersService:
             if user_data.is_active is not None:
                 user.is_active = user_data.is_active
 
-            db.commit()
-            db.refresh(user)
+            await db.commit()
+            await db.refresh(user)
 
             return UserResponse.from_orm(user)
         except Exception as e:
-            db.rollback()
+            await db.rollback()
             raise UserValidationException(f"Lỗi khi cập nhật user: {str(e)}")
 
-    def delete_user(self, user_id: int, db: Session) -> bool:
+    async def delete_user(self, user_id: int, db: AsyncSession) -> bool:
         """Soft delete user"""
-        user = db.query(User).filter(
-            User.id == user_id,
-            User.deleted_at.is_(None)
-        ).first()
+        result = await db.execute(
+            select(User).where(
+                User.id == user_id,
+                User.deleted_at.is_(None)
+            )
+        )
+        user = result.scalar_one_or_none()
 
         if not user:
             raise UserNotFoundException(f"Không tìm thấy user với ID {user_id}")
@@ -188,18 +215,21 @@ class UsersService:
             # Soft delete the record
             user.deleted_at = datetime.now(timezone.utc)
 
-            db.commit()
+            await db.commit()
             return True
         except Exception as e:
-            db.rollback()
+            await db.rollback()
             raise UserValidationException(f"Lỗi khi xóa user: {str(e)}")
 
-    async def reset_user_password(self, user_id: int, reset_data: UserResetPassword, db: Session) -> UserResponse:
+    async def reset_user_password(self, user_id: int, reset_data: UserResetPassword, db: AsyncSession) -> UserResponse:
         """Reset user password"""
-        user = db.query(User).filter(
-            User.id == user_id,
-            User.deleted_at.is_(None)
-        ).first()
+        result = await db.execute(
+            select(User).where(
+                User.id == user_id,
+                User.deleted_at.is_(None)
+            )
+        )
+        user = result.scalar_one_or_none()
 
         if not user:
             raise UserNotFoundException(f"Không tìm thấy user với ID {user_id}")
@@ -211,8 +241,8 @@ class UsersService:
             # Update password
             user.hashed_password = hashed_password
 
-            db.commit()
-            db.refresh(user)
+            await db.commit()
+            await db.refresh(user)
 
             if user.email:
                 try:
@@ -231,6 +261,6 @@ class UsersService:
 
             return UserResponse.from_orm(user)
         except Exception as e:
-            db.rollback()
+            await db.rollback()
             raise UserValidationException(f"Lỗi khi reset password: {str(e)}")
 

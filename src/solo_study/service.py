@@ -5,7 +5,9 @@ import urllib.request
 import json
 import re
 from typing import List, Optional
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func, and_
+from sqlalchemy.orm import selectinload
 from fastapi import UploadFile
 import mutagen
 from mutagen.mp3 import MP3
@@ -46,7 +48,7 @@ class SoundService:
             print(f"Warning: Could not extract duration from {file_path}: {e}")
         return None
 
-    def create_sound(self, sound_data: SoundCreate, db: Session) -> SoundResponse:
+    async def create_sound(self, sound_data: SoundCreate, db: AsyncSession) -> SoundResponse:
         """Create a new sound"""
         try:
             sound = Sound(
@@ -55,114 +57,138 @@ class SoundService:
                 file_size=None,       # Will be set when file is uploaded
                 duration=None         # Will be set when file is uploaded
             )
-            
+
             db.add(sound)
-            db.commit()
-            db.refresh(sound)
-            
+            await db.commit()
+            await db.refresh(sound)
+
             return SoundResponse.from_orm(sound)
         except Exception as e:
-            db.rollback()
+            await db.rollback()
             raise SoundValidationException(f"Lỗi khi tạo âm thanh: {str(e)}")
 
-    def get_sounds(self, db: Session, pagination: PaginationParams) -> PaginatedResponse[SoundResponse]:
+    async def get_sounds(self, db: AsyncSession, pagination: PaginationParams) -> PaginatedResponse[SoundResponse]:
         """Get all sounds with pagination"""
         try:
             # Get total count
-            total = db.query(Sound).filter(Sound.deleted_at.is_(None)).count()
-            
+            count_result = await db.execute(select(func.count(Sound.id)).where(Sound.deleted_at.is_(None)))
+            total = count_result.scalar() or 0
+
             # Get paginated results
             offset = (pagination.page - 1) * pagination.size
-            sounds = db.query(Sound).filter(Sound.deleted_at.is_(None)).offset(offset).limit(pagination.size).all()
-            
+            result = await db.execute(
+                select(Sound).where(Sound.deleted_at.is_(None)
+                                    ).offset(offset).limit(pagination.size)
+            )
+            sounds = result.scalars().all()
+
             # Convert to response objects
-            sound_responses = [SoundResponse.from_orm(sound) for sound in sounds]
-            
+            sound_responses = [SoundResponse.from_orm(
+                sound) for sound in sounds]
+
             # Return paginated response
             return paginate(sound_responses, total, pagination.page, pagination.size)
         except Exception as e:
-            raise SoundValidationException(f"Lỗi khi lấy danh sách âm thanh: {str(e)}")
+            raise SoundValidationException(
+                f"Lỗi khi lấy danh sách âm thanh: {str(e)}")
 
-    def get_sound_by_id(self, sound_id: int, db: Session) -> SoundResponse:
+    async def get_sound_by_id(self, sound_id: int, db: AsyncSession) -> SoundResponse:
         """Get sound by ID"""
-        sound = db.query(Sound).filter(
-            Sound.id == sound_id,
-            Sound.deleted_at.is_(None)
-        ).first()
-        
+        result = await db.execute(
+            select(Sound).where(
+                Sound.id == sound_id,
+                Sound.deleted_at.is_(None)
+            )
+        )
+        sound = result.scalar_one_or_none()
+
         if not sound:
-            raise SoundNotFoundException(f"Không tìm thấy âm thanh với ID {sound_id}")
-        
+            raise SoundNotFoundException(
+                f"Không tìm thấy âm thanh với ID {sound_id}")
+
         return SoundResponse.from_orm(sound)
 
-    def update_sound(self, sound_id: int, sound_data: SoundUpdate, db: Session) -> SoundResponse:
+    async def update_sound(self, sound_id: int, sound_data: SoundUpdate, db: AsyncSession) -> SoundResponse:
         """Update sound"""
-        sound = db.query(Sound).filter(
-            Sound.id == sound_id,
-            Sound.deleted_at.is_(None)
-        ).first()
-        
+        result = await db.execute(
+            select(Sound).where(
+                Sound.id == sound_id,
+                Sound.deleted_at.is_(None)
+            )
+        )
+        sound = result.scalar_one_or_none()
+
         if not sound:
-            raise SoundNotFoundException(f"Không tìm thấy âm thanh với ID {sound_id}")
-        
+            raise SoundNotFoundException(
+                f"Không tìm thấy âm thanh với ID {sound_id}")
+
         try:
             # Update only name field
             if sound_data.name is not None:
                 sound.name = sound_data.name
-            
-            db.commit()
-            db.refresh(sound)
-            
+
+            await db.commit()
+            await db.refresh(sound)
+
             return SoundResponse.from_orm(sound)
         except Exception as e:
-            db.rollback()
-            raise SoundValidationException(f"Lỗi khi cập nhật âm thanh: {str(e)}")
+            await db.rollback()
+            raise SoundValidationException(
+                f"Lỗi khi cập nhật âm thanh: {str(e)}")
 
-    def delete_sound(self, sound_id: int, db: Session) -> bool:
+    async def delete_sound(self, sound_id: int, db: AsyncSession) -> bool:
         """Soft delete sound"""
-        sound = db.query(Sound).filter(
-            Sound.id == sound_id,
-            Sound.deleted_at.is_(None)
-        ).first()
-        
+        result = await db.execute(
+            select(Sound).where(
+                Sound.id == sound_id,
+                Sound.deleted_at.is_(None)
+            )
+        )
+        sound = result.scalar_one_or_none()
+
         if not sound:
-            raise SoundNotFoundException(f"Không tìm thấy âm thanh với ID {sound_id}")
-        
+            raise SoundNotFoundException(
+                f"Không tìm thấy âm thanh với ID {sound_id}")
+
         try:
             # Delete file from S3 if exists
             if sound.sound_file_url:
                 self.storage_service.delete_file(sound.sound_file_url)
-            
+
             # Soft delete the record
             from datetime import datetime, timezone
             sound.deleted_at = datetime.now(timezone.utc)
-            
-            db.commit()
+
+            await db.commit()
             return True
         except Exception as e:
-            db.rollback()
+            await db.rollback()
             raise SoundDeleteException(f"Lỗi khi xóa âm thanh: {str(e)}")
 
-    def upload_sound_file(self, sound_id: int, sound_file: UploadFile, db: Session) -> SoundUploadResponse:
+    async def upload_sound_file(self, sound_id: int, sound_file: UploadFile, db: AsyncSession) -> SoundUploadResponse:
         """Upload sound file to AWS S3"""
         # Validate sound file
         if not sound_file.content_type or not sound_file.content_type.startswith("audio/"):
             raise SoundUploadException("File phải là âm thanh (audio/*)")
-        
+
         # Get sound record
-        sound = db.query(Sound).filter(
-            Sound.id == sound_id,
-            Sound.deleted_at.is_(None)
-        ).first()
-        
+        result = await db.execute(
+            select(Sound).where(
+                Sound.id == sound_id,
+                Sound.deleted_at.is_(None)
+            )
+        )
+        sound = result.scalar_one_or_none()
+
         if not sound:
-            raise SoundNotFoundException(f"Không tìm thấy âm thanh với ID {sound_id}")
-        
+            raise SoundNotFoundException(
+                f"Không tìm thấy âm thanh với ID {sound_id}")
+
         try:
             # Delete old file if exists
             if sound.sound_file_url:
                 self.storage_service.delete_file(sound.sound_file_url)
-            
+
             # Extract duration BEFORE uploading (file is still available in memory)
             duration = None
             try:
@@ -173,33 +199,34 @@ class SoundService:
                     content = sound_file.file.read()
                     tmp_file.write(content)
                     tmp_file_path = tmp_file.name
-                    
+
                     # Extract duration
                     duration = self._get_audio_duration(tmp_file_path)
-                    
+
                     # Clean up temp file
                     os.unlink(tmp_file_path)
             except Exception as e:
                 print(f"Warning: Could not extract duration: {e}")
-            
+
             # Reset file pointer to beginning for upload
             sound_file.file.seek(0)
-            
+
             # Upload new file to S3
             url = self.storage_service.upload_fileobj(
-                sound_file.file, 
-                sound_file.content_type, 
+                sound_file.file,
+                sound_file.content_type,
                 key_prefix="sounds/"
             )
-            
+
             # Update sound with new file info
             sound.sound_file_url = url
-            sound.file_size = sound_file.size if hasattr(sound_file, 'size') else None
+            sound.file_size = sound_file.size if hasattr(
+                sound_file, 'size') else None
             sound.duration = duration
-            
-            db.commit()
-            db.refresh(sound)
-            
+
+            await db.commit()
+            await db.refresh(sound)
+
             return SoundUploadResponse(
                 id=sound.id,
                 name=sound.name,
@@ -210,148 +237,199 @@ class SoundService:
                 updated_at=sound.updated_at
             )
         except Exception as e:
-            db.rollback()
-            raise SoundUploadException(f"Lỗi khi upload file âm thanh: {str(e)}")
+            await db.rollback()
+            raise SoundUploadException(
+                f"Lỗi khi upload file âm thanh: {str(e)}")
 
 
 # BackgroundVideoType Service
 class BackgroundVideoTypeService:
-    def create_type(self, type_data: BackgroundVideoTypeCreate, db: Session) -> BackgroundVideoTypeResponse:
+    async def create_type(self, type_data: BackgroundVideoTypeCreate, db: AsyncSession) -> BackgroundVideoTypeResponse:
         """Create a new background video type"""
         try:
             video_type = BackgroundVideoType(
                 name=type_data.name,
                 description=type_data.description
             )
-            
+
             db.add(video_type)
-            db.commit()
-            db.refresh(video_type)
-            
+            await db.commit()
+            await db.refresh(video_type)
+
             return BackgroundVideoTypeResponse.from_orm(video_type)
         except Exception as e:
-            db.rollback()
-            raise BackgroundVideoTypeValidationException(f"Lỗi khi tạo loại video nền: {str(e)}")
+            await db.rollback()
+            raise BackgroundVideoTypeValidationException(
+                f"Lỗi khi tạo loại video nền: {str(e)}")
 
-    def get_types(self, db: Session, pagination: PaginationParams) -> PaginatedResponse[BackgroundVideoTypeResponse]:
+    async def get_types(self, db: AsyncSession, pagination: PaginationParams) -> PaginatedResponse[BackgroundVideoTypeResponse]:
         """Get all background video types with pagination"""
         try:
-            total = db.query(BackgroundVideoType).filter(BackgroundVideoType.deleted_at.is_(None)).count()
-            
+            count_result = await db.execute(
+                select(func.count(BackgroundVideoType.id)).where(
+                    BackgroundVideoType.deleted_at.is_(None))
+            )
+            total = count_result.scalar() or 0
+
             offset = (pagination.page - 1) * pagination.size
-            types = db.query(BackgroundVideoType).filter(BackgroundVideoType.deleted_at.is_(None)).offset(offset).limit(pagination.size).all()
-            
-            type_responses = [BackgroundVideoTypeResponse.from_orm(t) for t in types]
-            
+            result = await db.execute(
+                select(BackgroundVideoType).where(
+                    BackgroundVideoType.deleted_at.is_(None))
+                .offset(offset).limit(pagination.size)
+            )
+            types = result.scalars().all()
+
+            type_responses = [
+                BackgroundVideoTypeResponse.from_orm(t) for t in types]
+
             return paginate(type_responses, total, pagination.page, pagination.size)
         except Exception as e:
-            raise BackgroundVideoTypeValidationException(f"Lỗi khi lấy danh sách loại video nền: {str(e)}")
+            raise BackgroundVideoTypeValidationException(
+                f"Lỗi khi lấy danh sách loại video nền: {str(e)}")
 
-    def get_type_by_id(self, type_id: int, db: Session) -> BackgroundVideoTypeResponse:
+    async def get_type_by_id(self, type_id: int, db: AsyncSession) -> BackgroundVideoTypeResponse:
         """Get background video type by ID"""
-        video_type = db.query(BackgroundVideoType).filter(
-            BackgroundVideoType.id == type_id,
-            BackgroundVideoType.deleted_at.is_(None)
-        ).first()
-        
+        result = await db.execute(
+            select(BackgroundVideoType).where(
+                BackgroundVideoType.id == type_id,
+                BackgroundVideoType.deleted_at.is_(None)
+            )
+        )
+        video_type = result.scalar_one_or_none()
+
         if not video_type:
-            raise BackgroundVideoTypeNotFoundException(f"Không tìm thấy loại video nền với ID {type_id}")
-        
+            raise BackgroundVideoTypeNotFoundException(
+                f"Không tìm thấy loại video nền với ID {type_id}")
+
         return BackgroundVideoTypeResponse.from_orm(video_type)
 
-    def update_type(self, type_id: int, type_data: BackgroundVideoTypeUpdate, db: Session) -> BackgroundVideoTypeResponse:
+    async def update_type(self, type_id: int, type_data: BackgroundVideoTypeUpdate, db: AsyncSession) -> BackgroundVideoTypeResponse:
         """Update background video type"""
-        video_type = db.query(BackgroundVideoType).filter(
-            BackgroundVideoType.id == type_id,
-            BackgroundVideoType.deleted_at.is_(None)
-        ).first()
-        
+        result = await db.execute(
+            select(BackgroundVideoType).where(
+                BackgroundVideoType.id == type_id,
+                BackgroundVideoType.deleted_at.is_(None)
+            )
+        )
+        video_type = result.scalar_one_or_none()
+
         if not video_type:
-            raise BackgroundVideoTypeNotFoundException(f"Không tìm thấy loại video nền với ID {type_id}")
-        
+            raise BackgroundVideoTypeNotFoundException(
+                f"Không tìm thấy loại video nền với ID {type_id}")
+
         try:
             if type_data.name is not None:
                 video_type.name = type_data.name
             if type_data.description is not None:
                 video_type.description = type_data.description
-            
-            db.commit()
-            db.refresh(video_type)
-            
+
+            await db.commit()
+            await db.refresh(video_type)
+
             return BackgroundVideoTypeResponse.from_orm(video_type)
         except Exception as e:
-            db.rollback()
-            raise BackgroundVideoTypeValidationException(f"Lỗi khi cập nhật loại video nền: {str(e)}")
+            await db.rollback()
+            raise BackgroundVideoTypeValidationException(
+                f"Lỗi khi cập nhật loại video nền: {str(e)}")
 
-    def delete_type(self, type_id: int, db: Session) -> bool:
+    async def delete_type(self, type_id: int, db: AsyncSession) -> bool:
         """Soft delete background video type"""
-        video_type = db.query(BackgroundVideoType).filter(
-            BackgroundVideoType.id == type_id,
-            BackgroundVideoType.deleted_at.is_(None)
-        ).first()
-        
+        result = await db.execute(
+            select(BackgroundVideoType).where(
+                BackgroundVideoType.id == type_id,
+                BackgroundVideoType.deleted_at.is_(None)
+            )
+        )
+        video_type = result.scalar_one_or_none()
+
         if not video_type:
-            raise BackgroundVideoTypeNotFoundException(f"Không tìm thấy loại video nền với ID {type_id}")
-        
+            raise BackgroundVideoTypeNotFoundException(
+                f"Không tìm thấy loại video nền với ID {type_id}")
+
         try:
             from datetime import datetime, timezone
             video_type.deleted_at = datetime.now(timezone.utc)
-            
-            db.commit()
+
+            await db.commit()
             return True
         except Exception as e:
-            db.rollback()
-            raise BackgroundVideoTypeValidationException(f"Lỗi khi xóa loại video nền: {str(e)}")
+            await db.rollback()
+            raise BackgroundVideoTypeValidationException(
+                f"Lỗi khi xóa loại video nền: {str(e)}")
 
 
 # BackgroundVideo Service
 class BackgroundVideoService:
-    def create_video(self, video_data: BackgroundVideoCreate, db: Session) -> BackgroundVideoResponse:
+    async def create_video(self, video_data: BackgroundVideoCreate, db: AsyncSession) -> BackgroundVideoResponse:
         """Create a new background video"""
         # Check if type exists
-        video_type = db.query(BackgroundVideoType).filter(
-            BackgroundVideoType.id == video_data.type_id,
-            BackgroundVideoType.deleted_at.is_(None)
-        ).first()
-        
+        result = await db.execute(
+            select(BackgroundVideoType).where(
+                BackgroundVideoType.id == video_data.type_id,
+                BackgroundVideoType.deleted_at.is_(None)
+            )
+        )
+        video_type = result.scalar_one_or_none()
+
         if not video_type:
-            raise BackgroundVideoValidationException(f"Không tìm thấy loại video nền với ID {video_data.type_id}")
-        
+            raise BackgroundVideoValidationException(
+                f"Không tìm thấy loại video nền với ID {video_data.type_id}")
+
         try:
             video = BackgroundVideo(
                 youtube_url=video_data.youtube_url,
                 image_url=None,  # Image will be uploaded separately
                 type_id=video_data.type_id
             )
-            
+
             db.add(video)
-            db.commit()
-            db.refresh(video)
+            await db.commit()
+            # Reload video with type relationship
+            await db.refresh(video)
+            # Eager load type relationship
+            result = await db.execute(
+                select(BackgroundVideo)
+                .options(selectinload(BackgroundVideo.type))
+                .where(BackgroundVideo.id == video.id)
+            )
+            video = result.scalar_one()
             
             return BackgroundVideoResponse(
                 id=video.id,
                 youtube_url=video.youtube_url,
                 image_url=video.image_url,
                 type_id=video.type_id,
-                type_name=video_type.name,
+                type_name=video.type.name if video.type else video_type.name,
                 created_at=video.created_at,
                 updated_at=video.updated_at
             )
         except Exception as e:
-            db.rollback()
-            raise BackgroundVideoValidationException(f"Lỗi khi tạo video nền: {str(e)}")
+            await db.rollback()
+            raise BackgroundVideoValidationException(
+                f"Lỗi khi tạo video nền: {str(e)}")
 
-    def get_videos(self, db: Session, pagination: PaginationParams, type_id: Optional[int] = None) -> PaginatedResponse[BackgroundVideoResponse]:
+    async def get_videos(self, db: AsyncSession, pagination: PaginationParams, type_id: Optional[int] = None) -> PaginatedResponse[BackgroundVideoResponse]:
         """Get all background videos with pagination, optionally filtered by type_id"""
         try:
-            base_query = db.query(BackgroundVideo).filter(BackgroundVideo.deleted_at.is_(None))
+            # Build conditions
+            conditions = [BackgroundVideo.deleted_at.is_(None)]
             if type_id is not None:
-                base_query = base_query.filter(BackgroundVideo.type_id == type_id)
+                conditions.append(BackgroundVideo.type_id == type_id)
 
-            total = base_query.count()
+            # Get total count
+            count_result = await db.execute(
+                select(func.count(BackgroundVideo.id)).where(and_(*conditions))
+            )
+            total = count_result.scalar() or 0
 
             offset = (pagination.page - 1) * pagination.size
-            videos = base_query.offset(offset).limit(pagination.size).all()
+            result = await db.execute(
+                select(BackgroundVideo)
+                .options(selectinload(BackgroundVideo.type))
+                .where(and_(*conditions))
+                .offset(offset).limit(pagination.size)
+            )
+            videos = result.scalars().all()
 
             video_responses = []
             for video in videos:
@@ -367,18 +445,25 @@ class BackgroundVideoService:
 
             return paginate(video_responses, total, pagination.page, pagination.size)
         except Exception as e:
-            raise BackgroundVideoValidationException(f"Lỗi khi lấy danh sách video nền: {str(e)}")
+            raise BackgroundVideoValidationException(
+                f"Lỗi khi lấy danh sách video nền: {str(e)}")
 
-    def get_video_by_id(self, video_id: int, db: Session) -> BackgroundVideoResponse:
+    async def get_video_by_id(self, video_id: int, db: AsyncSession) -> BackgroundVideoResponse:
         """Get background video by ID"""
-        video = db.query(BackgroundVideo).filter(
-            BackgroundVideo.id == video_id,
-            BackgroundVideo.deleted_at.is_(None)
-        ).first()
-        
+        result = await db.execute(
+            select(BackgroundVideo)
+            .options(selectinload(BackgroundVideo.type))
+            .where(
+                BackgroundVideo.id == video_id,
+                BackgroundVideo.deleted_at.is_(None)
+            )
+        )
+        video = result.scalar_one_or_none()
+
         if not video:
-            raise BackgroundVideoNotFoundException(f"Không tìm thấy video nền với ID {video_id}")
-        
+            raise BackgroundVideoNotFoundException(
+                f"Không tìm thấy video nền với ID {video_id}")
+
         return BackgroundVideoResponse(
             id=video.id,
             youtube_url=video.youtube_url,
@@ -389,36 +474,46 @@ class BackgroundVideoService:
             updated_at=video.updated_at
         )
 
-    def update_video(self, video_id: int, video_data: BackgroundVideoUpdate, db: Session) -> BackgroundVideoResponse:
+    async def update_video(self, video_id: int, video_data: BackgroundVideoUpdate, db: AsyncSession) -> BackgroundVideoResponse:
         """Update background video"""
-        video = db.query(BackgroundVideo).filter(
-            BackgroundVideo.id == video_id,
-            BackgroundVideo.deleted_at.is_(None)
-        ).first()
-        
+        result = await db.execute(
+            select(BackgroundVideo)
+            .options(selectinload(BackgroundVideo.type))
+            .where(
+                BackgroundVideo.id == video_id,
+                BackgroundVideo.deleted_at.is_(None)
+            )
+        )
+        video = result.scalar_one_or_none()
+
         if not video:
-            raise BackgroundVideoNotFoundException(f"Không tìm thấy video nền với ID {video_id}")
-        
+            raise BackgroundVideoNotFoundException(
+                f"Không tìm thấy video nền với ID {video_id}")
+
         try:
             # Check if type exists if type_id is being updated
             if video_data.type_id is not None:
-                video_type = db.query(BackgroundVideoType).filter(
-                    BackgroundVideoType.id == video_data.type_id,
-                    BackgroundVideoType.deleted_at.is_(None)
-                ).first()
-                
+                type_result = await db.execute(
+                    select(BackgroundVideoType).where(
+                        BackgroundVideoType.id == video_data.type_id,
+                        BackgroundVideoType.deleted_at.is_(None)
+                    )
+                )
+                video_type = type_result.scalar_one_or_none()
+
                 if not video_type:
-                    raise BackgroundVideoValidationException(f"Không tìm thấy loại video nền với ID {video_data.type_id}")
-                
+                    raise BackgroundVideoValidationException(
+                        f"Không tìm thấy loại video nền với ID {video_data.type_id}")
+
                 video.type_id = video_data.type_id
-            
+
             if video_data.youtube_url is not None:
                 video.youtube_url = video_data.youtube_url
             if video_data.image_url is not None:
                 video.image_url = video_data.image_url
-            
-            db.commit()
-            db.refresh(video)
+
+            await db.commit()
+            await db.refresh(video, ["type"])  # Refresh with relationship
             
             return BackgroundVideoResponse(
                 id=video.id,
@@ -430,43 +525,56 @@ class BackgroundVideoService:
                 updated_at=video.updated_at
             )
         except Exception as e:
-            db.rollback()
-            raise BackgroundVideoValidationException(f"Lỗi khi cập nhật video nền: {str(e)}")
+            await db.rollback()
+            raise BackgroundVideoValidationException(
+                f"Lỗi khi cập nhật video nền: {str(e)}")
 
-    def delete_video(self, video_id: int, db: Session) -> bool:
+    async def delete_video(self, video_id: int, db: AsyncSession) -> bool:
         """Soft delete background video"""
-        video = db.query(BackgroundVideo).filter(
-            BackgroundVideo.id == video_id,
-            BackgroundVideo.deleted_at.is_(None)
-        ).first()
-        
+        result = await db.execute(
+            select(BackgroundVideo).where(
+                BackgroundVideo.id == video_id,
+                BackgroundVideo.deleted_at.is_(None)
+            )
+        )
+        video = result.scalar_one_or_none()
+
         if not video:
-            raise BackgroundVideoNotFoundException(f"Không tìm thấy video nền với ID {video_id}")
-        
+            raise BackgroundVideoNotFoundException(
+                f"Không tìm thấy video nền với ID {video_id}")
+
         try:
             from datetime import datetime, timezone
             video.deleted_at = datetime.now(timezone.utc)
-            
-            db.commit()
+
+            await db.commit()
             return True
         except Exception as e:
-            db.rollback()
-            raise BackgroundVideoValidationException(f"Lỗi khi xóa video nền: {str(e)}")
+            await db.rollback()
+            raise BackgroundVideoValidationException(
+                f"Lỗi khi xóa video nền: {str(e)}")
 
-    def upload_image(self, video_id: int, image_file: UploadFile, db: Session) -> BackgroundVideoResponse:
+    async def upload_image(self, video_id: int, image_file: UploadFile, db: AsyncSession) -> BackgroundVideoResponse:
         """Upload image file for background video to AWS S3"""
         # Validate image file
         if not image_file.content_type or not image_file.content_type.startswith("image/"):
-            raise BackgroundVideoValidationException("File phải là hình ảnh (image/*)")
-        
+            raise BackgroundVideoValidationException(
+                "File phải là hình ảnh (image/*)")
+
         # Get video record
-        video = db.query(BackgroundVideo).filter(
-            BackgroundVideo.id == video_id,
-            BackgroundVideo.deleted_at.is_(None)
-        ).first()
+        result = await db.execute(
+            select(BackgroundVideo)
+            .options(selectinload(BackgroundVideo.type))
+            .where(
+                BackgroundVideo.id == video_id,
+                BackgroundVideo.deleted_at.is_(None)
+            )
+        )
+        video = result.scalar_one_or_none()
         
         if not video:
-            raise BackgroundVideoNotFoundException(f"Không tìm thấy video nền với ID {video_id}")
+            raise BackgroundVideoNotFoundException(
+                f"Không tìm thấy video nền với ID {video_id}")
         
         try:
             # Delete old image if exists
@@ -487,8 +595,8 @@ class BackgroundVideoService:
             # Update video with new image url
             video.image_url = url
             
-            db.commit()
-            db.refresh(video)
+            await db.commit()
+            await db.refresh(video, ["type"])  # Refresh with relationship
             
             return BackgroundVideoResponse(
                 id=video.id,
@@ -501,12 +609,13 @@ class BackgroundVideoService:
             )
         except Exception as e:
             db.rollback()
-            raise BackgroundVideoValidationException(f"Lỗi khi upload hình ảnh: {str(e)}")
+            raise BackgroundVideoValidationException(
+                f"Lỗi khi upload hình ảnh: {str(e)}")
 
 
 # SessionGoal Service
 class SessionGoalService:
-    def create_goal(self, goal_data: SessionGoalCreate, user_id: int, db: Session) -> SessionGoalResponse:
+    async def create_goal(self, goal_data: SessionGoalCreate, user_id: int, db: AsyncSession) -> SessionGoalResponse:
         """Create a new session goal"""
         try:
             goal = SessionGoal(
@@ -514,96 +623,121 @@ class SessionGoalService:
                 status=goal_data.status or SessionGoalsStatus.OPEN,
                 user_id=user_id
             )
-            
+
             db.add(goal)
-            db.commit()
-            db.refresh(goal)
-            
+            await db.commit()
+            await db.refresh(goal)
+
             return SessionGoalResponse.from_orm(goal)
         except Exception as e:
-            db.rollback()
-            raise SessionGoalValidationException(f"Lỗi khi tạo mục tiêu phiên học: {str(e)}")
+            await db.rollback()
+            raise SessionGoalValidationException(
+                f"Lỗi khi tạo mục tiêu phiên học: {str(e)}")
 
-    def get_goals(self, user_id: int, db: Session, pagination: PaginationParams, status: Optional[str] = None) -> PaginatedResponse[SessionGoalResponse]:
+    async def get_goals(self, user_id: int, db: AsyncSession, pagination: PaginationParams, status: Optional[str] = None) -> PaginatedResponse[SessionGoalResponse]:
         """Get all session goals for a user with pagination"""
         try:
-            query = db.query(SessionGoal).filter(
+            # Build conditions
+            conditions = [
+                SessionGoal.user_id == user_id,
+                SessionGoal.deleted_at.is_(None)
+            ]
+            if status:
+                conditions.append(SessionGoal.status == status)
+
+            # Get total count
+            count_result = await db.execute(
+                select(func.count(SessionGoal.id)).where(and_(*conditions))
+            )
+            total = count_result.scalar() or 0
+
+            offset = (pagination.page - 1) * pagination.size
+            result = await db.execute(
+                select(SessionGoal).where(and_(*conditions))
+                .offset(offset).limit(pagination.size)
+            )
+            goals = result.scalars().all()
+
+            goal_responses = [
+                SessionGoalResponse.from_orm(goal) for goal in goals]
+
+            return paginate(goal_responses, total, pagination.page, pagination.size)
+        except Exception as e:
+            raise SessionGoalValidationException(
+                f"Lỗi khi lấy danh sách mục tiêu phiên học: {str(e)}")
+
+    async def get_goal_by_id(self, goal_id: int, user_id: int, db: AsyncSession) -> SessionGoalResponse:
+        """Get session goal by ID"""
+        result = await db.execute(
+            select(SessionGoal).where(
+                SessionGoal.id == goal_id,
                 SessionGoal.user_id == user_id,
                 SessionGoal.deleted_at.is_(None)
             )
-            
-            if status:
-                query = query.filter(SessionGoal.status == status)
-            
-            total = query.count()
-            
-            offset = (pagination.page - 1) * pagination.size
-            goals = query.offset(offset).limit(pagination.size).all()
-            
-            goal_responses = [SessionGoalResponse.from_orm(goal) for goal in goals]
-            
-            return paginate(goal_responses, total, pagination.page, pagination.size)
-        except Exception as e:
-            raise SessionGoalValidationException(f"Lỗi khi lấy danh sách mục tiêu phiên học: {str(e)}")
+        )
+        goal = result.scalar_one_or_none()
 
-    def get_goal_by_id(self, goal_id: int, user_id: int, db: Session) -> SessionGoalResponse:
-        """Get session goal by ID"""
-        goal = db.query(SessionGoal).filter(
-            SessionGoal.id == goal_id,
-            SessionGoal.user_id == user_id,
-            SessionGoal.deleted_at.is_(None)
-        ).first()
-        
         if not goal:
-            raise SessionGoalNotFoundException(f"Không tìm thấy mục tiêu phiên học với ID {goal_id}")
-        
+            raise SessionGoalNotFoundException(
+                f"Không tìm thấy mục tiêu phiên học với ID {goal_id}")
+
         return SessionGoalResponse.from_orm(goal)
 
-    def update_goal(self, goal_id: int, goal_data: SessionGoalUpdate, user_id: int, db: Session) -> SessionGoalResponse:
+    async def update_goal(self, goal_id: int, goal_data: SessionGoalUpdate, user_id: int, db: AsyncSession) -> SessionGoalResponse:
         """Update session goal"""
-        goal = db.query(SessionGoal).filter(
-            SessionGoal.id == goal_id,
-            SessionGoal.user_id == user_id,
-            SessionGoal.deleted_at.is_(None)
-        ).first()
-        
+        result = await db.execute(
+            select(SessionGoal).where(
+                SessionGoal.id == goal_id,
+                SessionGoal.user_id == user_id,
+                SessionGoal.deleted_at.is_(None)
+            )
+        )
+        goal = result.scalar_one_or_none()
+
         if not goal:
-            raise SessionGoalNotFoundException(f"Không tìm thấy mục tiêu phiên học với ID {goal_id}")
-        
+            raise SessionGoalNotFoundException(
+                f"Không tìm thấy mục tiêu phiên học với ID {goal_id}")
+
         try:
             if goal_data.goal is not None:
                 goal.goal = goal_data.goal
             if goal_data.status is not None:
                 goal.status = goal_data.status
-            
-            db.commit()
-            db.refresh(goal)
-            
+
+            await db.commit()
+            await db.refresh(goal)
+
             return SessionGoalResponse.from_orm(goal)
         except Exception as e:
-            db.rollback()
-            raise SessionGoalValidationException(f"Lỗi khi cập nhật mục tiêu phiên học: {str(e)}")
+            await db.rollback()
+            raise SessionGoalValidationException(
+                f"Lỗi khi cập nhật mục tiêu phiên học: {str(e)}")
 
-    def delete_goal(self, goal_id: int, user_id: int, db: Session) -> bool:
+    async def delete_goal(self, goal_id: int, user_id: int, db: AsyncSession) -> bool:
         """Soft delete session goal"""
-        goal = db.query(SessionGoal).filter(
-            SessionGoal.id == goal_id,
-            SessionGoal.user_id == user_id,
-            SessionGoal.deleted_at.is_(None)
-        ).first()
-        
+        result = await db.execute(
+            select(SessionGoal).where(
+                SessionGoal.id == goal_id,
+                SessionGoal.user_id == user_id,
+                SessionGoal.deleted_at.is_(None)
+            )
+        )
+        goal = result.scalar_one_or_none()
+
         if not goal:
-            raise SessionGoalNotFoundException(f"Không tìm thấy mục tiêu phiên học với ID {goal_id}")
-        
+            raise SessionGoalNotFoundException(
+                f"Không tìm thấy mục tiêu phiên học với ID {goal_id}")
+
         try:
             from datetime import datetime, timezone
             goal.deleted_at = datetime.now(timezone.utc)
-            
-            db.commit()
+
+            await db.commit()
             return True
         except Exception as e:
-            db.rollback()
-            raise SessionGoalValidationException(f"Lỗi khi xóa mục tiêu phiên học: {str(e)}")
+            await db.rollback()
+            raise SessionGoalValidationException(
+                f"Lỗi khi xóa mục tiêu phiên học: {str(e)}")
 
 
 # UserFavoriteVideo Service
@@ -618,12 +752,12 @@ class UserFavoriteVideoService:
             r'(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)',
             r'youtube\.com\/watch\?.*v=([^&\n?#]+)',
         ]
-        
+
         for pattern in patterns:
             match = re.search(pattern, url)
             if match:
                 return match.group(1)
-        
+
         return None
 
     def _get_youtube_metadata(self, video_id: str) -> dict:
@@ -654,29 +788,34 @@ class UserFavoriteVideoService:
                 "thumbnail_url": ""
             }
 
-    def create_favorite_video(self, video_data: UserFavoriteVideoCreate, user_id: int, db: Session) -> UserFavoriteVideoResponse:
+    async def create_favorite_video(self, video_data: UserFavoriteVideoCreate, user_id: int, db: AsyncSession) -> UserFavoriteVideoResponse:
         """Create a new favorite video for user"""
         try:
             # Extract video ID from URL
             video_id = self._extract_youtube_video_id(video_data.youtube_url)
             if video_id is None:
-                raise UserFavoriteVideoValidationException("URL YouTube không hợp lệ")
+                raise UserFavoriteVideoValidationException(
+                    "URL YouTube không hợp lệ")
 
             # Build canonical YouTube URL using only v param
             canonical_url = f"https://www.youtube.com/watch?v={video_id}"
 
             # Check duplicates by canonical URL
-            existing_video = db.query(UserFavoriteVideo).filter(
-                UserFavoriteVideo.user_id == user_id,
-                UserFavoriteVideo.youtube_url == canonical_url,
-                UserFavoriteVideo.deleted_at.is_(None)
-            ).first()
+            result = await db.execute(
+                select(UserFavoriteVideo).where(
+                    UserFavoriteVideo.user_id == user_id,
+                    UserFavoriteVideo.youtube_url == canonical_url,
+                    UserFavoriteVideo.deleted_at.is_(None)
+                )
+            )
+            existing_video = result.scalar_one_or_none()
             if existing_video:
-                raise UserFavoriteVideoAlreadyExistsException("Video này đã được thêm vào danh sách yêu thích")
+                raise UserFavoriteVideoAlreadyExistsException(
+                    "Video này đã được thêm vào danh sách yêu thích")
 
             # Get metadata from YouTube
             metadata = self._get_youtube_metadata(video_id)
-            
+
             # Create new favorite video
             favorite_video = UserFavoriteVideo(
                 user_id=user_id,
@@ -686,97 +825,120 @@ class UserFavoriteVideoService:
                 author_name=metadata.get("author_name", ""),
                 author_url=metadata.get("author_url", "")
             )
-            
+
             db.add(favorite_video)
-            db.commit()
-            db.refresh(favorite_video)
-            
+            await db.commit()
+            await db.refresh(favorite_video)
+
             return UserFavoriteVideoResponse.from_orm(favorite_video)
         except UserFavoriteVideoAlreadyExistsException:
             raise
         except UserFavoriteVideoValidationException:
             raise
         except Exception as e:
-            db.rollback()
-            raise UserFavoriteVideoValidationException(f"Lỗi khi tạo video yêu thích: {str(e)}")
+            await db.rollback()
+            raise UserFavoriteVideoValidationException(
+                f"Lỗi khi tạo video yêu thích: {str(e)}")
 
-    def get_favorite_videos(self, user_id: int, db: Session, pagination: PaginationParams) -> PaginatedResponse[UserFavoriteVideoResponse]:
+    async def get_favorite_videos(self, user_id: int, db: AsyncSession, pagination: PaginationParams) -> PaginatedResponse[UserFavoriteVideoResponse]:
         """Get all favorite videos for a user with pagination"""
         try:
             # Get total count
-            total = db.query(UserFavoriteVideo).filter(
-                UserFavoriteVideo.user_id == user_id,
-                UserFavoriteVideo.deleted_at.is_(None)
-            ).count()
-            
+            count_result = await db.execute(
+                select(func.count(UserFavoriteVideo.id)).where(
+                    UserFavoriteVideo.user_id == user_id,
+                    UserFavoriteVideo.deleted_at.is_(None)
+                )
+            )
+            total = count_result.scalar() or 0
+
             # Get paginated results
             offset = (pagination.page - 1) * pagination.size
-            videos = db.query(UserFavoriteVideo).filter(
-                UserFavoriteVideo.user_id == user_id,
-                UserFavoriteVideo.deleted_at.is_(None)
-            ).offset(offset).limit(pagination.size).all()
-            
+            result = await db.execute(
+                select(UserFavoriteVideo).where(
+                    UserFavoriteVideo.user_id == user_id,
+                    UserFavoriteVideo.deleted_at.is_(None)
+                ).offset(offset).limit(pagination.size)
+            )
+            videos = result.scalars().all()
+
             # Convert to response objects
-            video_responses = [UserFavoriteVideoResponse.from_orm(video) for video in videos]
-            
+            video_responses = [UserFavoriteVideoResponse.from_orm(
+                video) for video in videos]
+
             # Return paginated response
             return paginate(video_responses, total, pagination.page, pagination.size)
         except Exception as e:
-            raise UserFavoriteVideoValidationException(f"Lỗi khi lấy danh sách video yêu thích: {str(e)}")
+            raise UserFavoriteVideoValidationException(
+                f"Lỗi khi lấy danh sách video yêu thích: {str(e)}")
 
-    def get_favorite_video_by_id(self, video_id: int, user_id: int, db: Session) -> UserFavoriteVideoResponse:
+    async def get_favorite_video_by_id(self, video_id: int, user_id: int, db: AsyncSession) -> UserFavoriteVideoResponse:
         """Get favorite video by ID"""
-        video = db.query(UserFavoriteVideo).filter(
-            UserFavoriteVideo.id == video_id,
-            UserFavoriteVideo.user_id == user_id,
-            UserFavoriteVideo.deleted_at.is_(None)
-        ).first()
-        
+        result = await db.execute(
+            select(UserFavoriteVideo).where(
+                UserFavoriteVideo.id == video_id,
+                UserFavoriteVideo.user_id == user_id,
+                UserFavoriteVideo.deleted_at.is_(None)
+            )
+        )
+        video = result.scalar_one_or_none()
+
         if not video:
-            raise UserFavoriteVideoNotFoundException(f"Không tìm thấy video yêu thích với ID {video_id}")
-        
+            raise UserFavoriteVideoNotFoundException(
+                f"Không tìm thấy video yêu thích với ID {video_id}")
+
         return UserFavoriteVideoResponse.from_orm(video)
 
-    def update_favorite_video(self, video_id: int, video_data: UserFavoriteVideoUpdate, user_id: int, db: Session) -> UserFavoriteVideoResponse:
+    async def update_favorite_video(self, video_id: int, video_data: UserFavoriteVideoUpdate, user_id: int, db: AsyncSession) -> UserFavoriteVideoResponse:
         """Update favorite video"""
-        video = db.query(UserFavoriteVideo).filter(
-            UserFavoriteVideo.id == video_id,
-            UserFavoriteVideo.user_id == user_id,
-            UserFavoriteVideo.deleted_at.is_(None)
-        ).first()
-        
+        result = await db.execute(
+            select(UserFavoriteVideo).where(
+                UserFavoriteVideo.id == video_id,
+                UserFavoriteVideo.user_id == user_id,
+                UserFavoriteVideo.deleted_at.is_(None)
+            )
+        )
+        video = result.scalar_one_or_none()
+
         if not video:
-            raise UserFavoriteVideoNotFoundException(f"Không tìm thấy video yêu thích với ID {video_id}")
-        
+            raise UserFavoriteVideoNotFoundException(
+                f"Không tìm thấy video yêu thích với ID {video_id}")
+
         try:
             if video_data.name is not None:
                 video.name = video_data.name
-            
-            db.commit()
-            db.refresh(video)
-            
+
+            await db.commit()
+            await db.refresh(video)
+
             return UserFavoriteVideoResponse.from_orm(video)
         except Exception as e:
-            db.rollback()
-            raise UserFavoriteVideoValidationException(f"Lỗi khi cập nhật video yêu thích: {str(e)}")
+            await db.rollback()
+            raise UserFavoriteVideoValidationException(
+                f"Lỗi khi cập nhật video yêu thích: {str(e)}")
 
-    def delete_favorite_video(self, video_id: int, user_id: int, db: Session) -> bool:
+    async def delete_favorite_video(self, video_id: int, user_id: int, db: AsyncSession) -> bool:
         """Soft delete favorite video"""
-        video = db.query(UserFavoriteVideo).filter(
-            UserFavoriteVideo.id == video_id,
-            UserFavoriteVideo.user_id == user_id,
-            UserFavoriteVideo.deleted_at.is_(None)
-        ).first()
-        
+        result = await db.execute(
+            select(UserFavoriteVideo).where(
+                UserFavoriteVideo.id == video_id,
+                UserFavoriteVideo.user_id == user_id,
+                UserFavoriteVideo.deleted_at.is_(None)
+            )
+        )
+        video = result.scalar_one_or_none()
+
         if not video:
-            raise UserFavoriteVideoNotFoundException(f"Không tìm thấy video yêu thích với ID {video_id}")
-        
+            raise UserFavoriteVideoNotFoundException(
+                f"Không tìm thấy video yêu thích với ID {video_id}")
+
         try:
             from datetime import datetime, timezone
             video.deleted_at = datetime.now(timezone.utc)
-            
-            db.commit()
+
+            await db.commit()
             return True
         except Exception as e:
-            db.rollback()
-            raise UserFavoriteVideoValidationException(f"Lỗi khi xóa video yêu thích: {str(e)}")
+            await db.rollback()
+            raise UserFavoriteVideoValidationException(
+                f"Lỗi khi xóa video yêu thích: {str(e)}")

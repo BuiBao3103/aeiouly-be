@@ -1,5 +1,6 @@
 from fastapi import Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from src.posts.models import Post
 from src.database import get_db
 from src.users.models import User, UserRole
@@ -10,9 +11,9 @@ from src.posts.service import PostService
 def get_post_service() -> PostService:
     return PostService()
 
-def get_post_or_404(
+async def get_post_or_404(
     post_id: int,
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ) -> Post:
     """
     Lấy bài viết theo ID hoặc raise 404 nếu không tìm thấy
@@ -27,7 +28,10 @@ def get_post_or_404(
     Raises:
         PostNotFoundException: Nếu không tìm thấy bài viết
     """
-    post = db.query(Post).filter(Post.id == post_id).first()
+    result = await db.execute(
+        select(Post).where(Post.id == post_id)
+    )
+    post = result.scalar_one_or_none()
     if not post:
         raise PostNotFoundException()
     return post
@@ -60,9 +64,9 @@ def get_post_owner_or_403(
     # Không có quyền
     raise InsufficientPermissionsException("Bạn chỉ có thể chỉnh sửa bài viết của chính mình")
 
-def get_published_post_or_404(
+async def get_published_post_or_404(
     post_id: int,
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ) -> Post:
     """
     Lấy bài viết đã xuất bản theo ID hoặc raise 404
@@ -77,18 +81,21 @@ def get_published_post_or_404(
     Raises:
         PostNotFoundException: Nếu không tìm thấy hoặc chưa xuất bản
     """
-    post = db.query(Post).filter(
-        Post.id == post_id,
-        Post.is_published == True
-    ).first()
+    result = await db.execute(
+        select(Post).where(
+            Post.id == post_id,
+            Post.is_published == True
+        )
+    )
+    post = result.scalar_one_or_none()
     if not post:
         raise PostNotFoundException()
     return post
 
-def get_post_with_permission_check(
+async def get_post_with_permission_check(
     post_id: int,
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ) -> Post:
     """
     Lấy bài viết với kiểm tra quyền truy cập
@@ -97,7 +104,7 @@ def get_post_with_permission_check(
     - Tác giả: Có thể xem bài viết của mình (kể cả chưa xuất bản)
     - User khác: Chỉ xem được bài viết đã xuất bản
     """
-    post = get_post_or_404(post_id, db)
+    post = await get_post_or_404(post_id, db)
     
     # Admin có thể xem mọi bài viết
     if current_user.role == UserRole.ADMIN:

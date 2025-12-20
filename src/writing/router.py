@@ -3,7 +3,7 @@ Router for Writing Practice module
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 from src.writing.schemas import (
     WritingSessionCreate,
@@ -32,7 +32,7 @@ async def create_writing_session(
     session_data: WritingSessionCreate,
     current_user: User = Depends(get_current_active_user),
     service: WritingService = Depends(get_writing_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Tạo phiên luyện viết mới"""
     try:
@@ -50,7 +50,7 @@ async def get_writing_session(
     session_id: int,
     current_user: User = Depends(get_current_active_user),
     service: WritingService = Depends(get_writing_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Lấy thông tin phiên luyện viết"""
     session = await service.get_writing_session(session_id, current_user.id, db)
@@ -66,11 +66,11 @@ async def get_writing_sessions(
     pagination: PaginationParams = Depends(),
     current_user: User = Depends(get_current_active_user),
     service: WritingService = Depends(get_writing_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Lấy danh sách các phiên luyện viết (có phân trang)"""
     try:
-        sessions = service.get_user_writing_sessions(current_user.id, db)
+        sessions = await service.get_user_writing_sessions(current_user.id, db)
         total = len(sessions)
         offset = get_offset(pagination.page, pagination.size)
         items = sessions[offset: offset + pagination.size]
@@ -88,10 +88,10 @@ async def delete_writing_session(
     session_id: int,
     current_user: User = Depends(get_current_active_user),
     service: WritingService = Depends(get_writing_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Xóa phiên luyện viết"""
-    success = service.delete_writing_session(session_id, current_user.id, db)
+    success = await service.delete_writing_session(session_id, current_user.id, db)
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -103,10 +103,10 @@ async def complete_writing_session(
     session_id: int,
     current_user: User = Depends(get_current_active_user),
     service: WritingService = Depends(get_writing_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Kết thúc phiên luyện viết sớm"""
-    success = service.complete_writing_session(session_id, current_user.id, db)
+    success = await service.complete_writing_session(session_id, current_user.id, db)
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -120,7 +120,7 @@ async def send_chat_message(
     message_data: ChatMessageCreate,
     current_user: User = Depends(get_current_active_user),
     service: WritingService = Depends(get_writing_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Gửi tin nhắn và nhận phản hồi từ chatbot"""
     try:
@@ -138,11 +138,11 @@ async def get_chat_history(
     session_id: int,
     current_user: User = Depends(get_current_active_user),
     service: WritingService = Depends(get_writing_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Lấy lịch sử chat của phiên"""
     try:
-        return service.get_chat_history(session_id, current_user.id, db)
+        return await service.get_chat_history(session_id, current_user.id, db)
     except HTTPException as e:
         raise e
     except Exception as e:
@@ -156,7 +156,7 @@ async def get_translation_hint(
     session_id: int,
     current_user: User = Depends(get_current_active_user),
     service: WritingService = Depends(get_writing_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Lấy gợi ý dịch cho câu hiện tại"""
     try:
@@ -174,7 +174,7 @@ async def get_final_evaluation(
     session_id: int,
     current_user: User = Depends(get_current_active_user),
     service: WritingService = Depends(get_writing_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Lấy đánh giá tổng thể của phiên"""
     try:
@@ -192,7 +192,7 @@ async def skip_current_sentence(
     session_id: int,
     current_user: User = Depends(get_current_active_user),
     service: WritingService = Depends(get_writing_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Bỏ qua câu hiện tại và chuyển sang câu tiếp theo"""
     try:

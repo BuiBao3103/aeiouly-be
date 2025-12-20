@@ -3,8 +3,8 @@ Service layer for Writing Practice module
 """
 
 from typing import List, Optional
-from sqlalchemy.orm import Session
-from sqlalchemy import desc
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import desc, select
 from src.writing.models import WritingSession, WritingChatMessage, SessionStatus, CEFRLevel
 from src.writing.schemas import (
     WritingSessionCreate,
@@ -20,8 +20,9 @@ from google.adk.sessions import DatabaseSessionService
 from google.genai import types
 from datetime import datetime
 import json
-from src.config import get_database_url
-from src.database import SessionLocal
+from src.config import get_database_url, get_sync_database_url
+from src.database import AsyncSessionLocal
+import asyncio
 from src.utils.agent_utils import call_agent_with_logging, build_agent_query, get_agent_state, update_session_state
 import logging
 import random
@@ -41,8 +42,9 @@ logger = logging.getLogger(__name__)
 class WritingService:
     def __init__(self):
         # Use application DB config so ADK session tables live in the same PostgreSQL database
+        # DatabaseSessionService needs sync URL, not async
         self.session_service = DatabaseSessionService(
-            db_url=get_database_url())
+            db_url=get_sync_database_url())
 
         # Initialize runners for each agent
         # chat_agent handles chat_input and skip_button
@@ -80,30 +82,45 @@ class WritingService:
         Returns:
             True if the session was found and updated, False otherwise.
         """
-        db = SessionLocal()
+        async def _persist():
+            async with AsyncSessionLocal() as db:
+                try:
+                    result = await db.execute(
+                        select(WritingSession).where(WritingSession.id == session_id)
+                    )
+                    session = result.scalar_one_or_none()
+                    if not session:
+                        return False
+
+                    session.current_sentence_index = min(next_index, total_sentences)
+                    if next_index >= total_sentences:
+                        session.status = SessionStatus.COMPLETED
+
+                    await db.commit()
+                    return True
+                except Exception as exc:
+                    await db.rollback()
+                    logger.error(
+                        "Error persisting skip progress for session %s: %s",
+                        session_id,
+                        exc,
+                        exc_info=True,
+                    )
+                    return False
+        
         try:
-            session = db.query(WritingSession).filter(
-                WritingSession.id == session_id).first()
-            if not session:
-                return False
-
-            session.current_sentence_index = min(next_index, total_sentences)
-            if next_index >= total_sentences:
-                session.status = SessionStatus.COMPLETED
-
-            db.commit()
-            return True
-        except Exception as exc:
-            db.rollback()
-            logger.error(
-                "Error persisting skip progress for session %s: %s",
-                session_id,
-                exc,
-                exc_info=True,
-            )
-            return False
-        finally:
-            db.close()
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # If loop is already running, create a task
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(asyncio.run, _persist())
+                    return future.result()
+            else:
+                return loop.run_until_complete(_persist())
+        except RuntimeError:
+            # No event loop, create a new one
+            return asyncio.run(_persist())
 
     @staticmethod
     def create_skip_assistant_message(session_id: int, message: str, sentence_index: int) -> bool:
@@ -118,34 +135,47 @@ class WritingService:
         Returns:
             True if message was created successfully, False otherwise
         """
-        db = SessionLocal()
+        async def _create():
+            async with AsyncSessionLocal() as db:
+                try:
+                    assistant_message = WritingChatMessage(
+                        session_id=session_id,
+                        role="assistant",
+                        content=message,
+                        sentence_index=sentence_index
+                    )
+                    db.add(assistant_message)
+                    await db.commit()
+                    return True
+                except Exception as exc:
+                    await db.rollback()
+                    logger.error(
+                        "Error creating skip assistant message for session %s: %s",
+                        session_id,
+                        exc,
+                        exc_info=True,
+                    )
+                    return False
+        
         try:
-            assistant_message = WritingChatMessage(
-                session_id=session_id,
-                role="assistant",
-                content=message,
-                sentence_index=sentence_index
-            )
-            db.add(assistant_message)
-            db.commit()
-            return True
-        except Exception as exc:
-            db.rollback()
-            logger.error(
-                "Error creating skip assistant message for session %s: %s",
-                session_id,
-                exc,
-                exc_info=True,
-            )
-            return False
-        finally:
-            db.close()
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # If loop is already running, create a task
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(asyncio.run, _create())
+                    return future.result()
+            else:
+                return loop.run_until_complete(_create())
+        except RuntimeError:
+            # No event loop, create a new one
+            return asyncio.run(_create())
 
     async def create_writing_session(
         self,
         user_id: int,
         session_data: WritingSessionCreate,
-        db: Session
+        db: AsyncSession
     ) -> WritingSessionResponse:
         """Create a new writing practice session"""
         try:
@@ -160,8 +190,8 @@ class WritingService:
             )
 
             db.add(db_session)
-            db.commit()
-            db.refresh(db_session)
+            await db.commit()
+            await db.refresh(db_session)
 
             # Initialize agent session
             # Note: vietnamese_sentences will be created by agent's output_key when it runs
@@ -251,7 +281,7 @@ class WritingService:
 
             # Update database with generated sentences
             db_session.vietnamese_sentences = sentences
-            db.commit()
+            await db.commit()
 
             # create first assistant message (randomized prompt)
             prompt_templates = [
@@ -269,7 +299,7 @@ class WritingService:
                 sentence_index=0
             )
             db.add(assistant_message)
-            db.commit()
+            await db.commit()
 
             return WritingSessionResponse(
                 id=db_session.id,
@@ -287,16 +317,19 @@ class WritingService:
             )
 
         except Exception as e:
-            db.rollback()
+            await db.rollback()
             raise HTTPException(
                 status_code=500, detail=f"Lỗi khi tạo phiên luyện viết: {str(e)}")
 
-    async def get_writing_session(self, session_id: int, user_id: int, db: Session) -> Optional[WritingSessionResponse]:
+    async def get_writing_session(self, session_id: int, user_id: int, db: AsyncSession) -> Optional[WritingSessionResponse]:
         """Get a specific writing session"""
-        session = db.query(WritingSession).filter(
-            WritingSession.id == session_id,
-            WritingSession.user_id == user_id
-        ).first()
+        result = await db.execute(
+            select(WritingSession).where(
+                WritingSession.id == session_id,
+                WritingSession.user_id == user_id
+            )
+        )
+        session = result.scalar_one_or_none()
 
         if not session:
             return None
@@ -360,11 +393,14 @@ class WritingService:
             updated_at=session.updated_at
         )
 
-    def get_user_writing_sessions(self, user_id: int, db: Session) -> List[WritingSessionListResponse]:
+    async def get_user_writing_sessions(self, user_id: int, db: AsyncSession) -> List[WritingSessionListResponse]:
         """Get all writing sessions for a user"""
-        sessions = db.query(WritingSession).filter(
-            WritingSession.user_id == user_id
-        ).order_by(desc(WritingSession.created_at)).all()
+        result = await db.execute(
+            select(WritingSession).where(
+                WritingSession.user_id == user_id
+            ).order_by(desc(WritingSession.created_at))
+        )
+        sessions = result.scalars().all()
 
         return [
             WritingSessionListResponse(
@@ -379,32 +415,38 @@ class WritingService:
             for session in sessions
         ]
 
-    def delete_writing_session(self, session_id: int, user_id: int, db: Session) -> bool:
+    async def delete_writing_session(self, session_id: int, user_id: int, db: AsyncSession) -> bool:
         """Delete a writing session"""
-        session = db.query(WritingSession).filter(
-            WritingSession.id == session_id,
-            WritingSession.user_id == user_id
-        ).first()
+        result = await db.execute(
+            select(WritingSession).where(
+                WritingSession.id == session_id,
+                WritingSession.user_id == user_id
+            )
+        )
+        session = result.scalar_one_or_none()
 
         if not session:
             return False
 
-        db.delete(session)
-        db.commit()
+        await db.delete(session)
+        await db.commit()
         return True
 
-    def complete_writing_session(self, session_id: int, user_id: int, db: Session) -> bool:
+    async def complete_writing_session(self, session_id: int, user_id: int, db: AsyncSession) -> bool:
         """Complete a writing session"""
-        session = db.query(WritingSession).filter(
-            WritingSession.id == session_id,
-            WritingSession.user_id == user_id
-        ).first()
+        result = await db.execute(
+            select(WritingSession).where(
+                WritingSession.id == session_id,
+                WritingSession.user_id == user_id
+            )
+        )
+        session = result.scalar_one_or_none()
 
         if not session:
             return False
 
         session.status = SessionStatus.COMPLETED
-        db.commit()
+        await db.commit()
         return True
 
     async def send_chat_message(
@@ -412,15 +454,18 @@ class WritingService:
         session_id: int,
         user_id: int,
         message_data: ChatMessageCreate,
-        db: Session
+        db: AsyncSession
     ) -> ChatMessageResponse:
         """Send a chat message and get agent response"""
         try:
             # Get session
-            session = db.query(WritingSession).filter(
-                WritingSession.id == session_id,
-                WritingSession.user_id == user_id
-            ).first()
+            result = await db.execute(
+                select(WritingSession).where(
+                    WritingSession.id == session_id,
+                    WritingSession.user_id == user_id
+                )
+            )
+            session = result.scalar_one_or_none()
 
             if not session:
                 raise HTTPException(
@@ -434,7 +479,7 @@ class WritingService:
                 sentence_index=session.current_sentence_index
             )
             db.add(user_message)
-            db.commit()
+            await db.commit()
 
             # Note: current_vietnamese_sentence is managed by callbacks/tools
             # We don't need to manually update it here (that would be the WRONG way)
@@ -478,7 +523,7 @@ class WritingService:
                 raise HTTPException(
                     status_code=500, detail="Agent không tạo được phản hồi")
 
-            db.refresh(session)
+            await db.refresh(session)
             # Save agent response
             agent_message = WritingChatMessage(
                 session_id=session_id,
@@ -490,10 +535,10 @@ class WritingService:
 
             # Update sentence index will be handled by agent tools
 
-            db.commit()
+            await db.commit()
 
             # Update session if needed
-            db.refresh(session)
+            await db.refresh(session)
 
             return ChatMessageResponse(
                 id=agent_message.id,
@@ -506,23 +551,29 @@ class WritingService:
             )
 
         except Exception as e:
-            db.rollback()
+            await db.rollback()
             raise ValueError(f"Error sending chat message: {str(e)}")
 
-    def get_chat_history(self, session_id: int, user_id: int, db: Session) -> List[ChatMessageResponse]:
+    async def get_chat_history(self, session_id: int, user_id: int, db: AsyncSession) -> List[ChatMessageResponse]:
         """Get chat history for a session"""
         # Verify session belongs to user
-        session = db.query(WritingSession).filter(
-            WritingSession.id == session_id,
-            WritingSession.user_id == user_id
-        ).first()
+        result = await db.execute(
+            select(WritingSession).where(
+                WritingSession.id == session_id,
+                WritingSession.user_id == user_id
+            )
+        )
+        session = result.scalar_one_or_none()
 
         if not session:
             return []
 
-        messages = db.query(WritingChatMessage).filter(
-            WritingChatMessage.session_id == session_id
-        ).order_by(WritingChatMessage.created_at).all()
+        result = await db.execute(
+            select(WritingChatMessage).where(
+                WritingChatMessage.session_id == session_id
+            ).order_by(WritingChatMessage.created_at)
+        )
+        messages = result.scalars().all()
 
         return [
             ChatMessageResponse(
@@ -537,14 +588,17 @@ class WritingService:
             for msg in messages
         ]
 
-    async def get_translation_hint(self, session_id: int, user_id: int, db: Session) -> HintResponse:
+    async def get_translation_hint(self, session_id: int, user_id: int, db: AsyncSession) -> HintResponse:
         """Get translation hint for current sentence"""
         try:
             # Get session
-            session = db.query(WritingSession).filter(
-                WritingSession.id == session_id,
-                WritingSession.user_id == user_id
-            ).first()
+            result = await db.execute(
+                select(WritingSession).where(
+                    WritingSession.id == session_id,
+                    WritingSession.user_id == user_id
+                )
+            )
+            session = result.scalar_one_or_none()
 
             if not session:
                 raise HTTPException(
@@ -663,14 +717,17 @@ class WritingService:
             raise HTTPException(
                 status_code=500, detail=f"Lỗi khi lấy gợi ý: {msg}")
 
-    async def get_final_evaluation(self, session_id: int, user_id: int, db: Session) -> FinalEvaluationResponse:
+    async def get_final_evaluation(self, session_id: int, user_id: int, db: AsyncSession) -> FinalEvaluationResponse:
         """Get final evaluation for completed session"""
         try:
             # Get session
-            session = db.query(WritingSession).filter(
-                WritingSession.id == session_id,
-                WritingSession.user_id == user_id
-            ).first()
+            result = await db.execute(
+                select(WritingSession).where(
+                    WritingSession.id == session_id,
+                    WritingSession.user_id == user_id
+                )
+            )
+            session = result.scalar_one_or_none()
 
             if not session:
                 raise HTTPException(
@@ -787,13 +844,16 @@ class WritingService:
             return sentences[index]
         return None
 
-    async def skip_current_sentence(self, session_id: int, user_id: int, db: Session) -> ChatMessageResponse:
+    async def skip_current_sentence(self, session_id: int, user_id: int, db: AsyncSession) -> ChatMessageResponse:
         """Skip current sentence and move to next one, updating state directly."""
         try:
-            session = db.query(WritingSession).filter(
-                WritingSession.id == session_id,
-                WritingSession.user_id == user_id
-            ).first()
+            result = await db.execute(
+                select(WritingSession).where(
+                    WritingSession.id == session_id,
+                    WritingSession.user_id == user_id
+                )
+            )
+            session = result.scalar_one_or_none()
 
             if not session:
                 raise HTTPException(
@@ -828,7 +888,7 @@ class WritingService:
                 # Update database
                 session.current_sentence_index = total_sentences
                 session.status = SessionStatus.COMPLETED
-                db.commit()
+                await db.commit()
                 
                 # Update agent state
                 await update_session_state(
@@ -875,7 +935,7 @@ class WritingService:
                 
                 # Update database
                 session.current_sentence_index = next_index
-                db.commit()
+                await db.commit()
                 
                 # Update agent state
                 state_delta = {
@@ -903,8 +963,8 @@ class WritingService:
                 sentence_index=next_index
             )
             db.add(assistant_message)
-            db.commit()
-            db.refresh(assistant_message)
+            await db.commit()
+            await db.refresh(assistant_message)
 
             return ChatMessageResponse(
                 id=assistant_message.id,
@@ -919,7 +979,7 @@ class WritingService:
         except HTTPException:
             raise
         except Exception as e:
-            db.rollback()
+            await db.rollback()
             logger.error(f"Error skipping sentence: {e}", exc_info=True)
             raise HTTPException(
                 status_code=500, detail=f"Lỗi khi bỏ qua câu: {str(e)}")

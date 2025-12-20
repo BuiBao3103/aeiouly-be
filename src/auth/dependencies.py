@@ -1,6 +1,7 @@
 from fastapi import Depends, HTTPException, status, Request, Response, WebSocket
 from jose import JWTError, jwt
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from src.users.models import User
 from src.auth.models import RefreshToken
 from src.auth.exceptions import (
@@ -47,15 +48,15 @@ def get_token_from_cookie_or_header(request: Request) -> str:
 
 async def get_current_user(
     token: str = Depends(get_token_from_cookie_or_header),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ) -> User:
 
-    user = resolve_user_from_token(token, db)
+    user = await resolve_user_from_token(token, db)
     if user is None:
         raise TokenNotValidException()
     return user
 
-def resolve_user_from_token(token: str, db: Session) -> Optional[User]:
+async def resolve_user_from_token(token: str, db: AsyncSession) -> Optional[User]:
     """Decode JWT and resolve to a User or return None if invalid."""
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
@@ -66,13 +67,22 @@ def resolve_user_from_token(token: str, db: Session) -> Optional[User]:
 
     user: Optional[User] = None
     if username_claim:
-        user = db.query(User).filter(User.username == username_claim).first()
+        result = await db.execute(
+            select(User).where(User.username == username_claim)
+        )
+        user = result.scalar_one_or_none()
     elif subject is not None:
         try:
             user_id = int(subject)
-            user = db.query(User).filter(User.id == user_id).first()
+            result = await db.execute(
+                select(User).where(User.id == user_id)
+            )
+            user = result.scalar_one_or_none()
         except (TypeError, ValueError):
-            user = db.query(User).filter(User.username == str(subject)).first()
+            result = await db.execute(
+                select(User).where(User.username == str(subject))
+            )
+            user = result.scalar_one_or_none()
     return user
 
 async def get_current_active_user(current_user: User = Depends(get_current_user)) -> User:
@@ -119,7 +129,7 @@ async def validate_token_optional(request: Request) -> Optional[dict]:
 
 async def get_current_user_optional(
     request: Request,
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ) -> Optional[User]:
     """
     Get current user optionally - returns User if authenticated, None if not
@@ -143,13 +153,22 @@ async def get_current_user_optional(
 
         user: Optional[User] = None
         if username_claim:
-            user = db.query(User).filter(User.username == username_claim).first()
+            result = await db.execute(
+                select(User).where(User.username == username_claim)
+            )
+            user = result.scalar_one_or_none()
         elif subject is not None:
             try:
                 user_id = int(subject)
-                user = db.query(User).filter(User.id == user_id).first()
+                result = await db.execute(
+                    select(User).where(User.id == user_id)
+                )
+                user = result.scalar_one_or_none()
             except (TypeError, ValueError):
-                user = db.query(User).filter(User.username == str(subject)).first()
+                result = await db.execute(
+                    select(User).where(User.username == str(subject))
+                )
+                user = result.scalar_one_or_none()
 
         if user is None or not user.is_active:
             return None
@@ -159,7 +178,7 @@ async def get_current_user_optional(
         return None
 
 
-def resolve_user_from_websocket(websocket: WebSocket, db: Session) -> Optional[User]:
+async def resolve_user_from_websocket(websocket: WebSocket, db: AsyncSession) -> Optional[User]:
     """Resolve user from WebSocket connection (token from cookies or query params).
     
     Note: Some browsers may not send cookies in WebSocket handshake.
@@ -198,6 +217,6 @@ def resolve_user_from_websocket(websocket: WebSocket, db: Session) -> Optional[U
             return None
         
         # Resolve user from token
-        return resolve_user_from_token(token, db)
+        return await resolve_user_from_token(token, db)
     except Exception:
         return None

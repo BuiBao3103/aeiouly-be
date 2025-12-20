@@ -2,8 +2,8 @@ from typing import List, Optional
 import re
 import os
 from pathlib import Path
-from sqlalchemy.orm import Session
-from sqlalchemy import func, or_, and_, case
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import func, select, or_, and_, case
 from google.cloud import translate_v2 as translate
 from src.dictionary.models import Dictionary
 from src.dictionary.schemas import (
@@ -66,7 +66,7 @@ class DictionaryService:
 
     async def search_words(
         self, 
-        db: Session, 
+        db: AsyncSession, 
         request: DictionarySearchRequest
     ) -> DictionarySearchResponse:
         """
@@ -90,19 +90,20 @@ class DictionaryService:
         for base_form in base_forms:
             search_conditions.append(Dictionary.expression.ilike(f"{base_form}%"))
         
-        search_query = db.query(Dictionary).filter(
-            or_(*search_conditions)
-        ).order_by(
-            # Prioritize exact matches first
-            case(
-                (Dictionary.expression.ilike(f"%{query}%"), 1),
-                else_=2
-            ),
-            Dictionary.expression.asc()
-        ).limit(limit)
-
         # Get results
-        results = search_query.all()
+        result = await db.execute(
+            select(Dictionary).where(
+                or_(*search_conditions)
+            ).order_by(
+                # Prioritize exact matches first
+                case(
+                    (Dictionary.expression.ilike(f"%{query}%"), 1),
+                    else_=2
+                ),
+                Dictionary.expression.asc()
+            ).limit(limit)
+        )
+        results = result.scalars().all()
         
         # Convert to response format
         dictionary_results = [
@@ -115,10 +116,12 @@ class DictionaryService:
         ]
 
         # Get total count for the same query (without limit)
-        total_query = db.query(Dictionary).filter(
-            or_(*search_conditions)
+        count_result = await db.execute(
+            select(func.count(Dictionary.id)).where(
+                or_(*search_conditions)
+            )
         )
-        total = total_query.count()
+        total = count_result.scalar() or 0
 
         return DictionarySearchResponse(
             results=dictionary_results,
@@ -127,39 +130,45 @@ class DictionaryService:
             limit=limit
         )
 
-    async def get_word_by_id(self, db: Session, word_id: int) -> Optional[DictionaryResponse]:
+    async def get_word_by_id(self, db: AsyncSession, word_id: int) -> Optional[DictionaryResponse]:
         """
         Get a specific word by ID
         """
-        result = db.query(Dictionary).filter(Dictionary.id == word_id).first()
+        result = await db.execute(
+            select(Dictionary).where(Dictionary.id == word_id)
+        )
+        word = result.scalar_one_or_none()
         
-        if not result:
+        if not word:
             return None
             
         return DictionaryResponse(
-            id=result.id,
-            expression=result.expression,
-            definitions=result.definitions
+            id=word.id,
+            expression=word.expression,
+            definitions=word.definitions
         )
 
-    async def get_word_by_expression(self, db: Session, expression: str) -> Optional[DictionaryResponse]:
+    async def get_word_by_expression(self, db: AsyncSession, expression: str) -> Optional[DictionaryResponse]:
         """
         Get a specific word by exact expression match
         """
-        result = db.query(Dictionary).filter(
-            Dictionary.expression.ilike(expression.strip())
-        ).first()
+        result = await db.execute(
+            select(Dictionary).where(
+                Dictionary.expression.ilike(expression.strip())
+            )
+        )
+        word = result.scalar_one_or_none()
         
-        if not result:
+        if not word:
             return None
             
         return DictionaryResponse(
-            id=result.id,
-            expression=result.expression,
-            definitions=result.definitions
+            id=word.id,
+            expression=word.expression,
+            definitions=word.definitions
         )
 
-    async def find_single_word_with_suffixes(self, db: Session, word: str) -> Optional[DictionaryResponse]:
+    async def find_single_word_with_suffixes(self, db: AsyncSession, word: str) -> Optional[DictionaryResponse]:
         """
         Find a single word with suffix support (stemming)
         Returns the first match found
@@ -182,31 +191,37 @@ class DictionaryService:
             search_conditions.append(Dictionary.expression.ilike(f"{base_form}%"))
         
         # Find the first match with priority order
-        result = db.query(Dictionary).filter(
-            or_(*search_conditions)
-        ).order_by(
-            # Prioritize exact matches first
-            case(
-                (Dictionary.expression.ilike(word), 1),
-                else_=2
-            ),
-            Dictionary.expression.asc()
-        ).first()
+        result = await db.execute(
+            select(Dictionary).where(
+                or_(*search_conditions)
+            ).order_by(
+                # Prioritize exact matches first
+                case(
+                    (Dictionary.expression.ilike(word), 1),
+                    else_=2
+                ),
+                Dictionary.expression.asc()
+            ).limit(1)
+        )
+        word_result = result.scalar_one_or_none()
         
-        if not result:
+        if not word_result:
             return None
             
         return DictionaryResponse(
-            id=result.id,
-            expression=result.expression,
-            definitions=result.definitions
+            id=word_result.id,
+            expression=word_result.expression,
+            definitions=word_result.definitions
         )
 
-    async def get_random_words(self, db: Session, limit: int = 10) -> List[DictionaryResponse]:
+    async def get_random_words(self, db: AsyncSession, limit: int = 10) -> List[DictionaryResponse]:
         """
         Get random words from dictionary
         """
-        results = db.query(Dictionary).order_by(func.random()).limit(limit).all()
+        result = await db.execute(
+            select(Dictionary).order_by(func.random()).limit(limit)
+        )
+        results = result.scalars().all()
         
         return [
             DictionaryResponse(

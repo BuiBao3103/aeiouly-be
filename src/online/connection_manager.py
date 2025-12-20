@@ -2,7 +2,8 @@ from typing import Set, Dict
 import asyncio
 
 from fastapi import WebSocket
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from datetime import datetime
 from src.users.models import User
 from src.online.models import LoginStreakDaily
@@ -16,7 +17,7 @@ class ConnectionManager:
         # Timer để track 5 phút online cho streak (chỉ khi hôm qua có đăng nhập)
         self.streak_timers: Dict[int, asyncio.Task] = {}
 
-    async def connect(self, websocket: WebSocket, user_id: int, db: Session) -> None:
+    async def connect(self, websocket: WebSocket, user_id: int, db: AsyncSession) -> None:
         """Connect WebSocket (accepts connection first)."""
         await websocket.accept()
         self.active_connections.add(websocket)
@@ -38,7 +39,7 @@ class ConnectionManager:
             if not await self._check_today_has_streak(user_id, db):
                 await self._start_streak_timer(user_id)
 
-    async def disconnect(self, websocket: WebSocket, db: Session) -> None:
+    async def disconnect(self, websocket: WebSocket, db: AsyncSession) -> None:
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
 
@@ -60,38 +61,45 @@ class ConnectionManager:
                 self.streak_timers[user_id].cancel()
                 self.streak_timers.pop(user_id, None)
             try:
-                db.rollback()  # Rollback any failed transaction first
+                await db.rollback()  # Rollback any failed transaction first
                 await self._set_user_online_status(user_id, False, db)
             except Exception as e:  # pragma: no cover - just logging
                 print(f"Error in disconnect for user {user_id}: {e}")
-                db.rollback()
+                await db.rollback()
 
     async def _set_user_online_status(
-        self, user_id: int, is_online: bool, db: Session
+        self, user_id: int, is_online: bool, db: AsyncSession
     ) -> None:
         """Set user's online status"""
         try:
-            user = db.query(User).filter(User.id == user_id).first()
+            result = await db.execute(select(User).where(User.id == user_id))
+            user = result.scalar_one_or_none()
             if user:
                 user.is_online = is_online
-                db.commit()
+                await db.commit()
         except Exception as e:  # pragma: no cover - just logging
             print(f"Error setting online status for user {user_id}: {e}")
-            db.rollback()
+            await db.rollback()
 
-    async def _check_today_has_streak(self, user_id: int, db: Session) -> bool:
+    async def _check_today_has_streak(self, user_id: int, db: AsyncSession) -> bool:
         """Kiểm tra và cập nhật streak đăng nhập hằng ngày khi user kết nối socket.
         
         Returns:
             bool: True nếu cần timer 5 phút, False nếu không cần
         """
         try:
-            daily_record = db.query(LoginStreakDaily).filter(LoginStreakDaily.user_id == user_id, LoginStreakDaily.date == datetime.now().date()).first()
+            result = await db.execute(
+                select(LoginStreakDaily).where(
+                    LoginStreakDaily.user_id == user_id,
+                    LoginStreakDaily.date == datetime.now().date()
+                )
+            )
+            daily_record = result.scalar_one_or_none()
            
             return daily_record is not None
         except Exception as e:  # pragma: no cover - just logging
             print(f"Error checking daily streak for user {user_id}: {e}")
-            db.rollback()
+            await db.rollback()
             return False
 
     async def _start_streak_timer(self, user_id: int) -> None:

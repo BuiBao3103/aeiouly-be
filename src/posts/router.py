@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Query
 from typing import List, Optional
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from src.posts.schemas import PostCreate, PostUpdate, PostResponse, PostLikeResponse, PostListResponse
 from src.posts.service import PostService
 from src.posts.dependencies import get_post_service
@@ -17,7 +17,7 @@ async def create_post(
     post_data: PostCreate,
     current_user: User = Depends(get_current_active_user),
     service: PostService = Depends(get_post_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Tạo bài viết mới
@@ -42,7 +42,7 @@ async def get_posts(
     pagination: PaginationParams = Depends(), 
     current_user: Optional[User] = Depends(get_current_user_optional),
     service: PostService = Depends(get_post_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Lấy danh sách bài viết có phân trang
@@ -71,7 +71,7 @@ async def get_post(
     post_id: int, 
     current_user: Optional[User] = Depends(get_current_user_optional),
     service: PostService = Depends(get_post_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Lấy thông tin chi tiết bài viết theo ID
@@ -94,7 +94,7 @@ async def update_post(
     post_data: PostUpdate,
     current_user: User = Depends(get_current_active_user),
     service: PostService = Depends(get_post_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Cập nhật bài viết
@@ -121,7 +121,7 @@ async def delete_post(
     post_id: int,
     current_user: User = Depends(get_current_active_user),
     service: PostService = Depends(get_post_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Xóa bài viết
@@ -148,7 +148,7 @@ async def get_user_posts(
     pagination: PaginationParams = Depends(),
     current_user: Optional[User] = Depends(get_current_user_optional),
     service: PostService = Depends(get_post_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Lấy danh sách bài viết của một user cụ thể
@@ -177,7 +177,7 @@ async def toggle_post_like(
     post_id: int,
     current_user: User = Depends(get_current_active_user),
     service: PostService = Depends(get_post_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Like hoặc unlike một bài viết
@@ -208,7 +208,7 @@ async def upload_post_image(
     image: UploadFile = File(...),
     current_user: User = Depends(get_current_active_user),
     service: PostService = Depends(get_post_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Upload hình ảnh cho bài viết. Chỉ tác giả hoặc admin được phép.
@@ -226,7 +226,7 @@ async def get_all_posts_admin(
     include_draft: Optional[bool] = Query(None, description="True: chỉ lấy nháp, False: chỉ lấy đã xuất bản, None: lấy tất cả"),
     current_user: User = Depends(get_current_active_user),
     service: PostService = Depends(get_post_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Lấy tất cả bài viết (bao gồm nháp) - Chỉ admin mới có thể truy cập

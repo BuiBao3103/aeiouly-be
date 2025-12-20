@@ -20,8 +20,8 @@ from google.cloud.speech_v2.types import cloud_speech
 from google.api_core.client_options import ClientOptions
 
 from typing import List, Optional
-from sqlalchemy.orm import Session
-from sqlalchemy import desc
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import desc, select
 from src.speaking.schemas import (
     SpeechToTextResponse,
     SpeakingSessionCreate,
@@ -44,7 +44,7 @@ from src.speaking.models import SpeakingSession, SpeakingChatMessage
 from src.config import settings
 from google.adk.runners import Runner
 from google.adk.sessions import DatabaseSessionService
-from src.config import get_database_url
+from src.config import get_database_url, get_sync_database_url
 from src.utils.agent_utils import (
     call_agent_with_logging,
     build_agent_query,
@@ -107,7 +107,8 @@ class SpeakingService:
             logger.warning("GOOGLE_CLOUD_PROJECT_ID not set, speech-to-text may not work")
         
         # Initialize ADK session service and runner
-        self.session_service = DatabaseSessionService(db_url=get_database_url())
+        # DatabaseSessionService needs sync URL, not async
+        self.session_service = DatabaseSessionService(db_url=get_sync_database_url())
         
         # Initialize runner with speaking_practice (coordinator)
 
@@ -467,7 +468,7 @@ class SpeakingService:
         self,
         user_id: int,
         session_data: SpeakingSessionCreate,
-        db: Session
+        db: AsyncSession
     ) -> SpeakingSessionResponse:
         """Create a new speaking practice session"""
         try:
@@ -483,8 +484,8 @@ class SpeakingService:
             )
             
             db.add(db_session)
-            db.commit()
-            db.refresh(db_session)
+            await db.commit()
+            await db.refresh(db_session)
             
             # Initialize agent session
             await self.session_service.create_session(
@@ -546,7 +547,7 @@ class SpeakingService:
                 translation_sentence=translation_sentence
             )
             db.add(ai_message)
-            db.commit()
+            await db.commit()
             
             return SpeakingSessionResponse(
                 id=db_session.id,
@@ -562,7 +563,7 @@ class SpeakingService:
             )
             
         except Exception as e:
-            db.rollback()
+            await db.rollback()
             logger.error(f"Error creating speaking session: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Lỗi khi tạo phiên luyện nói: {str(e)}")
     
@@ -570,13 +571,16 @@ class SpeakingService:
         self,
         session_id: int,
         user_id: int,
-        db: Session
+        db: AsyncSession
     ) -> Optional[SpeakingSessionResponse]:
         """Get a specific speaking session"""
-        session = db.query(SpeakingSession).filter(
-            SpeakingSession.id == session_id,
-            SpeakingSession.user_id == user_id
-        ).first()
+        result = await db.execute(
+            select(SpeakingSession).where(
+                SpeakingSession.id == session_id,
+                SpeakingSession.user_id == user_id
+            )
+        )
+        session = result.scalar_one_or_none()
         
         if not session:
             return None
@@ -594,15 +598,18 @@ class SpeakingService:
             updated_at=session.updated_at
         )
     
-    def get_user_speaking_sessions(
+    async def get_user_speaking_sessions(
         self,
         user_id: int,
-        db: Session
+        db: AsyncSession
     ) -> List[SpeakingSessionListResponse]:
         """Get all speaking sessions for a user"""
-        sessions = db.query(SpeakingSession).filter(
-            SpeakingSession.user_id == user_id
-        ).order_by(desc(SpeakingSession.created_at)).all()
+        result = await db.execute(
+            select(SpeakingSession).where(
+                SpeakingSession.user_id == user_id
+            ).order_by(desc(SpeakingSession.created_at))
+        )
+        sessions = result.scalars().all()
         
         return [
             SpeakingSessionListResponse(
@@ -618,19 +625,85 @@ class SpeakingService:
             for session in sessions
         ]
     
-    def delete_speaking_session(self, session_id: int, user_id: int, db: Session) -> bool:
+    async def delete_speaking_session(self, session_id: int, user_id: int, db: AsyncSession) -> bool:
         """Delete a speaking session"""
-        session = db.query(SpeakingSession).filter(
-            SpeakingSession.id == session_id,
-            SpeakingSession.user_id == user_id
-        ).first()
+        result = await db.execute(
+            select(SpeakingSession).where(
+                SpeakingSession.id == session_id,
+                SpeakingSession.user_id == user_id
+            )
+        )
+        session = result.scalar_one_or_none()
         
         if not session:
             return False
         
-        db.delete(session)
-        db.commit()
+        await db.delete(session)
+        await db.commit()
         return True
+    
+    async def mark_session_completed(self, session_id: int, db: AsyncSession) -> bool:
+        """
+        Mark a speaking session as completed.
+        
+        Args:
+            session_id: The ID of the session to mark as completed
+            db: Database session
+            
+        Returns:
+            True if session was found and updated, False otherwise
+        """
+        try:
+            result = await db.execute(
+                select(SpeakingSession).where(SpeakingSession.id == session_id)
+            )
+            session = result.scalar_one_or_none()
+            
+            if not session:
+                return False
+            
+            session.status = "completed"
+            await db.commit()
+            return True
+        except Exception as exc:
+            await db.rollback()
+            logger.error(
+                f"Could not persist session completion for session {session_id}: {exc}",
+                exc_info=True
+            )
+            return False
+    
+    @staticmethod
+    def mark_session_completed_sync(session_id: int) -> bool:
+        """
+        Synchronous wrapper to mark session as completed.
+        Can be called from sync contexts like agent callbacks.
+        
+        Args:
+            session_id: The ID of the session to mark as completed
+            
+        Returns:
+            True if session was found and updated, False otherwise
+        """
+        async def _update_session():
+            from src.database import AsyncSessionLocal
+            async with AsyncSessionLocal() as db:
+                service = SpeakingService()
+                return await service.mark_session_completed(session_id, db)
+        
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # If loop is already running, run in thread pool
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(asyncio.run, _update_session())
+                    return future.result()
+            else:
+                return loop.run_until_complete(_update_session())
+        except RuntimeError:
+            # No event loop, create a new one
+            return asyncio.run(_update_session())
     
     async def send_chat_message(
         self,
@@ -638,15 +711,18 @@ class SpeakingService:
         user_id: int,
         message_data: ChatMessageCreate,
         audio_url: Optional[str] = None,
-        db: Session = None
+        db: AsyncSession = None
     ) -> ChatMessageResponse:
         """Send a chat message (text with optional audio URL) and get agent response"""
         try:
             # Get session
-            session = db.query(SpeakingSession).filter(
-                SpeakingSession.id == session_id,
-                SpeakingSession.user_id == user_id
-            ).first()
+            result = await db.execute(
+                select(SpeakingSession).where(
+                    SpeakingSession.id == session_id,
+                    SpeakingSession.user_id == user_id
+                )
+            )
+            session = result.scalar_one_or_none()
             
             if not session:
                 raise HTTPException(status_code=404, detail=SESSION_NOT_FOUND_MSG)
@@ -739,9 +815,9 @@ class SpeakingService:
             db.add(agent_message)
             
             # Single commit for both user and agent messages + session status update
-            db.commit()
-            db.refresh(user_message)
-            db.refresh(agent_message)
+            await db.commit()
+            await db.refresh(user_message)
+            await db.refresh(agent_message)
             
             session_payload = SpeakingSessionResponse(
                 id=session.id,
@@ -771,29 +847,35 @@ class SpeakingService:
         except HTTPException:
             raise
         except Exception as e:
-            db.rollback()
+            await db.rollback()
             logger.error(f"Error sending chat message: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Lỗi khi gửi tin nhắn: {str(e)}")
     
-    def get_chat_history(
+    async def get_chat_history(
         self,
         session_id: int,
         user_id: int,
-        db: Session
+        db: AsyncSession
     ) -> List[ChatMessageResponse]:
         """Get chat history for a session"""
         # Verify session belongs to user
-        session = db.query(SpeakingSession).filter(
-            SpeakingSession.id == session_id,
-            SpeakingSession.user_id == user_id
-        ).first()
+        result = await db.execute(
+            select(SpeakingSession).where(
+                SpeakingSession.id == session_id,
+                SpeakingSession.user_id == user_id
+            )
+        )
+        session = result.scalar_one_or_none()
         
         if not session:
             return []
         
-        messages = db.query(SpeakingChatMessage).filter(
-            SpeakingChatMessage.session_id == session_id
-        ).order_by(SpeakingChatMessage.created_at).all()
+        messages_result = await db.execute(
+            select(SpeakingChatMessage).where(
+                SpeakingChatMessage.session_id == session_id
+            ).order_by(SpeakingChatMessage.created_at)
+        )
+        messages = messages_result.scalars().all()
         
         return [
             ChatMessageResponse(
@@ -814,15 +896,18 @@ class SpeakingService:
         self,
         session_id: int,
         user_id: int,
-        db: Session
+        db: AsyncSession
     ) -> HintResponse:
         """Get conversation hint for the last AI message"""
         try:
             # Get session
-            session = db.query(SpeakingSession).filter(
-                SpeakingSession.id == session_id,
-                SpeakingSession.user_id == user_id
-            ).first()
+            result = await db.execute(
+                select(SpeakingSession).where(
+                    SpeakingSession.id == session_id,
+                    SpeakingSession.user_id == user_id
+                )
+            )
+            session = result.scalar_one_or_none()
             
             if not session:
                 raise HTTPException(status_code=404, detail=SESSION_NOT_FOUND_MSG)
@@ -919,14 +1004,17 @@ class SpeakingService:
         self,
         session_id: int,
         user_id: int,
-        db: Session
+        db: AsyncSession
     ) -> ChatMessageResponse:
         """Trigger AI to move the conversation forward without a new user utterance."""
         # Get and validate session
-        session = db.query(SpeakingSession).filter(
-            SpeakingSession.id == session_id,
-            SpeakingSession.user_id == user_id
-        ).first()
+        result = await db.execute(
+            select(SpeakingSession).where(
+                SpeakingSession.id == session_id,
+                SpeakingSession.user_id == user_id
+            )
+        )
+        session = result.scalar_one_or_none()
         
         if not session:
             raise HTTPException(status_code=404, detail=SESSION_NOT_FOUND_MSG)
@@ -989,8 +1077,8 @@ class SpeakingService:
             translation_sentence=translation_sentence
         )
         db.add(agent_message)
-        db.commit()
-        db.refresh(agent_message)
+        await db.commit()
+        await db.refresh(agent_message)
         
         session_payload = SpeakingSessionResponse(
             id=session.id,
@@ -1021,22 +1109,25 @@ class SpeakingService:
         self,
         session_id: int,
         user_id: int,
-        db: Session
+        db: AsyncSession
     ) -> FinalEvaluationResponse:
         """Get final evaluation for completed session"""
         try:
             # Get session
-            session = db.query(SpeakingSession).filter(
-                SpeakingSession.id == session_id,
-                SpeakingSession.user_id == user_id
-            ).first()
+            result = await db.execute(
+                select(SpeakingSession).where(
+                    SpeakingSession.id == session_id,
+                    SpeakingSession.user_id == user_id
+                )
+            )
+            session = result.scalar_one_or_none()
             
             if not session:
                 raise HTTPException(status_code=404, detail=SESSION_NOT_FOUND_MSG)
             
             # update session status to completed
             session.status = "completed"
-            db.commit()
+            await db.commit()
             
             # Get final evaluation directly from final_evaluator_agent
             evaluation_response = await call_agent_with_logging(

@@ -111,21 +111,8 @@ def after_conversation_callback(callback_context: CallbackContext) -> Optional[t
             session_id = state.get("session_id")
             if session_id:
                 try:
-                    from src.database import SessionLocal
-                    from src.speaking.models import SpeakingSession
-                    
-                    db = SessionLocal()
-                    try:
-                        session = db.query(SpeakingSession).filter(SpeakingSession.id == session_id).first()
-                        if session:
-                            session.status = "completed"
-                            db.commit()
-                    except Exception as exc:
-                        db.rollback()
-                        logger = __import__("logging").getLogger(__name__)
-                        logger.error(f"Could not persist session completion for session {session_id}: {exc}")
-                    finally:
-                        db.close()
+                    from src.speaking.service import SpeakingService
+                    SpeakingService.mark_session_completed_sync(session_id)
                 except Exception as exc:
                     logger = __import__("logging").getLogger(__name__)
                     logger.error(f"Error handling conversation completion: {exc}")

@@ -1,6 +1,6 @@
 from typing import Optional, List
-from sqlalchemy.orm import Session
-from sqlalchemy import and_, func
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import and_, select, func
 import random
 import uuid
 from datetime import datetime, timezone
@@ -29,23 +29,26 @@ class VocabularyService:
         """Initialize VocabularyService"""
         pass
     
-    def ensure_default_vocabulary_set(self, user_id: int, db: Session) -> VocabularySet:
+    async def ensure_default_vocabulary_set(self, user_id: int, db: AsyncSession) -> VocabularySet:
         """
         Ensure that the user has a default vocabulary set.
         Creates it if missing and returns the VocabularySet instance.
         """
-        return self._get_or_create_default_vocabulary_set(user_id, db)
+        return await self._get_or_create_default_vocabulary_set(user_id, db)
 
-    def _get_or_create_default_vocabulary_set(self, user_id: int, db: Session) -> VocabularySet:
+    async def _get_or_create_default_vocabulary_set(self, user_id: int, db: AsyncSession) -> VocabularySet:
         """Get or create default vocabulary set for user"""
         # Try to find existing default set
-        default_set = db.query(VocabularySet).filter(
-            and_(
-                VocabularySet.user_id == user_id,
-                VocabularySet.is_default == True,
-                VocabularySet.deleted_at.is_(None)
+        result = await db.execute(
+            select(VocabularySet).where(
+                and_(
+                    VocabularySet.user_id == user_id,
+                    VocabularySet.is_default == True,
+                    VocabularySet.deleted_at.is_(None)
+                )
             )
-        ).first()
+        )
+        default_set = result.scalar_one_or_none()
         
         if default_set:
             return default_set
@@ -59,27 +62,33 @@ class VocabularyService:
         )
         
         db.add(default_set)
-        db.commit()
-        db.refresh(default_set)
+        await db.commit()
+        await db.refresh(default_set)
         
         return default_set
 
-    def _update_vocabulary_set_count(self, vocabulary_set_id: int, db: Session):
+    async def _update_vocabulary_set_count(self, vocabulary_set_id: int, db: AsyncSession):
         """Update total_words count for vocabulary set"""
-        count = db.query(func.count(VocabularyItem.id)).filter(
-            and_(
-                VocabularyItem.vocabulary_set_id == vocabulary_set_id,
-                VocabularyItem.deleted_at.is_(None)
+        count_result = await db.execute(
+            select(func.count(VocabularyItem.id)).where(
+                and_(
+                    VocabularyItem.vocabulary_set_id == vocabulary_set_id,
+                    VocabularyItem.deleted_at.is_(None)
+                )
             )
-        ).scalar()
+        )
+        count = count_result.scalar() or 0
         
-        vocabulary_set = db.query(VocabularySet).filter(VocabularySet.id == vocabulary_set_id).first()
+        result = await db.execute(
+            select(VocabularySet).where(VocabularySet.id == vocabulary_set_id)
+        )
+        vocabulary_set = result.scalar_one_or_none()
         if vocabulary_set:
             vocabulary_set.total_words = count
-            db.commit()
+            await db.commit()
 
     # Vocabulary Set operations
-    def create_vocabulary_set(self, user_id: int, set_data: VocabularySetCreate, db: Session) -> VocabularySetResponse:
+    async def create_vocabulary_set(self, user_id: int, set_data: VocabularySetCreate, db: AsyncSession) -> VocabularySetResponse:
         """Create a new vocabulary set"""
         vocabulary_set = VocabularySet(
             user_id=user_id,
@@ -89,8 +98,8 @@ class VocabularyService:
         )
         
         db.add(vocabulary_set)
-        db.commit()
-        db.refresh(vocabulary_set)
+        await db.commit()
+        await db.refresh(vocabulary_set)
         
         return VocabularySetResponse(
             id=vocabulary_set.id,
@@ -103,20 +112,30 @@ class VocabularyService:
             updated_at=vocabulary_set.updated_at
         )
 
-    def get_vocabulary_sets(self, user_id: int, db: Session, pagination: PaginationParams) -> PaginatedResponse[VocabularySetResponse]:
+    async def get_vocabulary_sets(self, user_id: int, db: AsyncSession, pagination: PaginationParams) -> PaginatedResponse[VocabularySetResponse]:
         """Get user's vocabulary sets"""
-        query = db.query(VocabularySet).filter(
-            and_(
-                VocabularySet.user_id == user_id,
-                VocabularySet.deleted_at.is_(None)
-            )
-        ).order_by(VocabularySet.created_at.desc())
-        
         # Get total count
-        total = query.count()
+        count_result = await db.execute(
+            select(func.count(VocabularySet.id)).where(
+                and_(
+                    VocabularySet.user_id == user_id,
+                    VocabularySet.deleted_at.is_(None)
+                )
+            )
+        )
+        total = count_result.scalar() or 0
         
         # Apply pagination
-        vocabulary_sets = query.offset((pagination.page - 1) * pagination.size).limit(pagination.size).all()
+        offset = (pagination.page - 1) * pagination.size
+        result = await db.execute(
+            select(VocabularySet).where(
+                and_(
+                    VocabularySet.user_id == user_id,
+                    VocabularySet.deleted_at.is_(None)
+                )
+            ).order_by(VocabularySet.created_at.desc()).offset(offset).limit(pagination.size)
+        )
+        vocabulary_sets = result.scalars().all()
         
         result = []
         for vs in vocabulary_sets:
@@ -135,15 +154,18 @@ class VocabularyService:
         from src.pagination import paginate
         return paginate(result, total, pagination.page, pagination.size)
 
-    def get_vocabulary_set_by_id(self, user_id: int, set_id: int, db: Session) -> VocabularySetResponse:
+    async def get_vocabulary_set_by_id(self, user_id: int, set_id: int, db: AsyncSession) -> VocabularySetResponse:
         """Get vocabulary set by ID"""
-        vocabulary_set = db.query(VocabularySet).filter(
-            and_(
-                VocabularySet.id == set_id,
-                VocabularySet.user_id == user_id,
-                VocabularySet.deleted_at.is_(None)
+        result = await db.execute(
+            select(VocabularySet).where(
+                and_(
+                    VocabularySet.id == set_id,
+                    VocabularySet.user_id == user_id,
+                    VocabularySet.deleted_at.is_(None)
+                )
             )
-        ).first()
+        )
+        vocabulary_set = result.scalar_one_or_none()
         
         if not vocabulary_set:
             raise VocabularySetNotFoundException(f"Không tìm thấy bộ từ vựng {set_id}")
@@ -159,15 +181,18 @@ class VocabularyService:
             updated_at=vocabulary_set.updated_at
         )
 
-    def update_vocabulary_set(self, user_id: int, set_id: int, set_data: VocabularySetUpdate, db: Session) -> VocabularySetResponse:
+    async def update_vocabulary_set(self, user_id: int, set_id: int, set_data: VocabularySetUpdate, db: AsyncSession) -> VocabularySetResponse:
         """Update vocabulary set"""
-        vocabulary_set = db.query(VocabularySet).filter(
-            and_(
-                VocabularySet.id == set_id,
-                VocabularySet.user_id == user_id,
-                VocabularySet.deleted_at.is_(None)
+        result = await db.execute(
+            select(VocabularySet).where(
+                and_(
+                    VocabularySet.id == set_id,
+                    VocabularySet.user_id == user_id,
+                    VocabularySet.deleted_at.is_(None)
+                )
             )
-        ).first()
+        )
+        vocabulary_set = result.scalar_one_or_none()
         
         if not vocabulary_set:
             raise VocabularySetNotFoundException(f"Không tìm thấy bộ từ vựng {set_id}")
@@ -177,8 +202,8 @@ class VocabularyService:
         if set_data.description is not None:
             vocabulary_set.description = set_data.description
         
-        db.commit()
-        db.refresh(vocabulary_set)
+        await db.commit()
+        await db.refresh(vocabulary_set)
         
         return VocabularySetResponse(
             id=vocabulary_set.id,
@@ -191,44 +216,50 @@ class VocabularyService:
             updated_at=vocabulary_set.updated_at
         )
 
-    def delete_vocabulary_set(self, user_id: int, set_id: int, db: Session) -> bool:
+    async def delete_vocabulary_set(self, user_id: int, set_id: int, db: AsyncSession) -> bool:
         """Soft delete vocabulary set"""
-        vocabulary_set = db.query(VocabularySet).filter(
-            and_(
-                VocabularySet.id == set_id,
-                VocabularySet.user_id == user_id,
-                VocabularySet.deleted_at.is_(None)
+        result = await db.execute(
+            select(VocabularySet).where(
+                and_(
+                    VocabularySet.id == set_id,
+                    VocabularySet.user_id == user_id,
+                    VocabularySet.deleted_at.is_(None)
+                )
             )
-        ).first()
+        )
+        vocabulary_set = result.scalar_one_or_none()
         
         if not vocabulary_set:
             raise VocabularySetNotFoundException(f"Không tìm thấy bộ từ vựng {set_id}")
         
         # Soft delete by setting deleted_at
         vocabulary_set.deleted_at = datetime.now(timezone.utc)
-        db.commit()
+        await db.commit()
         return True
 
     # Vocabulary Item operations
-    def add_vocabulary_item(self, user_id: int, item_data: VocabularyItemCreate, db: Session) -> VocabularyItemResponse:
+    async def add_vocabulary_item(self, user_id: int, item_data: VocabularyItemCreate, db: AsyncSession) -> VocabularyItemResponse:
         """Add vocabulary item to set"""
         # Determine which vocabulary set to use
         if item_data.use_default_set:
             # Get or create default vocabulary set
-            vocabulary_set = self._get_or_create_default_vocabulary_set(user_id, db)
+            vocabulary_set = await self._get_or_create_default_vocabulary_set(user_id, db)
             vocabulary_set_id = vocabulary_set.id
         else:
             # Use specified vocabulary set
             if not item_data.vocabulary_set_id:
                 raise ValueError("vocabulary_set_id is required when use_default_set is False")
             
-            vocabulary_set = db.query(VocabularySet).filter(
-                and_(
-                    VocabularySet.id == item_data.vocabulary_set_id,
-                    VocabularySet.user_id == user_id,
-                    VocabularySet.deleted_at.is_(None)
+            result = await db.execute(
+                select(VocabularySet).where(
+                    and_(
+                        VocabularySet.id == item_data.vocabulary_set_id,
+                        VocabularySet.user_id == user_id,
+                        VocabularySet.deleted_at.is_(None)
+                    )
                 )
-            ).first()
+            )
+            vocabulary_set = result.scalar_one_or_none()
             
             if not vocabulary_set:
                 raise VocabularySetNotFoundException(f"Không tìm thấy bộ từ vựng {item_data.vocabulary_set_id}")
@@ -236,25 +267,31 @@ class VocabularyService:
             vocabulary_set_id = item_data.vocabulary_set_id
         
         # Check if dictionary word exists
-        dictionary_word = db.query(Dictionary).filter(
-            and_(
-                Dictionary.id == item_data.dictionary_id,
-                Dictionary.deleted_at.is_(None)
+        result = await db.execute(
+            select(Dictionary).where(
+                and_(
+                    Dictionary.id == item_data.dictionary_id,
+                    Dictionary.deleted_at.is_(None)
+                )
             )
-        ).first()
+        )
+        dictionary_word = result.scalar_one_or_none()
         
         if not dictionary_word:
             raise DictionaryWordNotFoundException(f"Không tìm thấy từ trong từ điển {item_data.dictionary_id}")
         
         # Check if item already exists
-        existing_item = db.query(VocabularyItem).filter(
-            and_(
-                VocabularyItem.user_id == user_id,
-                VocabularyItem.vocabulary_set_id == vocabulary_set_id,
-                VocabularyItem.dictionary_id == item_data.dictionary_id,
-                VocabularyItem.deleted_at.is_(None)
+        result = await db.execute(
+            select(VocabularyItem).where(
+                and_(
+                    VocabularyItem.user_id == user_id,
+                    VocabularyItem.vocabulary_set_id == vocabulary_set_id,
+                    VocabularyItem.dictionary_id == item_data.dictionary_id,
+                    VocabularyItem.deleted_at.is_(None)
+                )
             )
-        ).first()
+        )
+        existing_item = result.scalar_one_or_none()
         
         if existing_item:
             raise VocabularyItemAlreadyExistsException("Từ vựng đã tồn tại trong bộ từ vựng")
@@ -266,11 +303,11 @@ class VocabularyService:
         )
         
         db.add(vocabulary_item)
-        db.commit()
-        db.refresh(vocabulary_item)
+        await db.commit()
+        await db.refresh(vocabulary_item)
         
         # Update vocabulary set count
-        self._update_vocabulary_set_count(vocabulary_set_id, db)
+        await self._update_vocabulary_set_count(vocabulary_set_id, db)
         
         return VocabularyItemResponse(
             id=vocabulary_item.id,
@@ -283,24 +320,38 @@ class VocabularyService:
             definitions=dictionary_word.definitions
         )
 
-    def get_vocabulary_items(self, user_id: int, set_id: int, db: Session, pagination: PaginationParams) -> PaginatedResponse[VocabularyItemResponse]:
+    async def get_vocabulary_items(self, user_id: int, set_id: int, db: AsyncSession, pagination: PaginationParams) -> PaginatedResponse[VocabularyItemResponse]:
         """Get vocabulary items in a set"""
-        query = db.query(VocabularyItem, Dictionary).join(
-            Dictionary, VocabularyItem.dictionary_id == Dictionary.id
-        ).filter(
-            and_(
-                VocabularyItem.user_id == user_id,
-                VocabularyItem.vocabulary_set_id == set_id,
-                VocabularyItem.deleted_at.is_(None),
-                Dictionary.deleted_at.is_(None)
-            )
-        ).order_by(VocabularyItem.created_at.desc())
-        
         # Get total count
-        total = query.count()
+        count_result = await db.execute(
+            select(func.count(VocabularyItem.id)).select_from(
+                VocabularyItem.join(Dictionary, VocabularyItem.dictionary_id == Dictionary.id)
+            ).where(
+                and_(
+                    VocabularyItem.user_id == user_id,
+                    VocabularyItem.vocabulary_set_id == set_id,
+                    VocabularyItem.deleted_at.is_(None),
+                    Dictionary.deleted_at.is_(None)
+                )
+            )
+        )
+        total = count_result.scalar() or 0
         
         # Apply pagination
-        items = query.offset((pagination.page - 1) * pagination.size).limit(pagination.size).all()
+        offset = (pagination.page - 1) * pagination.size
+        result = await db.execute(
+            select(VocabularyItem, Dictionary).join(
+                Dictionary, VocabularyItem.dictionary_id == Dictionary.id
+            ).where(
+                and_(
+                    VocabularyItem.user_id == user_id,
+                    VocabularyItem.vocabulary_set_id == set_id,
+                    VocabularyItem.deleted_at.is_(None),
+                    Dictionary.deleted_at.is_(None)
+                )
+            ).order_by(VocabularyItem.created_at.desc()).offset(offset).limit(pagination.size)
+        )
+        items = result.all()
         
         result = []
         for item, dictionary in items:
@@ -319,42 +370,48 @@ class VocabularyService:
         from src.pagination import paginate
         return paginate(result, total, pagination.page, pagination.size)
 
-    def remove_vocabulary_item(self, user_id: int, item_id: int, db: Session) -> bool:
+    async def remove_vocabulary_item(self, user_id: int, item_id: int, db: AsyncSession) -> bool:
         """Remove vocabulary item from set"""
-        vocabulary_item = db.query(VocabularyItem).filter(
-            and_(
-                VocabularyItem.id == item_id,
-                VocabularyItem.user_id == user_id,
-                VocabularyItem.deleted_at.is_(None)
+        result = await db.execute(
+            select(VocabularyItem).where(
+                and_(
+                    VocabularyItem.id == item_id,
+                    VocabularyItem.user_id == user_id,
+                    VocabularyItem.deleted_at.is_(None)
+                )
             )
-        ).first()
+        )
+        vocabulary_item = result.scalar_one_or_none()
         
         if not vocabulary_item:
             raise VocabularyItemNotFoundException(f"Không tìm thấy từ vựng {item_id}")
         
         # Soft delete by setting deleted_at
         vocabulary_item.deleted_at = datetime.now(timezone.utc)
-        db.commit()
+        await db.commit()
         
         # Update vocabulary set count
-        self._update_vocabulary_set_count(vocabulary_item.vocabulary_set_id, db)
+        await self._update_vocabulary_set_count(vocabulary_item.vocabulary_set_id, db)
         
         return True
 
     # Study operations
-    def create_flashcard_session(self, user_id: int, session_data: StudySessionCreate, db: Session) -> FlashcardSessionResponse:
+    async def create_flashcard_session(self, user_id: int, session_data: StudySessionCreate, db: AsyncSession) -> FlashcardSessionResponse:
         """Create flashcard study session"""
         # Get vocabulary items
-        items = db.query(VocabularyItem, Dictionary).join(
-            Dictionary, VocabularyItem.dictionary_id == Dictionary.id
-        ).filter(
-            and_(
-                VocabularyItem.user_id == user_id,
-                VocabularyItem.vocabulary_set_id == session_data.vocabulary_set_id,
-                VocabularyItem.deleted_at.is_(None),
-                Dictionary.deleted_at.is_(None)
-            )
-        ).limit(session_data.max_items).all()
+        result = await db.execute(
+            select(VocabularyItem, Dictionary).join(
+                Dictionary, VocabularyItem.dictionary_id == Dictionary.id
+            ).where(
+                and_(
+                    VocabularyItem.user_id == user_id,
+                    VocabularyItem.vocabulary_set_id == session_data.vocabulary_set_id,
+                    VocabularyItem.deleted_at.is_(None),
+                    Dictionary.deleted_at.is_(None)
+                )
+            ).limit(session_data.max_items)
+        )
+        items = result.all()
         
         if len(items) < 1:
             raise InsufficientVocabularyException("Không đủ từ vựng để tạo phiên học")
@@ -381,19 +438,22 @@ class VocabularyService:
             cards=flashcards
         )
 
-    def create_multiple_choice_session(self, user_id: int, session_data: StudySessionCreate, db: Session) -> MultipleChoiceSessionResponse:
+    async def create_multiple_choice_session(self, user_id: int, session_data: StudySessionCreate, db: AsyncSession) -> MultipleChoiceSessionResponse:
         """Create multiple choice study session"""
         # Get vocabulary items
-        items = db.query(VocabularyItem, Dictionary).join(
-            Dictionary, VocabularyItem.dictionary_id == Dictionary.id
-        ).filter(
-            and_(
-                VocabularyItem.user_id == user_id,
-                VocabularyItem.vocabulary_set_id == session_data.vocabulary_set_id,
-                VocabularyItem.deleted_at.is_(None),
-                Dictionary.deleted_at.is_(None)
-            )
-        ).limit(session_data.max_items).all()
+        result = await db.execute(
+            select(VocabularyItem, Dictionary).join(
+                Dictionary, VocabularyItem.dictionary_id == Dictionary.id
+            ).where(
+                and_(
+                    VocabularyItem.user_id == user_id,
+                    VocabularyItem.vocabulary_set_id == session_data.vocabulary_set_id,
+                    VocabularyItem.deleted_at.is_(None),
+                    Dictionary.deleted_at.is_(None)
+                )
+            ).limit(session_data.max_items)
+        )
+        items = result.all()
         
         if len(items) < 4:
             raise InsufficientVocabularyException("Cần ít nhất 4 từ vựng để tạo phiên học trắc nghiệm")
