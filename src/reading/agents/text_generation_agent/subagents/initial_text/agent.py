@@ -29,12 +29,15 @@ def create_generator_instruction() -> str:
     - genre: {genre}
     - topic: {topic}
     - target_word_count: {target_word_count}
+    - user_evaluation_history: {user_evaluation_history}
     
     NHIỆM VỤ:
     - Tạo bài đọc tiếng Anh phù hợp với level được yêu cầu
     - Đảm bảo nội dung phù hợp với genre và topic
     - Cố gắng đạt độ dài gần với target_word_count (sẽ được kiểm tra và tinh chỉnh sau)
     - Sử dụng từ vựng và ngữ pháp phù hợp với level
+    - Để đếm từ, hệ thống sẽ tách các từ bằng khoảng trắng. Các dấu câu sẽ không được tính là một từ.
+    - Tránh các ký tự đặc biệt hoặc định dạng phức tạp có thể ảnh hưởng đến việc đếm từ.
     
     """
     

@@ -28,8 +28,8 @@ from google.adk.sessions import DatabaseSessionService
 from src.config import get_database_url, get_sync_database_url
 from src.utils.agent_utils import call_agent_with_logging
 from src.constants.cefr import CEFRLevel
+from src.users.service import UsersService # Import UsersService
 
-# Constants
 NO_AI_RESPONSE_ERROR = "No response from AI agent"
 DEFAULT_FEEDBACK = "Đánh giá tự động dựa trên nội dung tóm tắt."
 APP_NAME = "ReadingPractice"
@@ -40,7 +40,8 @@ class ReadingService:
         # DatabaseSessionService needs sync URL, not async
         self.session_service = DatabaseSessionService(db_url=get_sync_database_url())
         self.logger = logging.getLogger(__name__)
-        
+        self.users_service = UsersService() # Initialize UsersService
+
         self.text_generation_runner = Runner(
             agent=text_generation_agent,
             app_name=APP_NAME,
@@ -107,7 +108,8 @@ class ReadingService:
             
             db.add(db_session)
             # Flush to get primary key (id) without committing the transaction yet
-            db.flush()
+            await db.flush()
+            await db.refresh(db_session)
             
             agent_session_id = str(db_session.id)
             base_state = {
@@ -120,6 +122,12 @@ class ReadingService:
                 "is_custom": is_custom,
                 "target_word_count": session_data.word_count or self._get_default_word_count(requested_level),
             }
+            
+            user_evaluation_history = await self.users_service.get_user_evaluation_history(user_id, db)
+            
+            # Add user_evaluation_history to base_state
+            base_state["user_evaluation_history"] = user_evaluation_history
+
             try:
                 await self.session_service.create_session(
                     app_name="ReadingPractice",

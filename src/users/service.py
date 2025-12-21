@@ -264,3 +264,45 @@ class UsersService:
             await db.rollback()
             raise UserValidationException(f"Lỗi khi reset password: {str(e)}")
 
+    async def update_evaluation_history(self, user_id: int, new_evaluation: dict, db: AsyncSession, max_history_size: int = 5):
+        """
+        Cập nhật lịch sử đánh giá của người dùng, chỉ giữ lại N đánh giá mới nhất.
+        """
+        user_result = await db.execute(select(User).where(User.id == user_id))
+        user = user_result.scalar_one_or_none()
+
+        if not user:
+            raise UserNotFoundException(f"Không tìm thấy user với ID {user_id}")
+
+        try:
+            current_history = user.evaluation_history if user.evaluation_history else []
+            
+            # Add the new evaluation
+            current_history.append(new_evaluation)
+
+            # Keep only the latest `max_history_size` evaluations
+            if len(current_history) > max_history_size:
+                current_history = current_history[-max_history_size:]
+            
+            user.evaluation_history = current_history # Re-assign to trigger change detection
+            
+            await db.commit()
+            await db.refresh(user)
+            logger.info(f"Updated user {user_id} evaluation history, kept {len(user.evaluation_history)} items.")
+        except Exception as e:
+            await db.rollback()
+            logger.error(f"Error updating evaluation history for user {user_id}: {e}", exc_info=True)
+            raise UserValidationException(f"Lỗi khi cập nhật lịch sử đánh giá: {str(e)}")
+
+    async def get_user_evaluation_history(self, user_id: int, db: AsyncSession) -> List[dict]:
+        """
+        Lấy lịch sử đánh giá của người dùng.
+        """
+        user_result = await db.execute(select(User).where(User.id == user_id))
+        user = user_result.scalar_one_or_none()
+
+        if not user:
+            raise UserNotFoundException(f"Không tìm thấy user với ID {user_id}")
+        
+        return user.evaluation_history if user.evaluation_history else []
+

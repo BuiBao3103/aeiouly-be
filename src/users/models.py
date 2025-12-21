@@ -2,6 +2,7 @@
 Models for Users module
 """
 from sqlalchemy import Column, Integer, String, Boolean, Enum
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from src.database import Base
 from src.orm_mixins import SoftDeleteMixin, TimestampMixin
@@ -26,6 +27,7 @@ class User(Base, SoftDeleteMixin, TimestampMixin):
     is_active = Column(Boolean, default=True)
     is_online = Column(Boolean, default=False, nullable=False)
     avatar_url = Column(String(500), nullable=True)
+    evaluation_history = Column(JSONB, default=[], nullable=False)
     
     # Relationships
     posts = relationship("Post", back_populates="author")

@@ -2,8 +2,6 @@
 import os
 import tempfile
 import sys
-import asyncio
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from fastapi import UploadFile
 # Fix for Python 3.13+: ensure audioop-lts is used if available
 try:
@@ -22,6 +20,7 @@ from google.api_core.client_options import ClientOptions
 from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import desc, select
+from src.users.models import User
 from src.speaking.schemas import (
     SpeechToTextResponse,
     SpeakingSessionCreate,
@@ -57,6 +56,7 @@ from src.storage import S3StorageService
 import logging
 from fastapi import HTTPException
 from datetime import datetime
+from src.users.service import UsersService
 from langdetect import detect, LangDetectException
 from src.speaking.agents.chat_agent.agent import chat_agent
 from src.speaking.agents.skip_response_agent.agent import skip_response_agent
@@ -109,6 +109,8 @@ class SpeakingService:
         # Initialize ADK session service and runner
         # DatabaseSessionService needs sync URL, not async
         self.session_service = DatabaseSessionService(db_url=get_sync_database_url())
+
+        self.users_service = UsersService()
         
         # Initialize runner with speaking_practice (coordinator)
 
@@ -471,6 +473,9 @@ class SpeakingService:
         db: AsyncSession
     ) -> SpeakingSessionResponse:
         """Create a new speaking practice session"""
+        # Get user's evaluation history
+        user_evaluation_history = await self.users_service.get_user_evaluation_history(user_id, db)
+
         try:
             # Create database session
             db_session = SpeakingSession(
@@ -500,6 +505,7 @@ class SpeakingService:
                     "scenario": session_data.scenario,
                     "level": session_data.level.value,
                     "chat_history": [],
+                    "user_evaluation_history": user_evaluation_history,
                     "hint_history": [],
                 }
             )
@@ -673,37 +679,37 @@ class SpeakingService:
             )
             return False
     
-    @staticmethod
-    def mark_session_completed_sync(session_id: int) -> bool:
+    async def mark_session_completed_async(self, session_id: int, db: AsyncSession) -> bool:
         """
-        Synchronous wrapper to mark session as completed.
-        Can be called from sync contexts like agent callbacks.
+        Asynchronous method to mark a speaking session as completed.
+        Should be called from async contexts.
         
         Args:
             session_id: The ID of the session to mark as completed
+            db: Database session
             
         Returns:
             True if session was found and updated, False otherwise
         """
-        async def _update_session():
-            from src.database import AsyncSessionLocal
-            async with AsyncSessionLocal() as db:
-                service = SpeakingService()
-                return await service.mark_session_completed(session_id, db)
-        
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # If loop is already running, run in thread pool
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(asyncio.run, _update_session())
-                    return future.result()
-            else:
-                return loop.run_until_complete(_update_session())
-        except RuntimeError:
-            # No event loop, create a new one
-            return asyncio.run(_update_session())
+            result = await db.execute(
+                select(SpeakingSession).where(SpeakingSession.id == session_id)
+            )
+            session = result.scalar_one_or_none()
+            
+            if not session:
+                return False
+            
+            session.status = "completed"
+            await db.commit()
+            return True
+        except Exception as exc:
+            await db.rollback()
+            logger.error(
+                f"Could not persist session completion for session {session_id}: {exc}",
+                exc_info=True
+            )
+            return False
     
     async def send_chat_message(
         self,
@@ -1176,9 +1182,16 @@ class SpeakingService:
                     interaction = 0.0
                     feedback = evaluation_response
                     suggestions = []
+                
+                # Update user's evaluation history via UsersService
+                await self.users_service.update_evaluation_history(
+                    user_id=user_id, 
+                    new_evaluation=final_eval, 
+                    db=db
+                )
                     
             except Exception as e:
-                logger.error(f"Error getting structured output: {e}")
+                logger.error(f"Error getting structured output or updating user history: {e}", exc_info=True)
                 # Fallback to zeros
                 overall = 0.0
                 pronunciation = 0.0

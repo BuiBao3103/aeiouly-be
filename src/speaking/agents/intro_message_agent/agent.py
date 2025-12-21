@@ -42,6 +42,7 @@ intro_message_agent = LlmAgent(
     - Learner role: {{my_character}}
     - Scenario: "{{scenario}}"
     - CEFR level: {{level}}
+    - User evaluation history: {{user_evaluation_history}}
 
     CRITICAL INSTRUCTIONS:
     1. Analyze relationship: Determine relationship between AI role "{{ai_character}}" and learner role "{{my_character}}". If family members (anh trai/em gái/chị gái/em trai), identify older/younger and use appropriate English terms ("brother" or "sister").

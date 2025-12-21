@@ -65,6 +65,7 @@ text_generator_agent = LlmAgent(
     - topic: {{topic}}
     - level: {{level}}
     - total_sentences: {{total_sentences}}
+    - user_evaluation_history: {{user_evaluation_history}}
 
     REQUIREMENTS:
     - Stay strictly on topic "{{topic}}"
