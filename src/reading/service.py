@@ -538,3 +538,15 @@ class ReadingService:
         # Remove extra whitespace and split by whitespace
         words = re.findall(r'\b\w+\b', text.lower())
         return len(words)
+    
+    def _get_default_word_count(self, level: ReadingLevel) -> int:
+        """Get default target word count based on CEFR level"""
+        default_counts = {
+            ReadingLevel.A1: 100,
+            ReadingLevel.A2: 150,
+            ReadingLevel.B1: 250,
+            ReadingLevel.B2: 350,
+            ReadingLevel.C1: 450,
+            ReadingLevel.C2: 600,
+        }
+        return default_counts.get(level, 250)
