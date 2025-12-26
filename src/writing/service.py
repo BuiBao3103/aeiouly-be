@@ -16,6 +16,8 @@ from src.writing.schemas import (
     HintResponse,
     FinalEvaluationResponse
 )
+from src.database import AsyncSessionLocal
+
 from google.adk.runners import Runner
 from google.adk.sessions import DatabaseSessionService
 from google.genai import types
@@ -27,7 +29,6 @@ import logging
 from src.users.service import UsersService
 import random
 from fastapi import HTTPException
-
 from src.writing.agents.chat_agent.agent import chat_agent
 from src.writing.agents.hint_provider_agent.agent import hint_provider_agent
 from src.writing.agents.final_evaluator_agent.agent import final_evaluator_agent
@@ -41,15 +42,11 @@ logger = logging.getLogger(__name__)
 
 class WritingService:
     def __init__(self):
-        # Use application DB config so ADK session tables live in the same PostgreSQL database
-        # DatabaseSessionService needs sync URL, not async
         self.session_service = DatabaseSessionService(
             db_url=get_sync_database_url())
 
         self.users_service = UsersService()
 
-        # Initialize runners for each agent
-        # chat_agent handles chat_input and skip_button
         self.chat_runner = Runner(
             agent=chat_agent,
             app_name=APP_NAME,
@@ -71,20 +68,9 @@ class WritingService:
             session_service=self.session_service
         )
 
-    async def persist_skip_progress_to_db(self, session_id: int, next_index: int, total_sentences: int, db: AsyncSession) -> bool:
-        """
-        Persist skip progress into the database so API and agent stay in sync.
 
-        Args:
-            session_id: Writing session ID
-            next_index: The next sentence index after skipping
-            total_sentences: Total number of sentences for the session
-            db: The AsyncSession for database operations
-
-        Returns:
-            True if the session was found and updated, False otherwise.
-        """
-        try:
+    async def persist_skip_progress_to_db(self, session_id: int, next_index: int) -> bool:
+        async with AsyncSessionLocal() as db:
             result = await db.execute(
                 select(WritingSession).where(WritingSession.id == session_id)
             )
@@ -92,54 +78,14 @@ class WritingService:
             if not session:
                 return False
 
+            total_sentences = session.total_sentences
             session.current_sentence_index = min(next_index, total_sentences)
+
             if next_index >= total_sentences:
                 session.status = SessionStatus.COMPLETED
 
             await db.commit()
             return True
-        except Exception as exc:
-            await db.rollback()
-            logger.error(
-                "Error persisting skip progress for session %s: %s",
-                session_id,
-                exc,
-                exc_info=True,
-            )
-            return False
-
-    async def create_skip_assistant_message(self, session_id: int, message: str, sentence_index: int, db: AsyncSession) -> bool:
-        """
-        Create assistant message in database for skip action.
-
-        Args:
-            session_id: Writing session ID
-            message: Translation request message
-            sentence_index: Current sentence index
-            db: The AsyncSession for database operations
-
-        Returns:
-            True if message was created successfully, False otherwise
-        """
-        try:
-            assistant_message = WritingChatMessage(
-                session_id=session_id,
-                role="assistant",
-                content=message,
-                sentence_index=sentence_index
-            )
-            db.add(assistant_message)
-            await db.commit()
-            return True
-        except Exception as exc:
-            await db.rollback()
-            logger.error(
-                "Error creating skip assistant message for session %s: %s",
-                session_id,
-                exc,
-                exc_info=True,
-            )
-            return False
 
     async def create_writing_session(
         self,
@@ -856,7 +802,7 @@ class WritingService:
                 await db.commit()
 
                 await self.persist_skip_progress_to_db(
-                    session_id, total_sentences, total_sentences, db
+                    session_id, total_sentences
                 )
                 
                 # Update agent state

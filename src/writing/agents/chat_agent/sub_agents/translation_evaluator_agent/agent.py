@@ -7,11 +7,11 @@ from google.adk.agents import LlmAgent
 from google.adk.agents.callback_context import CallbackContext
 from google.genai import types
 from sqlalchemy.ext.asyncio import AsyncSession
-
+import asyncio
 from src.writing.agents.schemas import TranslationEvaluationResponse
 
 
-async def _move_to_next_sentence(state: dict, db: AsyncSession) -> None:
+async def _move_to_next_sentence(state: dict) -> None:
     """Move to the next sentence in the writing session."""
     # Import here to avoid circular dependency
     from src.writing.service import WritingService
@@ -26,9 +26,9 @@ async def _move_to_next_sentence(state: dict, db: AsyncSession) -> None:
         state["current_vietnamese_sentence"] = "Tất cả các câu đã được dịch xong. Phiên học hoàn thành!"
         
         if session_id:
-            # Use await since persist_skip_progress_to_db is now async
-            await WritingService.persist_skip_progress_to_db(
-                session_id, total_sentences, total_sentences, db)
+            writing_service = WritingService()
+            await writing_service.persist_skip_progress_to_db(
+                session_id, total_sentences)
     else:
         # Move to next sentence
         next_index = current_sentence_index + 1
@@ -42,9 +42,9 @@ async def _move_to_next_sentence(state: dict, db: AsyncSession) -> None:
                 state["current_vietnamese_sentence"] = sentences_list[next_index]
 
         if session_id:
-            # Use await since persist_skip_progress_to_db is now async
-            await WritingService.persist_skip_progress_to_db(
-                session_id, next_index, total_sentences, db)
+            writing_service = WritingService()
+            await writing_service.persist_skip_progress_to_db(
+                 session_id, next_index)
 
 
 async def after_translation_evaluator_callback(callback_context: CallbackContext) -> Optional[types.Content]:
@@ -62,7 +62,6 @@ async def after_translation_evaluator_callback(callback_context: CallbackContext
         None to continue with normal agent processing
     """
     state = callback_context.state
-    db = callback_context.database_session # Get db session from callback_context
 
     # Get chat_response from state (set by output_key="chat_response")
     chat_response_data = state.get("chat_response", {})
@@ -85,10 +84,11 @@ async def after_translation_evaluator_callback(callback_context: CallbackContext
                 }
             )
             state["evaluation_history"] = evaluation_history
-
+            print(f"is_correct: {is_correct}")
             # Move to next sentence if translation is correct
             if is_correct:
-                await _move_to_next_sentence(state, db)
+                print("Moving to next sentence")
+                await _move_to_next_sentence(state)
 
     return None  # Continue with normal agent processing
 
