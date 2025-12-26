@@ -43,4 +43,6 @@ class User(Base, SoftDeleteMixin, TimestampMixin):
     session_goals = relationship("SessionGoal", back_populates="user")
     favorite_videos = relationship("UserFavoriteVideo", back_populates="user")
     speaking_sessions = relationship("SpeakingSession", back_populates="user")
+    learning_paths = relationship("LearningPath", back_populates="user")
+    lesson_progress = relationship("UserLessonProgress", back_populates="user")
 

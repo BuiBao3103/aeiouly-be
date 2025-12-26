@@ -494,7 +494,7 @@ class SpeakingService:
             
             # Initialize agent session
             await self.session_service.create_session(
-                app_name="SpeakingPractice",
+                app_name=APP_NAME,
                 user_id=str(user_id),
                 session_id=str(db_session.id),
                 state={
@@ -527,7 +527,7 @@ class SpeakingService:
             
             state = await get_agent_state(
                 session_service=self.session_service,
-                app_name="SpeakingPractice",
+                app_name=APP_NAME,
                 user_id=str(user_id),
                 session_id=str(db_session.id),
             )
@@ -759,7 +759,7 @@ class SpeakingService:
             # Only messages routed to conversation_agent will be added to chat_history
             await update_session_state(
                 session_service=self.session_service,
-                app_name="SpeakingPractice",
+                app_name=APP_NAME,
                 user_id=str(user_id),
                 session_id=str(session_id),
                 state_delta={
@@ -789,7 +789,7 @@ class SpeakingService:
             # Query state only once after agent call (reuse for all checks)
             state = await get_agent_state(
                 session_service=self.session_service,
-                app_name="SpeakingPractice",
+                app_name=APP_NAME,
                 user_id=str(user_id),
                 session_id=str(session_id),
             )
@@ -921,7 +921,7 @@ class SpeakingService:
             # Get agent session
             state = await get_agent_state(
                 session_service=self.session_service,
-                app_name="SpeakingPractice",
+                app_name=APP_NAME,
                 user_id=str(user_id),
                 session_id=str(session_id),
             )
@@ -957,7 +957,7 @@ class SpeakingService:
             )
             
             try:
-                hint_response = await call_agent_with_logging(
+                await call_agent_with_logging(
                     runner=self.hint_provider_runner,
                     user_id=str(user_id),
                     session_id=str(session_id),
@@ -973,20 +973,14 @@ class SpeakingService:
             try:
                 state_after = await get_agent_state(
                     session_service=self.session_service,
-                    app_name="SpeakingPractice",
+                    app_name=APP_NAME,
                     user_id=str(user_id),
                     session_id=str(session_id),
                 )
                 
-                # Get hint from current_hint_result (output_key)
-                hint_result_data = state_after.get("current_hint_result", {})
-                if isinstance(hint_result_data, dict):
-                    final_hint = hint_result_data.get("hint_text", "")
-                else:
-                    final_hint = hint_response or ""
+                final_hint = state_after.get("current_hint_result", {}).get("hint_text", "")
             except Exception as state_error:
                 logger.error(f"Error reading state after agent run: {state_error}")
-                final_hint = hint_response or ""
             
             if not isinstance(final_hint, str) or not final_hint.strip():
                 logger.error(f"Invalid hint: type={type(final_hint)}, value={final_hint}")

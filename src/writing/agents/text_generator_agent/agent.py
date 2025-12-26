@@ -8,6 +8,7 @@ from google.genai import types
 from src.constants.cefr import get_cefr_definitions_string
 from src.writing.agents.schemas import VietnameseTextResult
 
+CEFR_DEFINITIONS = get_cefr_definitions_string()
 
 def after_text_generator_callback(callback_context: CallbackContext) -> Optional[types.Content]:
     """
@@ -77,7 +78,7 @@ text_generator_agent = LlmAgent(
     - Do NOT greet, instruct, or describe your process
     - Do NOT include English text
 
-    {get_cefr_definitions_string()}
+    {CEFR_DEFINITIONS}
 
     OUTPUT:
     - sentences: List of standalone Vietnamese sentences with punctuation

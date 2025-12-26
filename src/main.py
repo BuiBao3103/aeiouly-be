@@ -12,6 +12,7 @@ from src.reading.router import router as reading_router
 from src.listening.router import router as listening_router
 from src.writing.router import router as writing_router
 from src.online.router import router as online_router
+from src.learning_paths.routers import router as learning_paths_router
 from src.dictionary.router import router as dictionary_router
 from src.posts.router import router as posts_router
 from src.auth.router import router as auth_router
@@ -84,6 +85,7 @@ if settings.BACKEND_CORS_ORIGINS:
 app.include_router(auth_router, prefix=settings.API_V1_STR)
 app.include_router(users_router, prefix=settings.API_V1_STR)
 app.include_router(writing_router, prefix=settings.API_V1_STR)
+app.include_router(learning_paths_router, prefix=settings.API_V1_STR)
 app.include_router(listening_router, prefix=settings.API_V1_STR)
 app.include_router(speaking_router, prefix=settings.API_V1_STR)
 app.include_router(reading_router, prefix=settings.API_V1_STR)

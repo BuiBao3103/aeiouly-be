@@ -68,7 +68,7 @@ class ReadingService:
             session_service=self.session_service
         )
     
-    def _build_agent_query(self, source: str, message: str) -> str:
+    def _build_agent_query(self, source: str, message: str, payload: Optional[Dict[str, Any]] = None) -> str:
         """
         Build standardized query string for reading_practice with source metadata.
         
@@ -83,7 +83,24 @@ class ReadingService:
         return f"SOURCE:{source}\nMESSAGE:{message}"
     
     async def create_reading_session(self, user_id: int, session_data: ReadingSessionCreate, db: AsyncSession) -> ReadingSessionResponse:
-        """Create a new reading session"""
+        """
+        Creates a new reading session for a user.
+
+        This method handles both custom text input and AI-generated text based on session parameters.
+        It initializes an ADK agent session, generates or analyzes text, and persists the session to the database.
+
+        Args:
+            user_id: The ID of the user creating the session.
+            session_data: The data for creating the reading session, including custom text or generation parameters.
+            db: The asynchronous database session.
+
+        Returns:
+            A `ReadingSessionResponse` object representing the newly created reading session.
+
+        Raises:
+            TextAnalysisFailedException: If AI text analysis fails for custom content.
+            TextGenerationFailedException: If AI text generation fails for non-custom content.
+        """
         try:
             is_custom = bool(session_data.custom_text)
             content = session_data.custom_text or ""
@@ -130,7 +147,7 @@ class ReadingService:
 
             try:
                 await self.session_service.create_session(
-                    app_name="ReadingPractice",
+                    app_name=APP_NAME,
                     user_id=str(user_id),
                     session_id=agent_session_id,
                     state=base_state
@@ -149,12 +166,12 @@ class ReadingService:
                         runner=self.text_analysis_runner,
                         user_id=str(user_id),
                         session_id=agent_session_id,
-                        query=self._build_agent_query(source="analyze_text", message=message),
+                        query=self._build_agent_query(source="analyze_text", message=message, payload={"content": content}),
                         logger=self.logger,
                         agent_name=text_analysis_agent.name
                     )
                     agent_session = await self.session_service.get_session(
-                        app_name="ReadingPractice",
+                        app_name=APP_NAME,
                         user_id=str(user_id),
                         session_id=agent_session_id
                     )
@@ -184,12 +201,12 @@ class ReadingService:
                         runner=self.text_generation_runner,
                         user_id=str(user_id),
                         session_id=agent_session_id,
-                        query=self._build_agent_query(source="generate_text", message=message),
+                        query=self._build_agent_query(source="generate_text", message=message, payload=base_state),
                         logger=self.logger,
                         agent_name=text_generation_agent.name
                     )
                     agent_session = await self.session_service.get_session(
-                        app_name="ReadingPractice",
+                        app_name=APP_NAME,
                         user_id=str(user_id),
                         session_id=agent_session_id
                     )
@@ -242,7 +259,18 @@ class ReadingService:
             raise TextGenerationFailedException(f"Failed to create reading session: {str(e)}")
     
     async def get_reading_sessions(self, user_id: int, filters: ReadingSessionFilter, pagination: PaginationParams, db: AsyncSession) -> PaginatedResponse[ReadingSessionSummary]:
-        """Get paginated list of reading sessions"""
+        """
+        Retrieves a paginated list of reading sessions for a user, with optional filters.
+
+        Args:
+            user_id: The ID of the user.
+            filters: `ReadingSessionFilter` object to apply filters by level, genre, or custom status.
+            pagination: `PaginationParams` for controlling page number and size.
+            db: The asynchronous database session.
+
+        Returns:
+            A `PaginatedResponse` containing a list of `ReadingSessionSummary` objects.
+        """
         # Build query conditions
         conditions = [ReadingSession.user_id == user_id]
         if filters.level:
@@ -283,7 +311,20 @@ class ReadingService:
         return paginate(session_summaries, total, pagination.page, pagination.size)
     
     async def get_reading_session_detail(self, session_id: int, user_id: int, db: AsyncSession) -> ReadingSessionDetail:
-        """Get reading session detail"""
+        """
+        Retrieves the detailed information of a specific reading session for a user.
+
+        Args:
+            session_id: The ID of the reading session.
+            user_id: The ID of the user who owns the session.
+            db: The asynchronous database session.
+
+        Returns:
+            A `ReadingSessionDetail` object containing the session's full content and metadata.
+
+        Raises:
+            ReadingSessionNotFoundException: If the session with the given ID and user ID is not found.
+        """
         result = await db.execute(
             select(ReadingSession).where(
                 and_(
@@ -308,7 +349,24 @@ class ReadingService:
         )
     
     async def evaluate_answer(self, session_id: int, user_id: int, answer_data: AnswerSubmission, db: AsyncSession) -> AnswerFeedback:
-        """Evaluate discussion answer (Vietnamese or English)"""
+        """
+        Evaluates a user's answer to a discussion question for a given reading session.
+
+        This method uses an ADK agent to analyze the answer based on the reading content and question.
+
+        Args:
+            session_id: The ID of the reading session.
+            user_id: The ID of the user submitting the answer.
+            answer_data: `AnswerSubmission` containing the question and the user's answer.
+            db: The asynchronous database session.
+
+        Returns:
+            An `AnswerFeedback` object with a score and feedback for the submitted answer.
+
+        Raises:
+            ReadingSessionNotFoundException: If the session is not found for the user.
+            Exception: If the reading agent session state is missing or evaluation fails.
+        """
         result = await db.execute(
             select(ReadingSession).where(
                 and_(
@@ -325,7 +383,7 @@ class ReadingService:
         agent_session_id = str(session_id)
         try:
             agent_session = await self.session_service.get_session(
-                app_name="ReadingPractice",
+                app_name=APP_NAME,
                 user_id=str(user_id),
                 session_id=agent_session_id
             )
@@ -354,7 +412,7 @@ class ReadingService:
             
             try:
                 agent_session = await self.session_service.get_session(
-                    app_name="ReadingPractice",
+                    app_name=APP_NAME,
                     user_id=str(user_id),
                     session_id=agent_session_id
                 )
@@ -378,7 +436,7 @@ class ReadingService:
             raise Exception(f"Failed to evaluate answer: {str(e)}")
     
     async def generate_quiz(self, session_id: int, user_id: int, quiz_request: QuizGenerationRequest, db: AsyncSession) -> QuizResponse:
-        """Generate quiz from reading session"""
+        """Generates a quiz for a reading session using an ADK agent."""
         result = await db.execute(
             select(ReadingSession).where(
                 and_(
@@ -395,12 +453,13 @@ class ReadingService:
         agent_session_id = str(session_id)
         try:
             agent_session = await self.session_service.get_session(
-                app_name="ReadingPractice",
+                app_name=APP_NAME,
                 user_id=str(user_id),
                 session_id=agent_session_id
             )
-        except Exception:
-            agent_session = None
+        except Exception as e:
+            self.logger.warning(f"Error retrieving agent session for quiz generation: {e}", exc_info=True)
+            raise Exception("Reading agent session state is missing. Please recreate the reading session.")
         
         if not agent_session or not agent_session.state:
             raise Exception("Reading agent session state is missing. Please recreate the reading session.")
@@ -420,7 +479,7 @@ class ReadingService:
             
             try:
                 agent_session = await self.session_service.get_session(
-                    app_name="ReadingPractice",
+                    app_name=APP_NAME,
                     user_id=str(user_id),
                     session_id=agent_session_id
                 )
@@ -429,10 +488,9 @@ class ReadingService:
                     if agent_session and agent_session.state
                     else {}
                 )
-            except Exception:
+            except Exception as e:
                 self.logger.warning(
-                    "Unable to fetch quiz_result for session %s",
-                    agent_session_id,
+                    f"Unable to fetch quiz_result for session {agent_session_id}: {e}",
                     exc_info=True
                 )
                 quiz_payload = {}
@@ -444,7 +502,17 @@ class ReadingService:
             raise QuizGenerationFailedException(f"Failed to generate quiz: {str(e)}")
     
     async def delete_reading_session(self, session_id: int, user_id: int, db: AsyncSession) -> bool:
-        """Soft delete a reading session"""
+        """
+        Soft deletes a reading session by setting its `deleted_at` timestamp.
+
+        Args:
+            session_id: The ID of the reading session to delete.
+            user_id: The ID of the user who owns the session.
+            db: The asynchronous database session.
+
+        Returns:
+            `True` if the session was found and soft-deleted, `False` otherwise.
+        """
         result = await db.execute(
             select(ReadingSession).where(
                 and_(
@@ -467,7 +535,22 @@ class ReadingService:
     
     # Private helper methods
     async def generate_discussion(self, session_id: int, user_id: int, discussion_request: DiscussionGenerationRequest, db: AsyncSession) -> DiscussionResponse:
-        """Generate discussion questions from reading session"""
+        """
+        Generates discussion questions for a reading session using an ADK agent.
+
+        Args:
+            session_id: The ID of the reading session.
+            user_id: The ID of the user who owns the session.
+            discussion_request: `DiscussionGenerationRequest` specifying the number of questions.
+            db: The asynchronous database session.
+
+        Returns:
+            A `DiscussionResponse` object containing the generated discussion questions.
+
+        Raises:
+            ReadingSessionNotFoundException: If the session is not found for the user.
+            Exception: If the reading agent session state is missing or discussion generation fails.
+        """
         result = await db.execute(
             select(ReadingSession).where(
                 and_(
@@ -484,12 +567,13 @@ class ReadingService:
         agent_session_id = str(session_id)
         try:
             agent_session = await self.session_service.get_session(
-                app_name="ReadingPractice",
+                app_name=APP_NAME,
                 user_id=str(user_id),
                 session_id=agent_session_id
             )
-        except Exception:
-            agent_session = None
+        except Exception as e:
+            self.logger.warning(f"Error retrieving agent session for discussion generation: {e}", exc_info=True)
+            raise Exception("Reading agent session state is missing. Please recreate the reading session.")
         
         if not agent_session or not agent_session.state:
             raise Exception("Reading agent session state is missing. Please recreate the reading session.")
@@ -509,7 +593,7 @@ class ReadingService:
             
             try:
                 agent_session = await self.session_service.get_session(
-                    app_name="ReadingPractice",
+                    app_name=APP_NAME,
                     user_id=str(user_id),
                     session_id=agent_session_id
                 )
@@ -518,10 +602,9 @@ class ReadingService:
                     if agent_session and agent_session.state
                     else {}
                 )
-            except Exception:
+            except Exception as e:
                 self.logger.warning(
-                    "Unable to fetch discussion_result for session %s",
-                    agent_session_id,
+                    f"Unable to fetch discussion_result for session {agent_session_id}: {e}",
                     exc_info=True
                 )
                 discussion_payload = {}
@@ -533,7 +616,15 @@ class ReadingService:
             raise Exception(f"Failed to generate discussion: {str(e)}")
     
     def _count_words(self, text: str) -> int:
-        """Count words in text"""
+        """
+        Counts the number of words in a given text string.
+        
+        Args:
+            text: The input text string.
+            
+        Returns:
+            The number of words in the text.
+        """
         import re
         # Remove extra whitespace and split by whitespace
         words = re.findall(r'\b\w+\b', text.lower())
