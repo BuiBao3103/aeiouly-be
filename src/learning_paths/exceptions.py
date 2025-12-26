@@ -28,3 +28,8 @@ class InvalidLessonIndexException(LearningPathException):
     def __init__(self, detail: str = "Lesson index is out of bounds or invalid"):
         super().__init__(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
 
+
+class LearningPathAlreadyExistsException(Exception):
+    def __init__(self, message: str = "Learning path already exists for this user"):
+        self.message = message
+        super().__init__(self.message)

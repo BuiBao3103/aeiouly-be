@@ -17,12 +17,12 @@ from src.learning_paths.service import LearningPathService
 from src.learning_paths.exceptions import (
     LearningPathNotFoundException,
     LearningPathGenerationException,
+    LearningPathAlreadyExistsException
 )
 from src.learning_paths.dependencies import get_learning_path_service
-from fastapi import APIRouter, Depends, BackgroundTasks # Thêm BackgroundTasks
+from fastapi import APIRouter, Depends, BackgroundTasks  # Thêm BackgroundTasks
 
 router = APIRouter(prefix="/learning-paths", tags=["Learning Paths"])
-
 
 
 @router.post("/", response_model=LearningPathResponse)
@@ -33,15 +33,30 @@ async def generate_learning_path(
     db: AsyncSession = Depends(get_db),
     service: LearningPathService = Depends(get_learning_path_service)
 ):
-    lp_response = await service.generate_learning_path(current_user.id, form_data, db)
-    
-    background_tasks.add_task(
-        service.run_generation_pipeline_background, 
-        lp_response.id, 
-        current_user.id
-    )
-    
-    return lp_response
+    try:
+        # 1. Khởi tạo record lộ trình (ném lỗi nếu đã tồn tại)
+        lp_response = await service.generate_learning_path(current_user.id, form_data, db)
+
+        # 2. Đăng ký task chạy ngầm
+        background_tasks.add_task(
+            service.run_generation_pipeline_background,
+            lp_response.id,
+            current_user.id
+        )
+
+        return lp_response
+        
+    except LearningPathAlreadyExistsException as e:
+        raise HTTPException(
+            status_code=400, 
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Internal Server Error: {str(e)}"
+        )
+
 
 @router.get("/{learning_path_id}/status")
 async def get_learning_path_status(
@@ -55,6 +70,7 @@ async def get_learning_path_status(
     """
     return await service.get_learning_path_status(learning_path_id, current_user.id, db)
 
+
 @router.post("/progress/{user_lesson_progress_id}/start", response_model=UserLessonProgressResponse)
 async def start_lesson(
     user_lesson_progress_id: int,
@@ -65,11 +81,13 @@ async def start_lesson(
     """API bắt đầu bài học (Sử dụng ID tiến độ cụ thể)"""
     service = LearningPathService()
     return await service.start_lesson(
-        user_lesson_progress_id, 
-        current_user.id, 
-        db, 
+        user_lesson_progress_id,
+        current_user.id,
+        db,
         data.session_id
     )
+
+
 @router.post("/progress/{user_lesson_progress_id}/complete", response_model=UserLessonProgressResponse)
 async def complete_lesson(
     user_lesson_progress_id: int,
@@ -79,14 +97,30 @@ async def complete_lesson(
     service = LearningPathService()
     return await service.complete_lesson(user_lesson_progress_id, current_user.id, db)
 
+
 @router.get("/me", response_model=LearningPathResponse)
 async def get_my_learning_path(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     service = LearningPathService()
-    
+
     lp = await service.get_current_learning_path(current_user.id, db)
     if not lp:
-        raise LearningPathNotFoundException("Bạn chưa tạo lộ trình học tập nào.")
+        raise LearningPathNotFoundException(
+            "Bạn chưa tạo lộ trình học tập nào.")
     return lp
+
+# ... trong src/learning_paths/routers.py ...
+
+
+@router.delete("/me")
+async def delete_my_learning_path(
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+    service: LearningPathService = Depends(get_learning_path_service)
+):
+    """
+    API xóa lộ trình học tập hiện tại của người dùng.
+    """
+    return await service.delete_current_learning_path(current_user.id, db)

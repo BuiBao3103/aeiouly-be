@@ -7,6 +7,7 @@ from sqlalchemy.orm import selectinload
 
 from src.online.connection_manager import ConnectionManager
 from src.online.models import LoginStreak, LoginStreakDaily
+from src.users.models import User
 
 
 class LoginStreakService:
@@ -174,7 +175,9 @@ class LoginStreakService:
         """Get users with highest current streaks (aggregate per user)."""
         result = await db.execute(
             select(LoginStreak)
+            .join(LoginStreak.user)                         # JOIN User
             .options(selectinload(LoginStreak.user))
+            .where(User.role == "user")                     # Lọc role = user
             .order_by(desc(LoginStreak.current_streak))
             .limit(limit)
         )

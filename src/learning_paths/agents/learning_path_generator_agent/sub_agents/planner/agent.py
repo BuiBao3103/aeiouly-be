@@ -19,7 +19,7 @@ def after_planner_callback(callback_context: CallbackContext) -> None:
     message = state.get("status_message", "")
 
     percent += 10
-    message += "\nĐ lộ trình"
+    message += "\nĐã lên kế hoạch lộ trình"
 
     state["status_percent"] = percent
     state["status_message"] = message

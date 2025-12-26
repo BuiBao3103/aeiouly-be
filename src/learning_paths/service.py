@@ -23,6 +23,9 @@ from src.learning_paths.agents.learning_path_generator_agent.agent import learni
 from typing import List, Optional
 import asyncio
 from src.database import AsyncSessionLocal
+from datetime import datetime, timezone
+
+from src.learning_paths.exceptions import LearningPathAlreadyExistsException
 
 logger = logging.getLogger(__name__)
 APP_NAME = "LearningPath"
@@ -50,6 +53,19 @@ class LearningPathService:
     ) -> LearningPathResponse:
         """Khởi tạo lộ trình và bắt đầu chạy ngầm pipeline AI"""
         try:
+
+            result = await db.execute(
+                select(LearningPath)
+                .where(LearningPath.user_id == user_id)
+                .limit(1)
+            )
+            existing_lp = result.scalar_one_or_none()
+
+            if existing_lp:
+             # Ném lỗi nếu đã tồn tại lộ trình
+                raise LearningPathAlreadyExistsException(
+                    "Bạn đã có một lộ trình học tập. Vui lòng xóa lộ trình cũ trước khi tạo mới.")
+
             # 1. Khởi tạo record với trạng thái 'generating'
             duration_map = {"7_days": 7, "30_days": 30, "90_days": 90}
             days = duration_map.get(form_data.planDuration, 7)
@@ -99,6 +115,8 @@ class LearningPathService:
 
             return LearningPathResponse.model_validate(lp_data)
 
+        except LearningPathAlreadyExistsException:
+            raise 
         except Exception as e:
             await db.rollback()
             logger.error(f"Error initializing learning path: {e}")
@@ -365,3 +383,32 @@ class LearningPathService:
         }
 
         return status_info
+
+
+    async def delete_current_learning_path(self, user_id: int, db: AsyncSession):
+        """
+        Xóa vĩnh viễn lộ trình học tập hiện tại của người dùng.
+        Sử dụng Hard Delete để có thể tạo mới ngay lập tức.
+        """
+        # 1. Tìm lộ trình mới nhất của user (không quan tâm đã soft-delete hay chưa để xóa sạch)
+        # Sử dụng execution_options({"include_deleted": True}) nếu bạn vẫn muốn giữ cơ chế lọc toàn cục
+        result = await db.execute(
+            select(LearningPath)
+            .where(LearningPath.user_id == user_id)
+            .order_by(LearningPath.created_at.desc())
+            .limit(1)
+        )
+        lp = result.scalar_one_or_none()
+        
+        if not lp:
+            raise LearningPathNotFoundException("Bạn không có lộ trình nào để xóa.")
+
+        # 2. Hard Delete: Xóa trực tiếp khỏi database
+        # Nhờ cấu trúc 'cascade' trong model, các DailyPlan và Progress liên quan sẽ bị xóa theo
+        await db.delete(lp)
+        
+        # 3. Commit để thực thi
+        await db.commit()
+        
+        logger.info(f"HARD DELETED learning path {lp.id} for user {user_id}")
+        return {"message": "Đã xóa vĩnh viễn lộ trình học tập thành công."}
