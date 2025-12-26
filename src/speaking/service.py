@@ -63,7 +63,7 @@ from src.speaking.agents.skip_response_agent.agent import skip_response_agent
 from src.speaking.agents.final_evaluator_agent.agent import final_evaluator_agent
 from src.speaking.agents.hint_provider_agent.agent import hint_provider_agent
 from src.speaking.agents.intro_message_agent.agent import intro_message_agent
-
+from src.database import AsyncSessionLocal
 
 # Logger for speaking service
 logger = logging.getLogger(__name__)
@@ -648,69 +648,33 @@ class SpeakingService:
         await db.commit()
         return True
     
-    async def mark_session_completed(self, session_id: int, db: AsyncSession) -> bool:
+    async def mark_session_completed(self, session_id: int) -> bool:
         """
         Mark a speaking session as completed.
-        
-        Args:
-            session_id: The ID of the session to mark as completed
-            db: Database session
-            
-        Returns:
-            True if session was found and updated, False otherwise
+        Uses internal AsyncSessionLocal() – no db passed in.
         """
         try:
-            result = await db.execute(
-                select(SpeakingSession).where(SpeakingSession.id == session_id)
-            )
-            session = result.scalar_one_or_none()
-            
-            if not session:
-                return False
-            
-            session.status = "completed"
-            await db.commit()
-            return True
+            async with AsyncSessionLocal() as db:
+                result = await db.execute(
+                    select(SpeakingSession).where(SpeakingSession.id == session_id)
+                )
+                session = result.scalar_one_or_none()
+
+                if not session:
+                    return False
+
+                session.status = "completed"
+
+                await db.commit()
+                return True
+
         except Exception as exc:
-            await db.rollback()
             logger.error(
                 f"Could not persist session completion for session {session_id}: {exc}",
                 exc_info=True
             )
             return False
-    
-    async def mark_session_completed_async(self, session_id: int, db: AsyncSession) -> bool:
-        """
-        Asynchronous method to mark a speaking session as completed.
-        Should be called from async contexts.
-        
-        Args:
-            session_id: The ID of the session to mark as completed
-            db: Database session
-            
-        Returns:
-            True if session was found and updated, False otherwise
-        """
-        try:
-            result = await db.execute(
-                select(SpeakingSession).where(SpeakingSession.id == session_id)
-            )
-            session = result.scalar_one_or_none()
-            
-            if not session:
-                return False
-            
-            session.status = "completed"
-            await db.commit()
-            return True
-        except Exception as exc:
-            await db.rollback()
-            logger.error(
-                f"Could not persist session completion for session {session_id}: {exc}",
-                exc_info=True
-            )
-            return False
-    
+
     async def send_chat_message(
         self,
         session_id: int,
@@ -822,8 +786,8 @@ class SpeakingService:
             
             # Single commit for both user and agent messages + session status update
             await db.commit()
-            await db.refresh(user_message)
             await db.refresh(agent_message)
+            await db.refresh(session)
             
             session_payload = SpeakingSessionResponse(
                 id=session.id,

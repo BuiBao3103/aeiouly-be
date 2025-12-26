@@ -47,7 +47,7 @@ def before_conversation_callback(callback_context: CallbackContext) -> Optional[
     return None  # Continue with normal agent processing
 
 
-def after_conversation_callback(callback_context: CallbackContext) -> Optional[types.Content]:
+async def after_conversation_callback(callback_context: CallbackContext) -> Optional[types.Content]:
     """
     Callback that automatically saves user message and AI response to chat_history in state
     after conversation_agent generates response.
@@ -112,7 +112,8 @@ def after_conversation_callback(callback_context: CallbackContext) -> Optional[t
             if session_id:
                 try:
                     from src.speaking.service import SpeakingService
-                    SpeakingService.mark_session_completed_sync(session_id)
+                    speaking_service = SpeakingService()
+                    await speaking_service.mark_session_completed(session_id)
                 except Exception as exc:
                     logger = __import__("logging").getLogger(__name__)
                     logger.error(f"Error handling conversation completion: {exc}")
