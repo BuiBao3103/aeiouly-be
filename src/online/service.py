@@ -3,6 +3,7 @@ from typing import Dict, List
 
 from sqlalchemy import desc, select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from src.online.connection_manager import ConnectionManager
 from src.online.models import LoginStreak, LoginStreakDaily
@@ -173,6 +174,7 @@ class LoginStreakService:
         """Get users with highest current streaks (aggregate per user)."""
         result = await db.execute(
             select(LoginStreak)
+            .options(selectinload(LoginStreak.user))
             .order_by(desc(LoginStreak.current_streak))
             .limit(limit)
         )
@@ -180,7 +182,7 @@ class LoginStreakService:
 
         return [
             {
-                "user_id": streak.user_id,
+                "user": streak.user,
                 "current_streak": streak.current_streak,
                 "longest_streak": streak.longest_streak,
             }
