@@ -18,49 +18,42 @@ from src.learning_paths.exceptions import (
     LearningPathNotFoundException,
     LearningPathGenerationException,
 )
+from src.learning_paths.dependencies import get_learning_path_service
+from fastapi import APIRouter, Depends, BackgroundTasks # Thêm BackgroundTasks
 
 router = APIRouter(prefix="/learning-paths", tags=["Learning Paths"])
 
-@router.post(
-    "/",
-    response_model=LearningPathResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="Generate a new personalized learning path for the user",
-)
-async def generate_learning_path_endpoint(
+
+
+@router.post("/", response_model=LearningPathResponse)
+async def generate_learning_path(
     form_data: LearningPathForm,
-    db: AsyncSession = Depends(get_db),
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+    service: LearningPathService = Depends(get_learning_path_service)
+):
+    lp_response = await service.generate_learning_path(current_user.id, form_data, db)
+    
+    background_tasks.add_task(
+        service.run_generation_pipeline_background, 
+        lp_response.id, 
+        current_user.id
+    )
+    
+    return lp_response
+
+@router.get("/{learning_path_id}/status")
+async def get_learning_path_status(
+    learning_path_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+    service: LearningPathService = Depends(get_learning_path_service)
 ):
     """
-    Generates a new personalized learning path for the authenticated user.
-
-    The learning path is created based on the preferences provided in the `form_data`.
-    
-    Args:
-        form_data: The `LearningPathForm` containing user preferences for the learning path.
-        db: The asynchronous database session dependency.
-        current_user: The authenticated user dependency.
-        
-    Returns:
-        A `LearningPathResponse` object representing the newly generated learning path.
-        
-    Raises:
-        HTTPException 400: If the learning path generation fails due to invalid input or agent issues.
-        HTTPException 500: For unexpected internal server errors.
+    Endpoint để Frontend kiểm tra trạng thái lộ trình sau khi gọi API tạo.
     """
-    service = LearningPathService()
-    try:
-        learning_path = await service.generate_learning_path(
-            user_id=current_user.id,
-            form_data=form_data,
-            db=db,
-        )
-        return learning_path
-    except LearningPathGenerationException as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+    return await service.get_learning_path_status(learning_path_id, current_user.id, db)
 
 @router.post("/progress/{user_lesson_progress_id}/start", response_model=UserLessonProgressResponse)
 async def start_lesson(

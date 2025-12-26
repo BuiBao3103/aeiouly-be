@@ -2,9 +2,9 @@
 Learning Path Service - Updated to work with current database model
 """
 import logging
-from typing import List
+from typing import List, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, update
 from google.adk.runners import Runner
 from google.adk.sessions import DatabaseSessionService
 from src.config import get_sync_database_url
@@ -21,6 +21,9 @@ from src.learning_paths.exceptions import (
 )
 from src.learning_paths.agents.learning_path_generator_agent.agent import learning_path_generator_agent
 from typing import List, Optional
+import asyncio
+from src.database import AsyncSessionLocal  
+
 logger = logging.getLogger(__name__)
 APP_NAME = "LearningPath"
 
@@ -42,29 +45,35 @@ class LearningPathService:
         self,
         user_id: int,
         form_data: LearningPathForm,
-        db: AsyncSession
+        db: AsyncSession,
+        # Nhận thêm background_tasks từ router
     ) -> LearningPathResponse:
+        """Khởi tạo lộ trình và bắt đầu chạy ngầm pipeline AI"""
         try:
-            # 1. Khởi tạo
+            # 1. Khởi tạo record với trạng thái 'generating'
             duration_map = {"7_days": 7, "30_days": 30, "90_days": 90}
             days = duration_map.get(form_data.planDuration, 7)
+            total_lessons = form_data.dailyLessonCount * days
 
             db_lp = LearningPath(
                 user_id=user_id,
                 form_data=form_data.model_dump(),
                 status="generating"
             )
-            total_lessons = form_data.dailyLessonCount * days
             db.add(db_lp)
             await db.flush()
 
-            # 2. Chạy Agent Pipeline
+            # Commit ngay để các API khác có thể thấy record này đang 'generating'
+            lp_id = db_lp.id
+            await db.commit()
+
+            # 2. Tạo ADK Session (Chuẩn bị dữ liệu cho Agent)
             await self.session_service.create_session(
                 app_name=APP_NAME,
                 user_id=str(user_id),
-                session_id=str(db_lp.id),
+                session_id=str(lp_id),
                 state={
-                    "learning_path_id": db_lp.id,
+                    "learning_path_id": lp_id,
                     "days": days,
                     "dailyLessonCount": form_data.dailyLessonCount,
                     "total_lessons": total_lessons,
@@ -77,109 +86,98 @@ class LearningPathService:
                 }
             )
 
-            await call_agent_with_logging(
-                runner=self.learning_path_generator_runner,
-                user_id=str(user_id),
-                session_id=str(db_lp.id),
-                query=build_agent_query("system", "Generate path"),
-                logger=logger
-            )
-
-            # 3. Lấy kết quả đã được callback xử lý
-            final_state = await get_agent_state(
-                self.session_service,
-                APP_NAME,
-                str(user_id),
-                str(db_lp.id)
-            )
-
-            gen_dict = final_state.get(FINAL_LEARNING_PATH_STATE_KEY)
-
-            if not gen_dict:
-                generation_error = final_state.get("generation_error")
-                if generation_error:
-                    raise LearningPathGenerationException(
-                        f"Failed to generate learning path: {generation_error}"
-                    )
-                else:
-                    raise LearningPathGenerationException(
-                        "Aggregator callback failed to produce final learning path. "
-                        "Check logs for details."
-                    )
-
-            content = LearningPathGenerationResult.model_validate(gen_dict)
-
-            actual_days = len(content.daily_plans)
-            total_lessons_created = sum(len(d.lessons)
-                                        for d in content.daily_plans)
-
-            logger.info(
-                f"Generated {actual_days} days with {total_lessons_created} total lessons "
-                f"(requested: {days} days with {total_lessons} lessons)"
-            )
-
-            generation_warning = final_state.get("generation_warning")
-            if generation_warning:
-                logger.warning(
-                    f"Generation adjustments made: {generation_warning}")
-
-            if not content.daily_plans:
-                raise LearningPathGenerationException(
-                    "No daily plans could be generated. "
-                    "Agents may have failed to create lessons."
-                )
-
-            for day_data in content.daily_plans:
-                db_plan = DailyLessonPlan(
-                    learning_path_id=db_lp.id,
-                    day_number=day_data.day_number,
-                    status="pending"
-                )
-                db.add(db_plan)
-                await db.flush()
-
-                for idx, lesson_params in enumerate(day_data.lessons):
-                    db.add(UserLessonProgress(
-                        user_id=user_id,
-                        daily_lesson_plan_id=db_plan.id,
-                        lesson_index=idx,
-                        title=lesson_params.title,
-                        lesson_type=lesson_params.lesson_type,
-                        status="start",
-                        metadata_=lesson_params.model_dump()
-                    ))
-
-            db_lp.status = "generated"
-            await db.commit()
-            await db.refresh(db_lp)
-
-            logger.info(
-                f"Successfully saved learning path {db_lp.id} for user {user_id}")
-
-            daily_plans = await self.get_daily_lesson_plans(db_lp.id, user_id, db)
-            
             lp_data = {
                 "id": db_lp.id,
                 "user_id": db_lp.user_id,
                 "form_data": db_lp.form_data,
                 "status": db_lp.status,
                 "created_at": db_lp.created_at,
-                "warning": generation_warning,
-                "daily_plans": daily_plans
+                "daily_plans": []
             }
-
+            
             return LearningPathResponse.model_validate(lp_data)
 
         except Exception as e:
             await db.rollback()
-            logger.error(f"Error generating learning path: {e}", exc_info=True)
+            logger.error(f"Error initializing learning path: {e}")
             raise LearningPathGenerationException(str(e))
 
+    async def run_generation_pipeline_background(self, lp_id: int, user_id: int):
+        """Hàm chạy ngầm: Gọi Agent, lưu bài học và cập nhật trạng thái"""
+        # Vì chạy ngầm nên cần tự tạo Session mới
+        async with AsyncSessionLocal() as db:
+            try:
+                # 1. Gọi Agent Pipeline
+                await call_agent_with_logging(
+                    runner=self.learning_path_generator_runner,
+                    user_id=str(user_id),
+                    session_id=str(lp_id),
+                    query=build_agent_query("system", "Generate path"),
+                    logger=logger
+                )
+
+                # 2. Lấy kết quả từ Agent State
+                final_state = await get_agent_state(
+                    self.session_service, APP_NAME, str(user_id), str(lp_id)
+                )
+                gen_dict = final_state.get(FINAL_LEARNING_PATH_STATE_KEY)
+
+                if not gen_dict:
+                    raise Exception("Agent failed to produce result")
+
+                content = LearningPathGenerationResult.model_validate(gen_dict)
+
+                # 3. Lưu DailyPlans và UserLessonProgress
+                for day_data in content.daily_plans:
+                    db_plan = DailyLessonPlan(
+                        learning_path_id=lp_id,
+                        day_number=day_data.day_number,
+                        status="pending"
+                    )
+                    db.add(db_plan)
+                    await db.flush()
+
+                    for idx, lesson_params in enumerate(day_data.lessons):
+                        db.add(UserLessonProgress(
+                            user_id=user_id,
+                            daily_lesson_plan_id=db_plan.id,
+                            lesson_index=idx,
+                            title=lesson_params.title,
+                            lesson_type=lesson_params.lesson_type,
+                            status="start",
+                            metadata_=lesson_params.model_dump()
+                        ))
+
+                # 4. Hoàn tất
+                result = await db.execute(select(LearningPath).where(LearningPath.id == lp_id))
+                db_lp = result.scalar_one()
+                db_lp.status = "generated"
+
+                # Lưu warning nếu có
+                warning = final_state.get("generation_warning")
+                if warning:
+                    # Hoặc thêm field warning vào model
+                    db_lp.metadata_ = {"warning": warning}
+
+                await db.commit()
+                logger.info(
+                    f"Background task finished for LearningPath {lp_id}")
+
+            except Exception as e:
+                logger.error(
+                    f"Background generation failed for LP {lp_id}: {e}")
+                # Cập nhật trạng thái lỗi để user biết
+                result = await db.execute(select(LearningPath).where(LearningPath.id == lp_id))
+                db_lp = result.scalar_one_or_none()
+                if db_lp:
+                    db_lp.status = "failed"
+                    await db.commit()
+
     async def start_lesson(
-        self, 
+        self,
         progress_id: int,
-        user_id: int, 
-        db: AsyncSession, 
+        user_id: int,
+        db: AsyncSession,
         session_id: Optional[int] = None
     ) -> UserLessonProgressResponse:
         """Bắt đầu bài học dựa trên ID tiến độ của người dùng"""
@@ -191,7 +189,7 @@ class LearningPathService:
             )
         )
         db_p = res.scalar_one_or_none()
-        
+
         if not db_p:
             raise UserLessonProgressNotFoundException()
 
@@ -199,12 +197,13 @@ class LearningPathService:
         db_p.status = "in_progress"
         if session_id:
             db_p.session_id = session_id
-        
+
         await db.commit()
 
         # 3. Cập nhật trạng thái DailyPlan liên quan nếu nó vẫn là 'pending'
         plan_res = await db.execute(
-            select(DailyLessonPlan).where(DailyLessonPlan.id == db_p.daily_lesson_plan_id)
+            select(DailyLessonPlan).where(
+                DailyLessonPlan.id == db_p.daily_lesson_plan_id)
         )
         db_plan = plan_res.scalar_one_or_none()
         if db_plan and db_plan.status == "pending":
@@ -214,13 +213,13 @@ class LearningPathService:
         await db.refresh(db_p)
         return UserLessonProgressResponse.model_validate(db_p)
 
-
     async def complete_lesson(self, progress_id: int, user_id: int, db: AsyncSession) -> UserLessonProgressResponse:
         res = await db.execute(select(UserLessonProgress).where(
             UserLessonProgress.id == progress_id, UserLessonProgress.user_id == user_id
         ))
         db_p = res.scalar_one_or_none()
-        if not db_p: raise UserLessonProgressNotFoundException()
+        if not db_p:
+            raise UserLessonProgressNotFoundException()
 
         db_p.status = "done"
         await db.commit()
@@ -232,14 +231,14 @@ class LearningPathService:
         ))
         if all(p.status == "done" for p in all_res.scalars().all()):
             await db.execute(
-                update(DailyLessonPlan).where(DailyLessonPlan.id == db_p.daily_lesson_plan_id)
+                update(DailyLessonPlan).where(
+                    DailyLessonPlan.id == db_p.daily_lesson_plan_id)
                 .values(status="completed")
             )
             await db.commit()
 
         await db.refresh(db_p)
         return UserLessonProgressResponse.model_validate(db_p)
-
 
     async def get_daily_lesson_plans(
         self,
@@ -273,7 +272,7 @@ class LearningPathService:
             for prog in progress_list:
                 # 3. Parse LessonParams từ metadata lưu trong DB
                 lesson_params = LessonParams.model_validate(prog.metadata_)
-                
+
                 lessons.append(LessonWithProgressResponse(
                     id=prog.id,
                     lesson_index=prog.lesson_index,
@@ -309,7 +308,7 @@ class LearningPathService:
             .limit(1)
         )
         lp = result.scalar_one_or_none()
-        
+
         if not lp:
             return None
 
@@ -324,7 +323,39 @@ class LearningPathService:
             "status": lp.status,
             "created_at": lp.created_at,
             "warning": getattr(lp, "warning", None),
-            "daily_plans": daily_plans_data 
+            "daily_plans": daily_plans_data
         }
-        
+
         return LearningPathResponse.model_validate(lp_data)
+
+    async def get_learning_path_status(
+        self,
+        learning_path_id: int,
+        user_id: int,
+        db: AsyncSession
+    ) -> Dict[str, Any]:
+        """
+        Lấy trạng thái hiện tại của lộ trình học tập.
+        Dùng để Frontend polling kiểm tra xem AI đã tạo xong bài học chưa.
+        """
+        # 1. Truy vấn lộ trình
+        result = await db.execute(
+            select(LearningPath).where(
+                LearningPath.id == learning_path_id,
+                LearningPath.user_id == user_id
+            )
+        )
+        lp = result.scalar_one_or_none()
+        
+        if not lp:
+            raise LearningPathNotFoundException()
+
+        status_info = {
+            "id": lp.id,
+            "status": lp.status,
+            "is_ready": lp.status == "generated",
+            "created_at": lp.created_at,
+        }
+
+            
+        return status_info
