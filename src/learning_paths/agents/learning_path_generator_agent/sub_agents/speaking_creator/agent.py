@@ -1,5 +1,22 @@
 from google.adk.agents import LlmAgent
 from src.learning_paths.schemas import LessonsResult
+
+from google.adk.agents.callback_context import CallbackContext
+
+def after_speaking_creator_callback(callback_context: CallbackContext) -> None:
+
+    state = callback_context.state
+    percent = state.get("status_percent", "")
+    message = state.get("status_message", "")
+
+    percent += 15
+    message += "\nĐã tạo các bài học nói."
+
+    state["status_percent"] = percent
+    state["status_message"] = message
+
+    return None
+
 speaking_creator_agent = LlmAgent(
     name="speaking_creator",
     model="gemini-2.5-flash",
@@ -48,5 +65,6 @@ speaking_creator_agent = LlmAgent(
     output_schema=LessonsResult,
     output_key="speaking_output",
     disallow_transfer_to_parent=True,
-    disallow_transfer_to_peers=True
+    disallow_transfer_to_peers=True,
+    after_agent_callback=after_speaking_creator_callback
 )

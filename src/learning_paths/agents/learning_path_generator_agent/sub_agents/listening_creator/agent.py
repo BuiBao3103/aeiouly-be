@@ -2,12 +2,27 @@ from google.adk.agents import LlmAgent
 from google.adk.tools.tool_context import ToolContext
 from src.learning_paths.schemas import LessonsResult
 from typing import List, Dict, Any
+from google.adk.agents.callback_context import CallbackContext
 
 
 def search_listening_lessons_tool(topic: str, level: str, count: int, tool_context: ToolContext) -> List[Dict[str, Any]]:
     """Search for listening lessons from database"""
     return [{"lesson_id": 1, "title": f"Listening lesson about {topic}", "description": "Practice listening skills.", "goal": "Improve comprehension."}]
 
+
+def after_listening_creator_callback(callback_context: CallbackContext) -> None:
+
+    state = callback_context.state
+    percent = state.get("status_percent", "")
+    message = state.get("status_message", "")
+
+    percent += 15
+    message += "\nĐã tạo các bài học nghe."
+
+    state["status_percent"] = percent
+    state["status_message"] = message
+
+    return None
 
 listening_creator_agent = LlmAgent(
     name="listening_creator",
@@ -54,5 +69,6 @@ listening_creator_agent = LlmAgent(
     output_schema=LessonsResult,
     output_key="listening_output",
     disallow_transfer_to_parent=True,
-    disallow_transfer_to_peers=True
+    disallow_transfer_to_peers=True,
+    after_agent_callback=after_listening_creator_callback
 )

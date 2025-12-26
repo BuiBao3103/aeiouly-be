@@ -29,6 +29,7 @@ class LearningPathMatrix(BaseModel):
 FINAL_LEARNING_PATH_STATE_KEY = "final_learning_path"
 
 
+
 def validate_and_adjust_lesson_counts(
     lesson_counts: dict,
     lesson_pools: dict,
@@ -126,6 +127,14 @@ def after_aggregator_callback(callback_context: CallbackContext) -> types.Conten
     except Exception as e:
         logger.error(f"Mapping error: {e}", exc_info=True)
         state[FINAL_LEARNING_PATH_STATE_KEY] = None
+
+    message = state.get("status_message", "")
+
+    percent = 100
+    message += "\nĐã phân bổ lộ trình."
+
+    state["status_percent"] = percent
+    state["status_message"] = message
 
     return None
 

@@ -1,11 +1,31 @@
 from google.adk.agents import LlmAgent
+from google.adk.agents.callback_context import CallbackContext
+from google.genai import types
 from pydantic import BaseModel, Field
+
 
 class LessonPlanCounts(BaseModel):
     reading_count: int = Field(..., description="Number of reading lessons")
     writing_count: int = Field(..., description="Number of writing lessons")
     speaking_count: int = Field(..., description="Number of speaking lessons")
-    listening_count: int = Field(..., description="Number of listening lessons")
+    listening_count: int = Field(...,
+                                 description="Number of listening lessons")
+
+
+def after_planner_callback(callback_context: CallbackContext) -> None:
+
+    state = callback_context.state
+    percent = state.get("status_percent", "")
+    message = state.get("status_message", "")
+
+    percent += 10
+    message += "\nĐ lộ trình"
+
+    state["status_percent"] = percent
+    state["status_message"] = message
+
+    return None
+
 
 planner_agent = LlmAgent(
     name="planner_agent",
@@ -34,5 +54,6 @@ planner_agent = LlmAgent(
     output_schema=LessonPlanCounts,
     output_key="lesson_counts",
     disallow_transfer_to_parent=True,
-    disallow_transfer_to_peers=True
+    disallow_transfer_to_peers=True,
+    after_agent_callback=after_planner_callback
 )

@@ -22,7 +22,7 @@ from src.learning_paths.exceptions import (
 from src.learning_paths.agents.learning_path_generator_agent.agent import learning_path_generator_agent
 from typing import List, Optional
 import asyncio
-from src.database import AsyncSessionLocal  
+from src.database import AsyncSessionLocal
 
 logger = logging.getLogger(__name__)
 APP_NAME = "LearningPath"
@@ -83,6 +83,8 @@ class LearningPathService:
                     "profession": form_data.profession,
                     "ageRange": form_data.ageRange,
                     "goals": [g.value for g in form_data.goals],
+                    "status_message": "Bắt đầu tạo lộ trình.",
+                    "status_percent": 0,
                 }
             )
 
@@ -94,7 +96,7 @@ class LearningPathService:
                 "created_at": db_lp.created_at,
                 "daily_plans": []
             }
-            
+
             return LearningPathResponse.model_validate(lp_data)
 
         except Exception as e:
@@ -346,16 +348,20 @@ class LearningPathService:
             )
         )
         lp = result.scalar_one_or_none()
-        
+
         if not lp:
             raise LearningPathNotFoundException()
 
+        agent_state = await get_agent_state(
+            self.session_service, APP_NAME, str(user_id), str(learning_path_id)
+        )
+
         status_info = {
             "id": lp.id,
-            "status": lp.status,
+            "message": agent_state.get("status_message"),
+            "percent": agent_state.get("status_percent"),
             "is_ready": lp.status == "generated",
             "created_at": lp.created_at,
         }
 
-            
         return status_info
