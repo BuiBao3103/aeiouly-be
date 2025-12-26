@@ -13,7 +13,7 @@ from src.learning_paths.models import LearningPath, DailyLessonPlan, UserLessonP
 from src.learning_paths.schemas import (
     LearningPathForm, LearningPathResponse, DailyLessonPlanResponse,
     UserLessonProgressResponse, LearningPathGenerationResult,
-    LessonStatusUpdateRequest, LessonWithProgressResponse, LessonParams
+    LessonWithProgressResponse, LessonParams
 )
 from src.learning_paths.exceptions import (
     LearningPathNotFoundException, UserLessonProgressNotFoundException,
@@ -156,69 +156,34 @@ class LearningPathService:
             logger.info(
                 f"Successfully saved learning path {db_lp.id} for user {user_id}")
 
-            # Tạo response với warning nếu có
-            response = LearningPathResponse.model_validate(db_lp)
-            if generation_warning:
-                response.warning = generation_warning
+            daily_plans = await self.get_daily_lesson_plans(db_lp.id, user_id, db)
+            
+            lp_data = {
+                "id": db_lp.id,
+                "user_id": db_lp.user_id,
+                "form_data": db_lp.form_data,
+                "status": db_lp.status,
+                "created_at": db_lp.created_at,
+                "warning": generation_warning,
+                "daily_plans": daily_plans
+            }
 
-            return response
+            return LearningPathResponse.model_validate(lp_data)
 
         except Exception as e:
             await db.rollback()
             logger.error(f"Error generating learning path: {e}", exc_info=True)
             raise LearningPathGenerationException(str(e))
 
-
-
     async def start_lesson(
-        self,
-        daily_lesson_plan_id: int,
-        lesson_index: int,
-        user_id: int,
-        db: AsyncSession,
-    ) -> UserLessonProgressResponse:
-        db_daily_plan_result = await db.execute(
-            select(DailyLessonPlan).where(
-                DailyLessonPlan.id == daily_lesson_plan_id
-            )
-        )
-        db_daily_plan = db_daily_plan_result.scalar_one_or_none()
-
-        if not db_daily_plan:
-            raise DailyLessonPlanNotFoundException()
-
-        # Tìm bản ghi progress
-        user_progress_result = await db.execute(
-            select(UserLessonProgress).where(
-                UserLessonProgress.user_id == user_id,
-                UserLessonProgress.daily_lesson_plan_id == daily_lesson_plan_id,
-                UserLessonProgress.lesson_index == lesson_index,
-            ).limit(1)
-        )
-        db_progress = user_progress_result.scalar_one_or_none()
-
-        if not db_progress:
-            raise UserLessonProgressNotFoundException(
-                "UserLessonProgress not found for this lesson. "
-                "It might not have been initialized."
-            )
-
-        db_progress.status = "in_progress"
-
-        if db_daily_plan.status == "pending":
-            db_daily_plan.status = "in_progress"
-
-        await db.commit()
-        await db.refresh(db_progress)
-        return UserLessonProgressResponse.model_validate(db_progress)
-
-    async def update_lesson_progress(
-        self,
+        self, 
         progress_id: int,
-        user_id: int,
-        data: LessonStatusUpdateRequest,
-        db: AsyncSession
+        user_id: int, 
+        db: AsyncSession, 
+        session_id: Optional[int] = None
     ) -> UserLessonProgressResponse:
+        """Bắt đầu bài học dựa trên ID tiến độ của người dùng"""
+        # 1. Tìm bản ghi tiến độ
         res = await db.execute(
             select(UserLessonProgress).where(
                 UserLessonProgress.id == progress_id,
@@ -226,48 +191,54 @@ class LearningPathService:
             )
         )
         db_p = res.scalar_one_or_none()
+        
         if not db_p:
             raise UserLessonProgressNotFoundException()
 
-        db_p.status = data.status
-        if data.session_id:
-            db_p.session_id = data.session_id
-        if data.metadata:
-            db_p.metadata_.update(data.metadata)
-
+        # 2. Cập nhật trạng thái và session_id
+        db_p.status = "in_progress"
+        if session_id:
+            db_p.session_id = session_id
+        
         await db.commit()
+
+        # 3. Cập nhật trạng thái DailyPlan liên quan nếu nó vẫn là 'pending'
+        plan_res = await db.execute(
+            select(DailyLessonPlan).where(DailyLessonPlan.id == db_p.daily_lesson_plan_id)
+        )
+        db_plan = plan_res.scalar_one_or_none()
+        if db_plan and db_plan.status == "pending":
+            db_plan.status = "in_progress"
+            await db.commit()
+
         await db.refresh(db_p)
-
-        if db_p.status == "done":
-            # Kiểm tra xem tất cả bài học trong ngày đã xong chưa
-            daily_plan_result = await db.execute(
-                select(DailyLessonPlan).where(
-                    DailyLessonPlan.id == db_p.daily_lesson_plan_id
-                )
-            )
-            db_daily_plan = daily_plan_result.scalar_one_or_none()
-            if db_daily_plan:
-                all_done = True
-                all_progress_in_day_res = await db.execute(
-                    select(UserLessonProgress).where(
-                        UserLessonProgress.daily_lesson_plan_id == db_daily_plan.id,
-                        UserLessonProgress.user_id == user_id
-                    )
-                )
-                all_progress_in_day = all_progress_in_day_res.scalars().all()
-
-                # Kiểm tra tất cả đã done chưa
-                for p_item in all_progress_in_day:
-                    if p_item.status != "done":
-                        all_done = False
-                        break
-
-                if all_done:
-                    db_daily_plan.status = "completed"
-                    await db.commit()
-
         return UserLessonProgressResponse.model_validate(db_p)
 
+
+    async def complete_lesson(self, progress_id: int, user_id: int, db: AsyncSession) -> UserLessonProgressResponse:
+        res = await db.execute(select(UserLessonProgress).where(
+            UserLessonProgress.id == progress_id, UserLessonProgress.user_id == user_id
+        ))
+        db_p = res.scalar_one_or_none()
+        if not db_p: raise UserLessonProgressNotFoundException()
+
+        db_p.status = "done"
+        await db.commit()
+
+        # Kiểm tra hoàn thành ngày
+        all_res = await db.execute(select(UserLessonProgress).where(
+            UserLessonProgress.daily_lesson_plan_id == db_p.daily_lesson_plan_id,
+            UserLessonProgress.user_id == user_id
+        ))
+        if all(p.status == "done" for p in all_res.scalars().all()):
+            await db.execute(
+                update(DailyLessonPlan).where(DailyLessonPlan.id == db_p.daily_lesson_plan_id)
+                .values(status="completed")
+            )
+            await db.commit()
+
+        await db.refresh(db_p)
+        return UserLessonProgressResponse.model_validate(db_p)
 
 
     async def get_daily_lesson_plans(

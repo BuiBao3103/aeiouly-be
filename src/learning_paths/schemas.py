@@ -90,11 +90,6 @@ class UserLessonProgressResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class LessonStatusUpdateRequest(BaseModel):
-    status: str
-    session_id: Optional[int] = None
-    metadata: Optional[Dict[str, Any]] = None
-
 
 class LearningPathResponse(BaseModel):
     id: int
@@ -105,3 +100,7 @@ class LearningPathResponse(BaseModel):
     warning: Optional[str] = None
     daily_plans: Optional[List[DailyLessonPlanResponse]] = None
     model_config = ConfigDict(from_attributes=True)
+
+
+class LessonStartRequest(BaseModel):
+    session_id: Optional[int] = Field(None, description="ID của phiên học từ dịch vụ kỹ năng (Reading/Speaking...)")
