@@ -149,10 +149,12 @@ class LearningPathService:
 
                 # 3. Lưu DailyPlans và UserLessonProgress
                 for day_data in content.daily_plans:
+                    status_daily = "in_progress" if day_data.day_number == 1 else "pending"
+
                     db_plan = DailyLessonPlan(
                         learning_path_id=lp_id,
                         day_number=day_data.day_number,
-                        status="pending"
+                        status=status_daily
                     )
                     db.add(db_plan)
                     await db.flush()
@@ -220,15 +222,6 @@ class LearningPathService:
 
         await db.commit()
 
-        # 3. Cập nhật trạng thái DailyPlan liên quan nếu nó vẫn là 'pending'
-        plan_res = await db.execute(
-            select(DailyLessonPlan).where(
-                DailyLessonPlan.id == db_p.daily_lesson_plan_id)
-        )
-        db_plan = plan_res.scalar_one_or_none()
-        if db_plan and db_plan.status == "pending":
-            db_plan.status = "in_progress"
-            await db.commit()
 
         await db.refresh(db_p)
         return UserLessonProgressResponse.model_validate(db_p)
@@ -244,22 +237,36 @@ class LearningPathService:
         db_p.status = "done"
         await db.commit()
 
-        # Kiểm tra hoàn thành ngày
+        # 1. Lấy thông tin ngày học hiện tại để biết day_number và learning_path_id
+        current_plan_res = await db.execute(select(DailyLessonPlan).where(
+            DailyLessonPlan.id == db_p.daily_lesson_plan_id
+        ))
+        current_plan = current_plan_res.scalar_one()
+
+        # 2. Kiểm tra xem tất cả bài học trong ngày này đã xong chưa
         all_res = await db.execute(select(UserLessonProgress).where(
             UserLessonProgress.daily_lesson_plan_id == db_p.daily_lesson_plan_id,
             UserLessonProgress.user_id == user_id
         ))
         if all(p.status == "done" for p in all_res.scalars().all()):
-            await db.execute(
-                update(DailyLessonPlan).where(
-                    DailyLessonPlan.id == db_p.daily_lesson_plan_id)
-                .values(status="completed")
-            )
+            # Cập nhật ngày hiện tại thành completed
+            current_plan.status = "completed"
+
+            # 3. Tìm ngày học tiếp theo (day_number + 1) cùng lộ trình
+            next_plan_res = await db.execute(select(DailyLessonPlan).where(
+                DailyLessonPlan.learning_path_id == current_plan.learning_path_id,
+                DailyLessonPlan.day_number == current_plan.day_number + 1
+            ))
+            next_plan = next_plan_res.scalar_one_or_none()
+            
+            if next_plan:
+                next_plan.status = "in_progress"
+            
             await db.commit()
 
         await db.refresh(db_p)
         return UserLessonProgressResponse.model_validate(db_p)
-
+    
     async def get_daily_lesson_plans(
         self,
         learning_path_id: int,
