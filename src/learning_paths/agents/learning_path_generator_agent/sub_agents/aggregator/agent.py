@@ -18,7 +18,6 @@ class LessonRef(BaseModel):
 
 class LessonAllocation(BaseModel):
     day_number: int
-    title: str
     lesson_indices: List[LessonRef]
 
 
@@ -50,16 +49,15 @@ def validate_and_adjust_lesson_counts(
     
     total_actual = sum(len(pool) for pool in lesson_pools.values())
     total_needed = days * daily_lesson_count
-    adjusted_days = days
     
+    # Nếu không đủ bài, vẫn giữ nguyên số ngày nhưng thêm cảnh báo lặp bài
     if total_actual < total_needed:
-        adjusted_days = max(1, total_actual // daily_lesson_count)
         warnings.append(
-            f"Not enough lessons: have {total_actual}, need {total_needed}. "
-            f"Adjusted to {adjusted_days} days."
+            f"Không đủ bài học: có {total_actual}, cần {total_needed}. "
+            f"Các bài học sẽ được lặp lại để đủ {days} ngày."
         )
     
-    return adjusted_counts, adjusted_days, "; ".join(warnings) if warnings else ""
+    return adjusted_counts, days, "; ".join(warnings) if warnings else ""
 
 
 def after_aggregator_callback(callback_context: CallbackContext) -> types.Content | None:
@@ -101,15 +99,19 @@ def after_aggregator_callback(callback_context: CallbackContext) -> types.Conten
     daily_plans = []
     try:
         allocations = allocation_matrix.get("daily_allocations", [])
-        allocations = [a for a in allocations if a.get("day_number") <= adjusted_days]
         
         for alloc in allocations:
             lessons = []
             for ref in alloc.get("lesson_indices", []):
-                pool = lesson_pools.get(ref.get("lesson_type"), [])
-                idx = ref.get("index")
-                if 0 <= idx < len(pool):
-                    lessons.append(pool[idx])
+                lesson_type = ref.get("lesson_type")
+                pool = lesson_pools.get(lesson_type, [])
+                
+                if not pool:
+                    continue
+                
+                # Quay vòng lấy bài học nếu index vượt quá kích thước pool (sử dụng modulo)
+                idx = ref.get("index", 0)
+                lessons.append(pool[idx % len(pool)])
             
             if lessons:
                 daily_plans.append({
@@ -161,7 +163,6 @@ aggregator_agent = LlmAgent(
         "daily_allocations": [
             {{
             "day_number": 1,
-            "title": "Ngày 1",
             "lesson_indices": [
                 {{"lesson_type": "reading", "index": 0}},
                 {{"lesson_type": "writing", "index": 0}}
