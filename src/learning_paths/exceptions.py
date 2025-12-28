@@ -14,7 +14,7 @@ class DailyLessonPlanNotFoundException(LearningPathException):
 
 class UserLessonProgressNotFoundException(LearningPathException):
     def __init__(self, detail: str = "User lesson progress not found"):
-        super().__init__(status_code=status.HTTP_404_NOT_NOT_FOUND, detail=detail)
+        super().__init__(status_code=status.HTTP_404_NOT_FOUND, detail=detail)
 
 class LearningPathGenerationException(LearningPathException):
     def __init__(self, detail: str = "Failed to generate learning path"):
