@@ -16,7 +16,7 @@ from pydub import AudioSegment
 from google.cloud.speech_v2 import SpeechClient
 from google.cloud.speech_v2.types import cloud_speech
 from google.api_core.client_options import ClientOptions
-
+from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import desc, select
@@ -64,6 +64,8 @@ from src.speaking.agents.final_evaluator_agent.agent import final_evaluator_agen
 from src.speaking.agents.hint_provider_agent.agent import hint_provider_agent
 from src.speaking.agents.intro_message_agent.agent import intro_message_agent
 from src.database import AsyncSessionLocal
+import asyncio
+
 
 # Logger for speaking service
 logger = logging.getLogger(__name__)
@@ -306,7 +308,7 @@ class SpeakingService:
         
         return transcribed_text, average_confidence
 
-    def speech_to_text(
+    async def speech_to_text(
         self,
         audio_file: UploadFile,
         language_code: str = "en-US",
@@ -315,22 +317,12 @@ class SpeakingService:
     ) -> SpeechToTextResponse:
         """
         Convert audio to text using Google Cloud Speech-to-Text API
-        All audio formats are converted to WAV (LINEAR16, 16000 Hz) before sending to Google Cloud
-        Supports: WebM, OGG, WAV, MP3, M4A, FLAC, AAC
+        Tất cả các định dạng âm thanh được chuyển sang WAV (LINEAR16, 16000 Hz) trước khi gửi đi.
         
-        Uses chirp_3 model for best accuracy with accented speech, especially useful for 
-        Vietnamese speakers speaking English. Chirp 3 supports native auto-detect and is 
-        trained on millions of hours of multilingual audio, providing superior accuracy 
-        compared to standard models.
-        
-        Args:
-            audio_file: Audio file to transcribe
-            language_code: Language code (default: "en-US"). Ignored if auto_detect=True
-            is_save: Whether to save audio file to S3
-            auto_detect: If True, automatically detects between English (en-US) and Vietnamese (vi-VN)
-                using Chirp 3's native auto-detection feature
+        Sử dụng model chirp_3 để đạt độ chính xác cao nhất, đặc biệt hữu ích cho 
+        người Việt nói tiếng Anh. Chirp 3 hỗ trợ tự động nhận diện ngôn ngữ gốc.
         """
-        # Early validation - check before expensive operations
+        # 1. Kiểm tra cấu hình ban đầu
         if not self.client:
             logger.error("Google Cloud Speech client chưa được khởi tạo")
             raise SpeechToTextException("Google Cloud Speech client chưa được khởi tạo")
@@ -339,27 +331,25 @@ class SpeakingService:
             logger.error("GOOGLE_CLOUD_PROJECT_ID chưa được cấu hình")
             raise SpeechToTextException("GOOGLE_CLOUD_PROJECT_ID chưa được cấu hình")
         
-        # Prepare audio data (validate and convert to WAV)
-        audio_data, _ = self._prepare_audio_data(audio_file)
+        # 2. Chuẩn bị dữ liệu âm thanh (Validate và convert sang WAV)
+        # Vì đây là tác vụ CPU/IO-bound nặng, ta chạy trong thread để không block event loop
+        audio_data, _ = await asyncio.to_thread(self._prepare_audio_data, audio_file)
         
         try:
-            # Build config for v2 API with Chirp 3 model
-            # Chirp 3 supports native auto-detect with language_codes=["auto"] or hint with specific languages
+            # 3. Cấu hình nhận dạng cho Chirp 3
             features = cloud_speech.RecognitionFeatures(
                 enable_automatic_punctuation=True,
             )
             
             if auto_detect:
-                # Use language hints ["en-US", "vi-VN"] to improve accuracy (better than ["auto"])
-                # Chirp 3 will automatically detect which language is being spoken
+                # Gợi ý ngôn ngữ ["en-US", "vi-VN"] để tăng độ chính xác của Chirp 3
                 config = cloud_speech.RecognitionConfig(
                     auto_decoding_config=cloud_speech.AutoDetectDecodingConfig(),
-                    language_codes=["en-US", "vi-VN"],  # Hint languages to improve accuracy
-                    model=self.TARGET_MODEL,  # chirp_3
+                    language_codes=["en-US", "vi-VN"],
+                    model=self.TARGET_MODEL, # chirp_3
                     features=features,
                 )
             else:
-                # Use specified language code with explicit decoding
                 config = cloud_speech.RecognitionConfig(
                     explicit_decoding_config=cloud_speech.ExplicitDecodingConfig(
                         encoding=self.TARGET_ENCODING,
@@ -367,11 +357,10 @@ class SpeakingService:
                         audio_channel_count=1,
                     ),
                     language_codes=[language_code],
-                    model=self.TARGET_MODEL,  # chirp_3
+                    model=self.TARGET_MODEL, # chirp_3
                     features=features,
                 )
             
-            # Create request for v2 API with regional recognizer path
             recognizer = f"projects/{self.project_id}/locations/{self.SPEECH_REGION}/recognizers/_"
             request = cloud_speech.RecognizeRequest(
                 recognizer=recognizer,
@@ -379,31 +368,25 @@ class SpeakingService:
                 content=audio_data,
             )
             
-            # Process recognition and upload in parallel if is_save=True
+            # 4. Thực hiện nhận dạng và Upload song song (nếu cần save)
             if is_save:
-                # Reset audio file pointer for upload (needed because _prepare_audio_data may have read it)
+                # Reset audio file pointer để upload
                 try:
-                    audio_file.file.seek(0)
+                    await asyncio.to_thread(audio_file.file.seek, 0)
                 except Exception:
-                    pass  # Will be handled in _upload_user_audio
+                    pass
                 
-                # Run recognition and upload in parallel
-                with ThreadPoolExecutor(max_workers=2) as executor:
-                    # Submit both tasks
-                    recognition_future = executor.submit(self.client.recognize, request)
-                    upload_future = executor.submit(self._upload_user_audio, audio_file)
-                    
-                    # Wait for recognition to complete first (needed for response)
-                    response = recognition_future.result()
-                    
-                    # Get upload result (may still be in progress)
-                    audio_url = upload_future.result()
+                # Chạy song song: Recognition (gọi Google) và Upload (lên S3)
+                recognition_task = asyncio.to_thread(self.client.recognize, request=request)
+                upload_task = asyncio.to_thread(self._upload_user_audio, audio_file)
+                
+                response, audio_url = await asyncio.gather(recognition_task, upload_task)
             else:
-                # Only perform speech recognition
-                response = self.client.recognize(request=request)
+                # Chỉ thực hiện nhận dạng giọng nói
+                response = await asyncio.to_thread(self.client.recognize, request=request)
                 audio_url = None
             
-            # Extract text and detected language - optimize string concatenation
+            # 5. Xử lý kết quả trả về từ Google Cloud
             transcripts = []
             detected_language = None
             
@@ -413,7 +396,7 @@ class SpeakingService:
                 top_alternative = result.alternatives[0]
                 transcripts.append(top_alternative.transcript)
                 
-                # In Chirp 3, language_code is returned in the result when using auto-detect
+                # Với Chirp 3, language_code nằm trong kết quả nếu dùng auto-detect
                 if auto_detect and detected_language is None:
                     result_language = getattr(result, "language_code", None)
                     if result_language:
@@ -425,7 +408,7 @@ class SpeakingService:
                 logger.error("No transcript found in API response")
                 raise SpeechToTextException("Không thể nhận dạng giọng nói từ file âm thanh")
 
-            # Lazy language detection - only if auto_detect and not found in API response
+            # 6. Fallback nhận diện ngôn ngữ nếu Google không trả về
             if auto_detect and not detected_language:
                 try:
                     lang_code = detect(transcribed_text)
@@ -446,7 +429,6 @@ class SpeakingService:
         except Exception as e:
             logger.error(f"Unexpected error in speech_to_text: {type(e).__name__}: {str(e)}", exc_info=True)
             raise SpeechToTextException(f"Lỗi khi chuyển đổi speech-to-text: {str(e)}")
-    
     
     def _upload_user_audio(self, audio_file: UploadFile) -> Optional[str]:
         """Upload learner audio to S3 (if configured) and return the public URL."""
