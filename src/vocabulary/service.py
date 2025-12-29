@@ -324,8 +324,8 @@ class VocabularyService:
         """Get vocabulary items in a set"""
         # Get total count
         count_result = await db.execute(
-            select(func.count(VocabularyItem.id)).select_from(
-                VocabularyItem.join(Dictionary, VocabularyItem.dictionary_id == Dictionary.id)
+            select(func.count(VocabularyItem.id)).join( # Thay đổi ở đây: dùng .join() trực tiếp từ select
+                Dictionary, VocabularyItem.dictionary_id == Dictionary.id
             ).where(
                 and_(
                     VocabularyItem.user_id == user_id,

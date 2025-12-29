@@ -675,12 +675,14 @@ class ListeningService:
     
     async def get_next_sentence(self, session_id: int, user_id: int, db: AsyncSession) -> SessionNextResponse:
         """Move to next sentence and return session detail with current sentence"""
+        # Sử dụng joinedload nếu bạn có định nghĩa relationship trong model
+        # Ở đây ta truy vấn riêng lẻ như cũ nhưng sẽ xử lý cẩn thận hơn
         result = await db.execute(
             select(ListeningSession).where(
-            and_(
-                ListeningSession.id == session_id,
-                ListeningSession.user_id == user_id
-            )
+                and_(
+                    ListeningSession.id == session_id,
+                    ListeningSession.user_id == user_id
+                )
             )
         )
         session = result.scalar_one_or_none()
@@ -691,65 +693,70 @@ class ListeningService:
         if session.status == "completed":
             raise SessionAlreadyCompletedException()
         
-        # Increment current sentence index
+        # Tăng index
         session.current_sentence_index += 1
         
-        # Get lesson info
-        result = await db.execute(
+        # Lấy thông tin lesson
+        lesson_result = await db.execute(
             select(ListenLesson).where(ListenLesson.id == session.lesson_id)
         )
-        lesson = result.scalar_one_or_none()
-        lesson_response = LessonResponse(
-            id=lesson.id,
-            title=lesson.title,
-            youtube_url=lesson.youtube_url,
-            level=lesson.level,
-            total_sentences=lesson.total_sentences,
-            created_at=lesson.created_at,
-            updated_at=lesson.updated_at
-        )
+        lesson = lesson_result.scalar_one_or_none()
         
-        # Check if completed (reached end of lesson)
+        # Tạo lesson_response trước khi commit để tránh expire
+        lesson_response = LessonResponse.model_validate(lesson)
+        
+        # Kiểm tra hoàn thành
+        current_sentence = None
         if session.current_sentence_index >= lesson.total_sentences:
             session.status = "completed"
-            current_sentence = None  # No more sentences
         else:
-            # Get current sentence
-            result = await db.execute(
+            # Lấy câu hiện tại
+            sentence_result = await db.execute(
                 select(Sentence).where(
-                and_(
-                    Sentence.lesson_id == session.lesson_id,
-                    Sentence.index == session.current_sentence_index
-                )
+                    and_(
+                        Sentence.lesson_id == session.lesson_id,
+                        Sentence.index == session.current_sentence_index
+                    )
                 )
             )
-            sentence = result.scalar_one_or_none()
-            
-            current_sentence = {
-                "id": sentence.id,
-                "lesson_id": sentence.lesson_id,
-                "index": sentence.index,
-                "text": sentence.text,
-                "translation": sentence.translation,
-                "start_time": sentence.start_time,
-                "end_time": sentence.end_time,
-            } if sentence else None
-        
+            sentence = sentence_result.scalar_one_or_none()
+            if sentence:
+                # Chuyển thành dict hoặc Pydantic object ngay lập tức
+                current_sentence = {
+                    "id": sentence.id,
+                    "lesson_id": sentence.lesson_id,
+                    "index": sentence.index,
+                    "text": sentence.text,
+                    "translation": sentence.translation,
+                    "start_time": sentence.start_time,
+                    "end_time": sentence.end_time,
+                }
+
+        # Lưu lại các giá trị cần thiết của session trước khi commit
+        session_id_val = session.id
+        user_id_val = session.user_id
+        lesson_id_val = session.lesson_id
+        current_idx = session.current_sentence_index
+        status_val = session.status
+        attempts_val = session.attempts
+        created_at_val = session.created_at
+
         await db.commit()
-        
+        # Sau commit, các object như 'session' có thể bị expire. 
+        # Ta dùng các giá trị đã lưu để tạo response.
+
         return SessionNextResponse(
-            id=session.id,
-            user_id=session.user_id,
-            lesson_id=session.lesson_id,
-            current_sentence_index=session.current_sentence_index,
-            status=session.status,
-            attempts=session.attempts,
+            id=session_id_val,
+            user_id=user_id_val,
+            lesson_id=lesson_id_val,
+            current_sentence_index=current_idx,
+            status=status_val,
+            attempts=attempts_val,
             lesson=lesson_response,
             current_sentence=current_sentence,
-            created_at=session.created_at,
-            updated_at=session.updated_at
-        )
-    
+            created_at=created_at_val,
+            updated_at=datetime.now(timezone.utc) # Hoặc lấy từ session nếu đã refresh
+        )  
     async def get_user_sessions(self, user_id: int, pagination: PaginationParams, db: AsyncSession) -> PaginatedResponse[UserSessionResponse]:
         """Get all active sessions for a user with pagination"""
         # Base query for user's active sessions
