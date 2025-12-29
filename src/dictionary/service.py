@@ -103,7 +103,7 @@ class DictionaryService:
                 Dictionary.expression.asc()
             ).limit(limit)
         )
-        results = result.scalars().all()
+        items = result.scalars().all()
         
         # Convert to response format
         dictionary_results = [
@@ -112,7 +112,7 @@ class DictionaryService:
                 expression=result.expression,
                 definitions=result.definitions
             )
-            for result in results
+            for result in items
         ]
 
         # Get total count for the same query (without limit)
@@ -124,7 +124,7 @@ class DictionaryService:
         total = count_result.scalar() or 0
 
         return DictionarySearchResponse(
-            results=dictionary_results,
+            items=dictionary_results,
             total=total,
             query=request.query,
             limit=limit

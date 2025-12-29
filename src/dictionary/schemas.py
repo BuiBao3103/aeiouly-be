@@ -18,7 +18,7 @@ class DictionarySearchRequest(CustomModel):
 
 class DictionarySearchResponse(CustomModel):
     """Response schema for dictionary search"""
-    results: List[DictionaryResponse] = Field(..., description="Danh sách kết quả tìm kiếm")
+    items: List[DictionaryResponse] = Field(..., description="Danh sách kết quả tìm kiếm")
     total: int = Field(..., description="Tổng số kết quả tìm được")
     query: str = Field(..., description="Từ khóa tìm kiếm")
     limit: int = Field(..., description="Số lượng kết quả trả về")
