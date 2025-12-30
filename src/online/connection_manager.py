@@ -117,32 +117,37 @@ class ConnectionManager:
             self.streak_timers[user_id].cancel()
 
         async def _timer():
-            from src.database import get_db
-            db_new = next(get_db())
-            try:
-                logger.info(f"Streak timer started for user {user_id} (20s for testing)")
-                await asyncio.sleep(20) # Bạn có thể đổi lại thành 300s (5p) cho production
-                
-                if user_id not in self.user_connections:
-                    logger.info(f"User {user_id} disconnected before timer finished.")
-                    return
+            # Sử dụng AsyncSessionLocal thay vì get_db
+            from src.database import AsyncSessionLocal
+            
+            # Sử dụng async with để đảm bảo session được quản lý đúng cách
+            async with AsyncSessionLocal() as db_new:
+                try:
+                    logger.info(f"Streak timer started for user {user_id} (20s for testing)")
+                    await asyncio.sleep(20)
+                    
+                    if user_id not in self.user_connections:
+                        logger.info(f"User {user_id} disconnected before timer finished.")
+                        return
 
-                from src.online.service import LoginStreakService
-                streak_service = LoginStreakService()
-                await streak_service.increment_streak_and_notify(user_id, db_new, self)
-                logger.info(f"Streak timer completed and processed for user {user_id}")
-                
-            except asyncio.CancelledError:
-                logger.info(f"Streak timer for user {user_id} was cancelled.")
-                raise
-            except Exception as e:
-                logger.error(f"Error in streak timer for user {user_id}: {e}", exc_info=True)
-                db_new.rollback()
-            finally:
-                db_new.close()
-                if user_id in self.streak_timers and self.streak_timers[user_id].done():
-                    self.streak_timers.pop(user_id, None)
-
+                    from src.online.service import LoginStreakService
+                    streak_service = LoginStreakService()
+                    
+                    # Truyền session vào service
+                    await streak_service.increment_streak_and_notify(user_id, db_new, self)
+                    logger.info(f"Streak timer completed and processed for user {user_id}")
+                    
+                except asyncio.CancelledError:
+                    logger.info(f"Streak timer for user {user_id} was cancelled.")
+                    raise
+                except Exception as e:
+                    logger.error(f"Error in streak timer for user {user_id}: {e}", exc_info=True)
+                    # AsyncSessionLocal trong database.py đã set autocommit=False
+                    await db_new.rollback()
+                finally:
+                    # Session sẽ tự đóng khi thoát khỏi block 'async with'
+                    if user_id in self.streak_timers and self.streak_timers[user_id].done():
+                        self.streak_timers.pop(user_id, None)
         task = asyncio.create_task(_timer())
         self.streak_timers[user_id] = task
 
