@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import get_db
 from src.users.service import UsersService
-from src.users.schemas import UserCreate, UserUpdate, UserResponse, UserResetPassword
+from src.users.schemas import UserCreate, UserUpdate, UserResponse, UserResetPassword, UserFilterParams
 from src.users.dependencies import get_users_service
 from src.users.exceptions import (
     UserNotFoundException,
@@ -60,15 +60,19 @@ async def create_user(
 @router.get("/", response_model=PaginatedResponse[UserResponse])
 async def get_users(
     pagination: PaginationParams = Depends(),
+    filters: UserFilterParams = Depends(),
     current_user: User = Depends(get_current_active_user),
     service: UsersService = Depends(get_users_service),
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Lấy danh sách users với phân trang
+    Lấy danh sách users với phân trang và bộ lọc
     - Chỉ admin mới có thể xem danh sách users
     - **page**: Số trang (mặc định: 1)
     - **size**: Số bản ghi mỗi trang (mặc định: 10, tối đa: 100)
+    - **role**: Lọc theo vai trò (optional)
+    - **is_active**: Lọc theo trạng thái hoạt động (optional)
+    - **query**: Tìm kiếm theo email hoặc username (optional)
     """
     # Check if user is admin
     if current_user.role.value != "admin":
@@ -78,7 +82,7 @@ async def get_users(
         )
 
     try:
-        return await service.get_users(db, pagination)
+        return await service.get_users(db, pagination, filters)
     except UserValidationException as e:
         raise user_validation_exception(str(e))
     except Exception as e:
