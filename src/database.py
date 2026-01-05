@@ -1,7 +1,7 @@
-from sqlalchemy import create_engine, MetaData
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy import MetaData, event
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session, with_loader_criteria
-from sqlalchemy import event
+from sqlalchemy.orm import with_loader_criteria
 from src.config import get_database_url
 
 # PostgreSQL naming conventions
@@ -15,33 +15,48 @@ POSTGRES_INDEXES_NAMING_CONVENTION = {
 
 metadata = MetaData(naming_convention=POSTGRES_INDEXES_NAMING_CONVENTION)
 
-# Create database engine
+# Create async database engine
 database_url = get_database_url()
-engine = create_engine(database_url)
+# Replace postgresql+asyncpg:// with postgresql+asyncpg:// for async
+if database_url.startswith("postgresql+psycopg2://"):
+    database_url = database_url.replace("postgresql+psycopg2://", "postgresql+asyncpg://", 1)
+elif not database_url.startswith("postgresql+asyncpg://"):
+    # If it's already asyncpg or needs conversion
+    if "postgresql://" in database_url:
+        database_url = database_url.replace("postgresql://", "postgresql+asyncpg://", 1)
 
-# Ensure database sessions use UTC timezone (PostgreSQL)
-def _set_timezone_utc(dbapi_connection, connection_record):
-    try:
-        cursor = dbapi_connection.cursor()
-        cursor.execute("SET TIME ZONE 'UTC'")
-        cursor.close()
-    except Exception:
-        # Ignore if DB does not support this (e.g., SQLite)
-        pass
+engine = create_async_engine(
+    database_url,
+    echo=False,
+    future=True,
+    connect_args={
+        "server_settings": {
+            "timezone": "UTC"
+        }
+    } if "postgresql" in database_url else {}
+)
 
-event.listen(engine, "connect", _set_timezone_utc)
+# Note: For asyncpg, timezone is set via connect_args above
+# This is more reliable than using event listeners for async connections
 
-# Create SessionLocal class
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+# Create AsyncSessionLocal class
+AsyncSessionLocal = async_sessionmaker(
+    engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+    autocommit=False,
+    autoflush=False,
+)
 
 # Create Base class with naming conventions
 Base = declarative_base(metadata=metadata)
 
 # Apply a global filter to exclude soft-deleted rows on all ORM SELECTs
+# Note: For async, the event listener works similarly but with AsyncSession
 try:
     from src.orm_mixins import SoftDeleteMixin
 
-    @event.listens_for(Session, "do_orm_execute")
+    @event.listens_for(AsyncSession, "do_orm_execute")
     def _add_soft_delete_filter(execute_state):
         # Only apply to ORM SELECT statements
         if not execute_state.is_select:
@@ -68,11 +83,10 @@ except Exception:
     # If anything goes wrong, skip the global filter to avoid breaking the app
     pass
 
-# Dependency to get database session
-def get_db():
-    db: Session = SessionLocal()
-    try:
-        # Keep dependency simple and robust to avoid contextmanager errors
-        yield db
-    finally:
-        db.close()
+# Dependency to get async database session
+async def get_db():
+    async with AsyncSessionLocal() as session:
+        try:
+            yield session
+        finally:
+            await session.close()

@@ -32,6 +32,7 @@ def create_refiner_instruction() -> str:
     
     **Review Feedback (if available):**
     {{review_feedback?}}
+    - user_evaluation_history: {user_evaluation_history}
     
     ## TASK
     Carefully apply the feedback to improve the text.
@@ -41,6 +42,8 @@ def create_refiner_instruction() -> str:
       2. Genre: {genre}
       3. Topic: {topic}
       4. Word count: xấp xỉ {target_word_count} (±20%)
+    - Để đếm từ, hệ thống sẽ tách các từ bằng khoảng trắng. Các dấu câu sẽ không được tính là một từ.
+    - Tránh các ký tự đặc biệt hoặc định dạng phức tạp có thể ảnh hưởng đến việc đếm từ.
     - Apply the feedback to adjust word count while maintaining quality
     
     """

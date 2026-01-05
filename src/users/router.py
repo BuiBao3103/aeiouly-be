@@ -2,11 +2,11 @@
 Router for Users module
 """
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import get_db
 from src.users.service import UsersService
-from src.users.schemas import UserCreate, UserUpdate, UserResponse, UserResetPassword
+from src.users.schemas import UserCreate, UserUpdate, UserResponse, UserResetPassword, UserFilterParams
 from src.users.dependencies import get_users_service
 from src.users.exceptions import (
     UserNotFoundException,
@@ -28,7 +28,7 @@ async def create_user(
     user_data: UserCreate,
     current_user: User = Depends(get_current_active_user),
     service: UsersService = Depends(get_users_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Tạo user mới
@@ -48,7 +48,7 @@ async def create_user(
         )
 
     try:
-        return service.create_user(user_data, db)
+        return await service.create_user(user_data, db)
     except UserAlreadyExistsException as e:
         raise user_already_exists_exception(str(e))
     except UserValidationException as e:
@@ -60,15 +60,19 @@ async def create_user(
 @router.get("/", response_model=PaginatedResponse[UserResponse])
 async def get_users(
     pagination: PaginationParams = Depends(),
+    filters: UserFilterParams = Depends(),
     current_user: User = Depends(get_current_active_user),
     service: UsersService = Depends(get_users_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """
-    Lấy danh sách users với phân trang
+    Lấy danh sách users với phân trang và bộ lọc
     - Chỉ admin mới có thể xem danh sách users
     - **page**: Số trang (mặc định: 1)
     - **size**: Số bản ghi mỗi trang (mặc định: 10, tối đa: 100)
+    - **role**: Lọc theo vai trò (optional)
+    - **is_active**: Lọc theo trạng thái hoạt động (optional)
+    - **query**: Tìm kiếm theo email hoặc username (optional)
     """
     # Check if user is admin
     if current_user.role.value != "admin":
@@ -78,7 +82,7 @@ async def get_users(
         )
 
     try:
-        return service.get_users(db, pagination)
+        return await service.get_users(db, pagination, filters)
     except UserValidationException as e:
         raise user_validation_exception(str(e))
     except Exception as e:
@@ -90,7 +94,7 @@ async def get_user(
     user_id: int,
     current_user: User = Depends(get_current_active_user),
     service: UsersService = Depends(get_users_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Lấy thông tin user theo ID
@@ -105,7 +109,7 @@ async def get_user(
         )
 
     try:
-        return service.get_user_by_id(user_id, db)
+        return await service.get_user_by_id(user_id, db)
     except UserNotFoundException as e:
         raise user_not_found_exception(user_id)
     except Exception as e:
@@ -118,7 +122,7 @@ async def update_user(
     user_data: UserUpdate,
     current_user: User = Depends(get_current_active_user),
     service: UsersService = Depends(get_users_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Cập nhật thông tin user
@@ -144,7 +148,7 @@ async def update_user(
         )
 
     try:
-        return service.update_user(user_id, user_data, db)
+        return await service.update_user(user_id, user_data, db)
     except UserNotFoundException as e:
         raise user_not_found_exception(user_id)
     except UserAlreadyExistsException as e:
@@ -160,7 +164,7 @@ async def delete_user(
     user_id: int,
     current_user: User = Depends(get_current_active_user),
     service: UsersService = Depends(get_users_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Xóa user (soft delete)
@@ -175,7 +179,7 @@ async def delete_user(
         )
 
     try:
-        success = service.delete_user(user_id, db)
+        success = await service.delete_user(user_id, db)
         if not success:
             raise HTTPException(status_code=500, detail="Không thể xóa user")
     except UserNotFoundException as e:
@@ -192,7 +196,7 @@ async def reset_user_password(
     reset_data: UserResetPassword,
     current_user: User = Depends(get_current_active_user),
     service: UsersService = Depends(get_users_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Reset password cho user

@@ -2,8 +2,6 @@
 import os
 import tempfile
 import sys
-import asyncio
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from fastapi import UploadFile
 # Fix for Python 3.13+: ensure audioop-lts is used if available
 try:
@@ -18,10 +16,11 @@ from pydub import AudioSegment
 from google.cloud.speech_v2 import SpeechClient
 from google.cloud.speech_v2.types import cloud_speech
 from google.api_core.client_options import ClientOptions
-
+from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional
-from sqlalchemy.orm import Session
-from sqlalchemy import desc
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import desc, select
+from src.users.models import User
 from src.speaking.schemas import (
     SpeechToTextResponse,
     SpeakingSessionCreate,
@@ -44,7 +43,7 @@ from src.speaking.models import SpeakingSession, SpeakingChatMessage
 from src.config import settings
 from google.adk.runners import Runner
 from google.adk.sessions import DatabaseSessionService
-from src.config import get_database_url
+from src.config import get_database_url, get_sync_database_url
 from src.utils.agent_utils import (
     call_agent_with_logging,
     build_agent_query,
@@ -57,12 +56,15 @@ from src.storage import S3StorageService
 import logging
 from fastapi import HTTPException
 from datetime import datetime
+from src.users.service import UsersService
 from langdetect import detect, LangDetectException
 from src.speaking.agents.chat_agent.agent import chat_agent
 from src.speaking.agents.skip_response_agent.agent import skip_response_agent
 from src.speaking.agents.final_evaluator_agent.agent import final_evaluator_agent
 from src.speaking.agents.hint_provider_agent.agent import hint_provider_agent
 from src.speaking.agents.intro_message_agent.agent import intro_message_agent
+from src.database import AsyncSessionLocal
+import asyncio
 
 
 # Logger for speaking service
@@ -107,7 +109,10 @@ class SpeakingService:
             logger.warning("GOOGLE_CLOUD_PROJECT_ID not set, speech-to-text may not work")
         
         # Initialize ADK session service and runner
-        self.session_service = DatabaseSessionService(db_url=get_database_url())
+        # DatabaseSessionService needs sync URL, not async
+        self.session_service = DatabaseSessionService(db_url=get_sync_database_url())
+
+        self.users_service = UsersService()
         
         # Initialize runner with speaking_practice (coordinator)
 
@@ -303,7 +308,7 @@ class SpeakingService:
         
         return transcribed_text, average_confidence
 
-    def speech_to_text(
+    async def speech_to_text(
         self,
         audio_file: UploadFile,
         language_code: str = "en-US",
@@ -312,22 +317,12 @@ class SpeakingService:
     ) -> SpeechToTextResponse:
         """
         Convert audio to text using Google Cloud Speech-to-Text API
-        All audio formats are converted to WAV (LINEAR16, 16000 Hz) before sending to Google Cloud
-        Supports: WebM, OGG, WAV, MP3, M4A, FLAC, AAC
+        Tất cả các định dạng âm thanh được chuyển sang WAV (LINEAR16, 16000 Hz) trước khi gửi đi.
         
-        Uses chirp_3 model for best accuracy with accented speech, especially useful for 
-        Vietnamese speakers speaking English. Chirp 3 supports native auto-detect and is 
-        trained on millions of hours of multilingual audio, providing superior accuracy 
-        compared to standard models.
-        
-        Args:
-            audio_file: Audio file to transcribe
-            language_code: Language code (default: "en-US"). Ignored if auto_detect=True
-            is_save: Whether to save audio file to S3
-            auto_detect: If True, automatically detects between English (en-US) and Vietnamese (vi-VN)
-                using Chirp 3's native auto-detection feature
+        Sử dụng model chirp_3 để đạt độ chính xác cao nhất, đặc biệt hữu ích cho 
+        người Việt nói tiếng Anh. Chirp 3 hỗ trợ tự động nhận diện ngôn ngữ gốc.
         """
-        # Early validation - check before expensive operations
+        # 1. Kiểm tra cấu hình ban đầu
         if not self.client:
             logger.error("Google Cloud Speech client chưa được khởi tạo")
             raise SpeechToTextException("Google Cloud Speech client chưa được khởi tạo")
@@ -336,27 +331,25 @@ class SpeakingService:
             logger.error("GOOGLE_CLOUD_PROJECT_ID chưa được cấu hình")
             raise SpeechToTextException("GOOGLE_CLOUD_PROJECT_ID chưa được cấu hình")
         
-        # Prepare audio data (validate and convert to WAV)
-        audio_data, _ = self._prepare_audio_data(audio_file)
+        # 2. Chuẩn bị dữ liệu âm thanh (Validate và convert sang WAV)
+        # Vì đây là tác vụ CPU/IO-bound nặng, ta chạy trong thread để không block event loop
+        audio_data, _ = await asyncio.to_thread(self._prepare_audio_data, audio_file)
         
         try:
-            # Build config for v2 API with Chirp 3 model
-            # Chirp 3 supports native auto-detect with language_codes=["auto"] or hint with specific languages
+            # 3. Cấu hình nhận dạng cho Chirp 3
             features = cloud_speech.RecognitionFeatures(
                 enable_automatic_punctuation=True,
             )
             
             if auto_detect:
-                # Use language hints ["en-US", "vi-VN"] to improve accuracy (better than ["auto"])
-                # Chirp 3 will automatically detect which language is being spoken
+                # Gợi ý ngôn ngữ ["en-US", "vi-VN"] để tăng độ chính xác của Chirp 3
                 config = cloud_speech.RecognitionConfig(
                     auto_decoding_config=cloud_speech.AutoDetectDecodingConfig(),
-                    language_codes=["en-US", "vi-VN"],  # Hint languages to improve accuracy
-                    model=self.TARGET_MODEL,  # chirp_3
+                    language_codes=["en-US", "vi-VN"],
+                    model=self.TARGET_MODEL, # chirp_3
                     features=features,
                 )
             else:
-                # Use specified language code with explicit decoding
                 config = cloud_speech.RecognitionConfig(
                     explicit_decoding_config=cloud_speech.ExplicitDecodingConfig(
                         encoding=self.TARGET_ENCODING,
@@ -364,11 +357,10 @@ class SpeakingService:
                         audio_channel_count=1,
                     ),
                     language_codes=[language_code],
-                    model=self.TARGET_MODEL,  # chirp_3
+                    model=self.TARGET_MODEL, # chirp_3
                     features=features,
                 )
             
-            # Create request for v2 API with regional recognizer path
             recognizer = f"projects/{self.project_id}/locations/{self.SPEECH_REGION}/recognizers/_"
             request = cloud_speech.RecognizeRequest(
                 recognizer=recognizer,
@@ -376,31 +368,25 @@ class SpeakingService:
                 content=audio_data,
             )
             
-            # Process recognition and upload in parallel if is_save=True
+            # 4. Thực hiện nhận dạng và Upload song song (nếu cần save)
             if is_save:
-                # Reset audio file pointer for upload (needed because _prepare_audio_data may have read it)
+                # Reset audio file pointer để upload
                 try:
-                    audio_file.file.seek(0)
+                    await asyncio.to_thread(audio_file.file.seek, 0)
                 except Exception:
-                    pass  # Will be handled in _upload_user_audio
+                    pass
                 
-                # Run recognition and upload in parallel
-                with ThreadPoolExecutor(max_workers=2) as executor:
-                    # Submit both tasks
-                    recognition_future = executor.submit(self.client.recognize, request)
-                    upload_future = executor.submit(self._upload_user_audio, audio_file)
-                    
-                    # Wait for recognition to complete first (needed for response)
-                    response = recognition_future.result()
-                    
-                    # Get upload result (may still be in progress)
-                    audio_url = upload_future.result()
+                # Chạy song song: Recognition (gọi Google) và Upload (lên S3)
+                recognition_task = asyncio.to_thread(self.client.recognize, request=request)
+                upload_task = asyncio.to_thread(self._upload_user_audio, audio_file)
+                
+                response, audio_url = await asyncio.gather(recognition_task, upload_task)
             else:
-                # Only perform speech recognition
-                response = self.client.recognize(request=request)
+                # Chỉ thực hiện nhận dạng giọng nói
+                response = await asyncio.to_thread(self.client.recognize, request=request)
                 audio_url = None
             
-            # Extract text and detected language - optimize string concatenation
+            # 5. Xử lý kết quả trả về từ Google Cloud
             transcripts = []
             detected_language = None
             
@@ -410,7 +396,7 @@ class SpeakingService:
                 top_alternative = result.alternatives[0]
                 transcripts.append(top_alternative.transcript)
                 
-                # In Chirp 3, language_code is returned in the result when using auto-detect
+                # Với Chirp 3, language_code nằm trong kết quả nếu dùng auto-detect
                 if auto_detect and detected_language is None:
                     result_language = getattr(result, "language_code", None)
                     if result_language:
@@ -422,7 +408,7 @@ class SpeakingService:
                 logger.error("No transcript found in API response")
                 raise SpeechToTextException("Không thể nhận dạng giọng nói từ file âm thanh")
 
-            # Lazy language detection - only if auto_detect and not found in API response
+            # 6. Fallback nhận diện ngôn ngữ nếu Google không trả về
             if auto_detect and not detected_language:
                 try:
                     lang_code = detect(transcribed_text)
@@ -443,7 +429,6 @@ class SpeakingService:
         except Exception as e:
             logger.error(f"Unexpected error in speech_to_text: {type(e).__name__}: {str(e)}", exc_info=True)
             raise SpeechToTextException(f"Lỗi khi chuyển đổi speech-to-text: {str(e)}")
-    
     
     def _upload_user_audio(self, audio_file: UploadFile) -> Optional[str]:
         """Upload learner audio to S3 (if configured) and return the public URL."""
@@ -467,9 +452,12 @@ class SpeakingService:
         self,
         user_id: int,
         session_data: SpeakingSessionCreate,
-        db: Session
+        db: AsyncSession
     ) -> SpeakingSessionResponse:
         """Create a new speaking practice session"""
+        # Get user's evaluation history
+        user_evaluation_history = await self.users_service.get_user_evaluation_history(user_id, db)
+
         try:
             # Create database session
             db_session = SpeakingSession(
@@ -483,12 +471,12 @@ class SpeakingService:
             )
             
             db.add(db_session)
-            db.commit()
-            db.refresh(db_session)
+            await db.commit()
+            await db.refresh(db_session)
             
             # Initialize agent session
             await self.session_service.create_session(
-                app_name="SpeakingPractice",
+                app_name=APP_NAME,
                 user_id=str(user_id),
                 session_id=str(db_session.id),
                 state={
@@ -499,6 +487,7 @@ class SpeakingService:
                     "scenario": session_data.scenario,
                     "level": session_data.level.value,
                     "chat_history": [],
+                    "user_evaluation_history": user_evaluation_history,
                     "hint_history": [],
                 }
             )
@@ -520,7 +509,7 @@ class SpeakingService:
             
             state = await get_agent_state(
                 session_service=self.session_service,
-                app_name="SpeakingPractice",
+                app_name=APP_NAME,
                 user_id=str(user_id),
                 session_id=str(db_session.id),
             )
@@ -546,7 +535,7 @@ class SpeakingService:
                 translation_sentence=translation_sentence
             )
             db.add(ai_message)
-            db.commit()
+            await db.commit()
             
             return SpeakingSessionResponse(
                 id=db_session.id,
@@ -562,7 +551,7 @@ class SpeakingService:
             )
             
         except Exception as e:
-            db.rollback()
+            await db.rollback()
             logger.error(f"Error creating speaking session: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Lỗi khi tạo phiên luyện nói: {str(e)}")
     
@@ -570,13 +559,16 @@ class SpeakingService:
         self,
         session_id: int,
         user_id: int,
-        db: Session
+        db: AsyncSession
     ) -> Optional[SpeakingSessionResponse]:
         """Get a specific speaking session"""
-        session = db.query(SpeakingSession).filter(
-            SpeakingSession.id == session_id,
-            SpeakingSession.user_id == user_id
-        ).first()
+        result = await db.execute(
+            select(SpeakingSession).where(
+                SpeakingSession.id == session_id,
+                SpeakingSession.user_id == user_id
+            )
+        )
+        session = result.scalar_one_or_none()
         
         if not session:
             return None
@@ -594,15 +586,18 @@ class SpeakingService:
             updated_at=session.updated_at
         )
     
-    def get_user_speaking_sessions(
+    async def get_user_speaking_sessions(
         self,
         user_id: int,
-        db: Session
+        db: AsyncSession
     ) -> List[SpeakingSessionListResponse]:
         """Get all speaking sessions for a user"""
-        sessions = db.query(SpeakingSession).filter(
-            SpeakingSession.user_id == user_id
-        ).order_by(desc(SpeakingSession.created_at)).all()
+        result = await db.execute(
+            select(SpeakingSession).where(
+                SpeakingSession.user_id == user_id
+            ).order_by(desc(SpeakingSession.created_at))
+        )
+        sessions = result.scalars().all()
         
         return [
             SpeakingSessionListResponse(
@@ -618,35 +613,68 @@ class SpeakingService:
             for session in sessions
         ]
     
-    def delete_speaking_session(self, session_id: int, user_id: int, db: Session) -> bool:
+    async def delete_speaking_session(self, session_id: int, user_id: int, db: AsyncSession) -> bool:
         """Delete a speaking session"""
-        session = db.query(SpeakingSession).filter(
-            SpeakingSession.id == session_id,
-            SpeakingSession.user_id == user_id
-        ).first()
+        result = await db.execute(
+            select(SpeakingSession).where(
+                SpeakingSession.id == session_id,
+                SpeakingSession.user_id == user_id
+            )
+        )
+        session = result.scalar_one_or_none()
         
         if not session:
             return False
         
-        db.delete(session)
-        db.commit()
+        await db.delete(session)
+        await db.commit()
         return True
     
+    async def mark_session_completed(self, session_id: int) -> bool:
+        """
+        Mark a speaking session as completed.
+        Uses internal AsyncSessionLocal() – no db passed in.
+        """
+        try:
+            async with AsyncSessionLocal() as db:
+                result = await db.execute(
+                    select(SpeakingSession).where(SpeakingSession.id == session_id)
+                )
+                session = result.scalar_one_or_none()
+
+                if not session:
+                    return False
+
+                session.status = "completed"
+
+                await db.commit()
+                return True
+
+        except Exception as exc:
+            logger.error(
+                f"Could not persist session completion for session {session_id}: {exc}",
+                exc_info=True
+            )
+            return False
+
     async def send_chat_message(
         self,
         session_id: int,
         user_id: int,
         message_data: ChatMessageCreate,
         audio_url: Optional[str] = None,
-        db: Session = None
+        db: AsyncSession = None
     ) -> ChatMessageResponse:
         """Send a chat message (text with optional audio URL) and get agent response"""
         try:
             # Get session
-            session = db.query(SpeakingSession).filter(
-                SpeakingSession.id == session_id,
-                SpeakingSession.user_id == user_id
-            ).first()
+            result = await db.execute(
+                select(SpeakingSession).where(
+                    SpeakingSession.id == session_id,
+                    SpeakingSession.user_id == user_id
+                )
+            )
+            session = result.scalar_one_or_none()
             
             if not session:
                 raise HTTPException(status_code=404, detail=SESSION_NOT_FOUND_MSG)
@@ -677,7 +705,7 @@ class SpeakingService:
             # Only messages routed to conversation_agent will be added to chat_history
             await update_session_state(
                 session_service=self.session_service,
-                app_name="SpeakingPractice",
+                app_name=APP_NAME,
                 user_id=str(user_id),
                 session_id=str(session_id),
                 state_delta={
@@ -707,7 +735,7 @@ class SpeakingService:
             # Query state only once after agent call (reuse for all checks)
             state = await get_agent_state(
                 session_service=self.session_service,
-                app_name="SpeakingPractice",
+                app_name=APP_NAME,
                 user_id=str(user_id),
                 session_id=str(session_id),
             )
@@ -739,9 +767,9 @@ class SpeakingService:
             db.add(agent_message)
             
             # Single commit for both user and agent messages + session status update
-            db.commit()
-            db.refresh(user_message)
-            db.refresh(agent_message)
+            await db.commit()
+            await db.refresh(agent_message)
+            await db.refresh(session)
             
             session_payload = SpeakingSessionResponse(
                 id=session.id,
@@ -771,29 +799,35 @@ class SpeakingService:
         except HTTPException:
             raise
         except Exception as e:
-            db.rollback()
+            await db.rollback()
             logger.error(f"Error sending chat message: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Lỗi khi gửi tin nhắn: {str(e)}")
     
-    def get_chat_history(
+    async def get_chat_history(
         self,
         session_id: int,
         user_id: int,
-        db: Session
+        db: AsyncSession
     ) -> List[ChatMessageResponse]:
         """Get chat history for a session"""
         # Verify session belongs to user
-        session = db.query(SpeakingSession).filter(
-            SpeakingSession.id == session_id,
-            SpeakingSession.user_id == user_id
-        ).first()
+        result = await db.execute(
+            select(SpeakingSession).where(
+                SpeakingSession.id == session_id,
+                SpeakingSession.user_id == user_id
+            )
+        )
+        session = result.scalar_one_or_none()
         
         if not session:
             return []
         
-        messages = db.query(SpeakingChatMessage).filter(
-            SpeakingChatMessage.session_id == session_id
-        ).order_by(SpeakingChatMessage.created_at).all()
+        messages_result = await db.execute(
+            select(SpeakingChatMessage).where(
+                SpeakingChatMessage.session_id == session_id
+            ).order_by(SpeakingChatMessage.created_at)
+        )
+        messages = messages_result.scalars().all()
         
         return [
             ChatMessageResponse(
@@ -814,15 +848,18 @@ class SpeakingService:
         self,
         session_id: int,
         user_id: int,
-        db: Session
+        db: AsyncSession
     ) -> HintResponse:
         """Get conversation hint for the last AI message"""
         try:
             # Get session
-            session = db.query(SpeakingSession).filter(
-                SpeakingSession.id == session_id,
-                SpeakingSession.user_id == user_id
-            ).first()
+            result = await db.execute(
+                select(SpeakingSession).where(
+                    SpeakingSession.id == session_id,
+                    SpeakingSession.user_id == user_id
+                )
+            )
+            session = result.scalar_one_or_none()
             
             if not session:
                 raise HTTPException(status_code=404, detail=SESSION_NOT_FOUND_MSG)
@@ -830,7 +867,7 @@ class SpeakingService:
             # Get agent session
             state = await get_agent_state(
                 session_service=self.session_service,
-                app_name="SpeakingPractice",
+                app_name=APP_NAME,
                 user_id=str(user_id),
                 session_id=str(session_id),
             )
@@ -866,7 +903,7 @@ class SpeakingService:
             )
             
             try:
-                hint_response = await call_agent_with_logging(
+                await call_agent_with_logging(
                     runner=self.hint_provider_runner,
                     user_id=str(user_id),
                     session_id=str(session_id),
@@ -882,20 +919,14 @@ class SpeakingService:
             try:
                 state_after = await get_agent_state(
                     session_service=self.session_service,
-                    app_name="SpeakingPractice",
+                    app_name=APP_NAME,
                     user_id=str(user_id),
                     session_id=str(session_id),
                 )
                 
-                # Get hint from current_hint_result (output_key)
-                hint_result_data = state_after.get("current_hint_result", {})
-                if isinstance(hint_result_data, dict):
-                    final_hint = hint_result_data.get("hint_text", "")
-                else:
-                    final_hint = hint_response or ""
+                final_hint = state_after.get("current_hint_result", {}).get("hint_text", "")
             except Exception as state_error:
                 logger.error(f"Error reading state after agent run: {state_error}")
-                final_hint = hint_response or ""
             
             if not isinstance(final_hint, str) or not final_hint.strip():
                 logger.error(f"Invalid hint: type={type(final_hint)}, value={final_hint}")
@@ -919,14 +950,17 @@ class SpeakingService:
         self,
         session_id: int,
         user_id: int,
-        db: Session
+        db: AsyncSession
     ) -> ChatMessageResponse:
         """Trigger AI to move the conversation forward without a new user utterance."""
         # Get and validate session
-        session = db.query(SpeakingSession).filter(
-            SpeakingSession.id == session_id,
-            SpeakingSession.user_id == user_id
-        ).first()
+        result = await db.execute(
+            select(SpeakingSession).where(
+                SpeakingSession.id == session_id,
+                SpeakingSession.user_id == user_id
+            )
+        )
+        session = result.scalar_one_or_none()
         
         if not session:
             raise HTTPException(status_code=404, detail=SESSION_NOT_FOUND_MSG)
@@ -989,8 +1023,8 @@ class SpeakingService:
             translation_sentence=translation_sentence
         )
         db.add(agent_message)
-        db.commit()
-        db.refresh(agent_message)
+        await db.commit()
+        await db.refresh(agent_message)
         
         session_payload = SpeakingSessionResponse(
             id=session.id,
@@ -1021,22 +1055,25 @@ class SpeakingService:
         self,
         session_id: int,
         user_id: int,
-        db: Session
+        db: AsyncSession
     ) -> FinalEvaluationResponse:
         """Get final evaluation for completed session"""
         try:
             # Get session
-            session = db.query(SpeakingSession).filter(
-                SpeakingSession.id == session_id,
-                SpeakingSession.user_id == user_id
-            ).first()
+            result = await db.execute(
+                select(SpeakingSession).where(
+                    SpeakingSession.id == session_id,
+                    SpeakingSession.user_id == user_id
+                )
+            )
+            session = result.scalar_one_or_none()
             
             if not session:
                 raise HTTPException(status_code=404, detail=SESSION_NOT_FOUND_MSG)
             
             # update session status to completed
             session.status = "completed"
-            db.commit()
+            await db.commit()
             
             # Get final evaluation directly from final_evaluator_agent
             evaluation_response = await call_agent_with_logging(
@@ -1085,9 +1122,16 @@ class SpeakingService:
                     interaction = 0.0
                     feedback = evaluation_response
                     suggestions = []
+                
+                # Update user's evaluation history via UsersService
+                await self.users_service.update_evaluation_history(
+                    user_id=user_id, 
+                    new_evaluation=final_eval, 
+                    db=db
+                )
                     
             except Exception as e:
-                logger.error(f"Error getting structured output: {e}")
+                logger.error(f"Error getting structured output or updating user history: {e}", exc_info=True)
                 # Fallback to zeros
                 overall = 0.0
                 pronunciation = 0.0

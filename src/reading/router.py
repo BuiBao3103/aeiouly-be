@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
 from src.database import get_db
@@ -27,7 +27,7 @@ async def create_reading_session(
     session_data: ReadingSessionCreate,
     current_user: User = Depends(get_current_active_user),
     service: ReadingService = Depends(get_reading_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Create a new reading session"""
     try:
@@ -74,7 +74,7 @@ async def get_reading_sessions(
     is_custom: Optional[bool] = Query(None, description="Filter by custom text"),
     current_user: User = Depends(get_current_active_user),
     service: ReadingService = Depends(get_reading_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Get paginated list of reading sessions"""
     try:
@@ -86,7 +86,7 @@ async def get_reading_sessions(
         
         pagination = PaginationParams(page=page, size=limit)
         
-        sessions = service.get_reading_sessions(current_user.id, filters, pagination, db)
+        sessions = await service.get_reading_sessions(current_user.id, filters, pagination, db)
         return sessions
         
     except Exception as e:
@@ -100,11 +100,11 @@ async def get_reading_session_detail(
     session_id: int,
     current_user: User = Depends(get_current_active_user),
     service: ReadingService = Depends(get_reading_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Get reading session detail"""
     try:
-        session = service.get_reading_session_detail(session_id, current_user.id, db)
+        session = await service.get_reading_session_detail(session_id, current_user.id, db)
         return session
         
     except ReadingSessionNotFoundException as e:
@@ -121,7 +121,7 @@ async def evaluate_answer(
     answer_data: AnswerSubmission,
     current_user: User = Depends(get_current_active_user),
     service: ReadingService = Depends(get_reading_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Evaluate discussion answer (Vietnamese or English)"""
     try:
@@ -142,7 +142,7 @@ async def generate_quiz(
     quiz_request: QuizGenerationRequest,
     current_user: User = Depends(get_current_active_user),
     service: ReadingService = Depends(get_reading_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Generate quiz from reading session"""
     try:
@@ -165,7 +165,7 @@ async def generate_discussion(
     discussion_request: DiscussionGenerationRequest,
     current_user: User = Depends(get_current_active_user),
     service: ReadingService = Depends(get_reading_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Generate discussion questions from reading session"""
     try:
@@ -185,9 +185,9 @@ async def delete_reading_session(
     session_id: int,
     current_user: User = Depends(get_current_active_user),
     service: ReadingService = Depends(get_reading_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Soft delete a reading session"""
-    success = service.delete_reading_session(session_id, current_user.id, db)
+    success = await service.delete_reading_session(session_id, current_user.id, db)
     if not success:
         raise ReadingSessionNotFoundException(f"Không tìm thấy phiên đọc {session_id}")

@@ -5,7 +5,8 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from typing import Optional
 from jose import jwt
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, delete
 from fastapi import Response
 from src.users.models import User, UserRole
 from src.auth.models import PasswordResetToken, RefreshToken
@@ -68,17 +69,21 @@ class AuthService:
         """Create a refresh token for the user"""
         return generate_refresh_token()
 
-    async def register_user(self, user_data: UserCreate, db: Session) -> User:
+    async def register_user(self, user_data: UserCreate, db: AsyncSession) -> User:
         """Register a new user"""
         # Check if user already exists
-        existing_user = db.query(User).filter(
-            User.username == user_data.username).first()
+        result = await db.execute(
+            select(User).where(User.username == user_data.username)
+        )
+        existing_user = result.scalar_one_or_none()
         if existing_user:
             raise UserAlreadyExistsException("Tên đăng nhập đã tồn tại")
 
         # Check if email already exists
-        existing_email = db.query(User).filter(
-            User.email == user_data.email).first()
+        result = await db.execute(
+            select(User).where(User.email == user_data.email)
+        )
+        existing_email = result.scalar_one_or_none()
         if existing_email:
             raise UserAlreadyExistsException("Email đã được sử dụng")
 
@@ -94,8 +99,8 @@ class AuthService:
         )
 
         db.add(db_user)
-        db.commit()
-        db.refresh(db_user)
+        await db.commit()
+        await db.refresh(db_user)
 
         # Send welcome email
         try:
@@ -106,16 +111,19 @@ class AuthService:
 
         return db_user
 
-    async def authenticate_user(self, username: str, password: str, db: Session) -> Optional[User]:
+    async def authenticate_user(self, username: str, password: str, db: AsyncSession) -> Optional[User]:
         """Authenticate user with username and password"""
-        user = db.query(User).filter(User.username == username).first()
+        result = await db.execute(
+            select(User).where(User.username == username)
+        )
+        user = result.scalar_one_or_none()
         if not user:
             return None
         if not self.verify_password(password, user.hashed_password):
             return None
         return user
 
-    async def login(self, username: str, password: str, db: Session) -> Token:
+    async def login(self, username: str, password: str, db: AsyncSession) -> Token:
         """Login user and return tokens"""
         user = await self.authenticate_user(username, password, db)
         if not user:
@@ -141,7 +149,7 @@ class AuthService:
                 ZoneInfo("UTC")) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
         )
         db.add(db_refresh_token)
-        db.commit()
+        await db.commit()
 
         return Token(
             access_token=access_token,
@@ -150,24 +158,28 @@ class AuthService:
             expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60  # Convert to seconds
         )
 
-    async def refresh_access_token(self, refresh_token: str, db: Session) -> Token:
+    async def refresh_access_token(self, refresh_token: str, db: AsyncSession) -> Token:
         """Refresh access token using refresh token"""
         # Find refresh token in database
-        db_refresh_token = db.query(RefreshToken).filter(
-            RefreshToken.token == refresh_token).first()
+        result = await db.execute(
+            select(RefreshToken).where(RefreshToken.token == refresh_token)
+        )
+        db_refresh_token = result.scalar_one_or_none()
         if not db_refresh_token:
             raise RefreshTokenRevokedException("Refresh token không hợp lệ")
 
         # Check if refresh token is expired
         if is_token_expired(db_refresh_token.expires_at):
             # Remove expired token
-            db.delete(db_refresh_token)
-            db.commit()
+            await db.delete(db_refresh_token)
+            await db.commit()
             raise RefreshTokenExpiredException("Refresh token đã hết hạn")
 
         # Get user
-        user = db.query(User).filter(
-            User.id == db_refresh_token.user_id).first()
+        result = await db.execute(
+            select(User).where(User.id == db_refresh_token.user_id)
+        )
+        user = result.scalar_one_or_none()
         if not user:
             raise UserNotFoundException("Không tìm thấy người dùng")
 
@@ -186,7 +198,7 @@ class AuthService:
         db_refresh_token.token = new_refresh_token
         db_refresh_token.expires_at = datetime.now(
             ZoneInfo("UTC")) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
-        db.commit()
+        await db.commit()
 
         return Token(
             access_token=access_token,
@@ -195,7 +207,7 @@ class AuthService:
             expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60  # Convert to seconds
         )
 
-    async def login_with_google(self, google_id_token_str: str, db: Session) -> Token:
+    async def login_with_google(self, google_id_token_str: str, db: AsyncSession) -> Token:
         """Verify Google ID token, upsert user, and issue our tokens."""
         try:
             idinfo = google_id_token.verify_oauth2_token(
@@ -214,13 +226,21 @@ class AuthService:
             raise InvalidCredentialsException("Thiếu thông tin từ Google")
 
         # Find existing user by email
-        user = db.query(User).filter(User.email == email).first()
+        result = await db.execute(
+            select(User).where(User.email == email)
+        )
+        user = result.scalar_one_or_none()
         if not user:
             # Create a new user with a generated username
             base_username = email.split("@")[0]
             username = base_username
             suffix = 1
-            while db.query(User).filter(User.username == username).first() is not None:
+            while True:
+                result = await db.execute(
+                    select(User).where(User.username == username)
+                )
+                if result.scalar_one_or_none() is None:
+                    break
                 username = f"{base_username}{suffix}"
                 suffix += 1
 
@@ -234,8 +254,8 @@ class AuthService:
                 avatar_url=settings.DEFAULT_AVATAR_URL  # Set default avatar
             )
             db.add(user)
-            db.commit()
-            db.refresh(user)
+            await db.commit()
+            await db.refresh(user)
 
         # Issue tokens
         access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -251,7 +271,7 @@ class AuthService:
             expires_at=datetime.now(ZoneInfo("UTC")) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
         )
         db.add(db_refresh_token)
-        db.commit()
+        await db.commit()
 
         return Token(
             access_token=access_token,
@@ -260,19 +280,24 @@ class AuthService:
             expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         )
 
-    async def logout(self, refresh_token: str, db: Session) -> bool:
+    async def logout(self, refresh_token: str, db: AsyncSession) -> bool:
         """Logout user by revoking refresh token"""
-        db_refresh_token = db.query(RefreshToken).filter(
-            RefreshToken.token == refresh_token).first()
+        result = await db.execute(
+            select(RefreshToken).where(RefreshToken.token == refresh_token)
+        )
+        db_refresh_token = result.scalar_one_or_none()
         if db_refresh_token:
-            db.delete(db_refresh_token)
-            db.commit()
+            await db.delete(db_refresh_token)
+            await db.commit()
             return True
         return False
 
-    async def request_password_reset(self, email: str, db: Session) -> bool:
+    async def request_password_reset(self, email: str, db: AsyncSession) -> bool:
         """Request password reset for user"""
-        user = db.query(User).filter(User.email == email).first()
+        result = await db.execute(
+            select(User).where(User.email == email)
+        )
+        user = result.scalar_one_or_none()
         if not user:
             # Don't reveal if email exists or not
             return False
@@ -289,7 +314,7 @@ class AuthService:
                 "UTC")) + timedelta(minutes=settings.PASSWORD_RESET_TOKEN_EXPIRE_MINUTES)
         )
         db.add(reset_token_obj)
-        db.commit()
+        await db.commit()
 
         # Send reset email
         reset_url = f"{settings.CLIENT_SIDE_URL}/reset-password"
@@ -297,11 +322,13 @@ class AuthService:
 
         return True
 
-    async def reset_password(self, reset_data: PasswordResetConfirm, db: Session) -> bool:
+    async def reset_password(self, reset_data: PasswordResetConfirm, db: AsyncSession) -> bool:
         """Reset user password using reset token"""
         # Find reset token
-        reset_token_obj = db.query(PasswordResetToken).filter(
-            PasswordResetToken.token == reset_data.token).first()
+        result = await db.execute(
+            select(PasswordResetToken).where(PasswordResetToken.token == reset_data.token)
+        )
+        reset_token_obj = result.scalar_one_or_none()
         if not reset_token_obj:
             raise PasswordResetTokenInvalidException(
                 "Token reset password không hợp lệ")
@@ -309,28 +336,30 @@ class AuthService:
         # Check if token is expired
         if is_token_expired(reset_token_obj.expires_at):
             # Remove expired token
-            db.delete(reset_token_obj)
-            db.commit()
+            await db.delete(reset_token_obj)
+            await db.commit()
             raise PasswordResetTokenExpiredException(
                 "Token reset password đã hết hạn")
 
         # Get user
-        user = db.query(User).filter(
-            User.email == reset_token_obj.email).first()
+        result = await db.execute(
+            select(User).where(User.email == reset_token_obj.email)
+        )
+        user = result.scalar_one_or_none()
         if not user:
             raise UserNotFoundException("Không tìm thấy người dùng")
 
         # Update password
         user.hashed_password = self.get_password_hash(reset_data.new_password)
-        db.commit()
+        await db.commit()
 
         # Remove reset token
-        db.delete(reset_token_obj)
-        db.commit()
+        await db.delete(reset_token_obj)
+        await db.commit()
 
         return True
 
-    async def change_password(self, user: User, current_password: str, new_password: str, db: Session) -> bool:
+    async def change_password(self, user: User, current_password: str, new_password: str, db: AsyncSession) -> bool:
         """Change password for authenticated user and revoke existing refresh tokens"""
         # Verify current password
         if not self.verify_password(current_password, user.hashed_password):
@@ -348,40 +377,52 @@ class AuthService:
 
         # Update password
         user.hashed_password = self.get_password_hash(new_password)
-        db.commit()
+        await db.commit()
 
         # Revoke existing refresh tokens
-        db.query(RefreshToken).filter(RefreshToken.user_id == user.id).delete()
-        db.commit()
+        await db.execute(
+            delete(RefreshToken).where(RefreshToken.user_id == user.id)
+        )
+        await db.commit()
 
         return True
 
-    async def get_user_by_id(self, user_id: int, db: Session) -> Optional[User]:
+    async def get_user_by_id(self, user_id: int, db: AsyncSession) -> Optional[User]:
         """Get user by ID"""
-        return db.query(User).filter(User.id == user_id).first()
+        result = await db.execute(
+            select(User).where(User.id == user_id)
+        )
+        return result.scalar_one_or_none()
 
-    async def get_user_by_username(self, username: str, db: Session) -> Optional[User]:
+    async def get_user_by_username(self, username: str, db: AsyncSession) -> Optional[User]:
         """Get user by username"""
-        return db.query(User).filter(User.username == username).first()
+        result = await db.execute(
+            select(User).where(User.username == username)
+        )
+        return result.scalar_one_or_none()
 
-    async def get_user_by_email(self, email: str, db: Session) -> Optional[User]:
+    async def get_user_by_email(self, email: str, db: AsyncSession) -> Optional[User]:
         """Get user by email"""
-        return db.query(User).filter(User.email == email).first()
+        result = await db.execute(
+            select(User).where(User.email == email)
+        )
+        return result.scalar_one_or_none()
 
-    async def deactivate_user(self, user: User, db: Session) -> bool:
+    async def deactivate_user(self, user: User, db: AsyncSession) -> bool:
         """Soft delete account: set is_active=False and revoke all refresh tokens"""
         try:
             user.is_active = False
-            db.commit()
-            db.query(RefreshToken).filter(
-                RefreshToken.user_id == user.id).delete()
-            db.commit()
+            await db.commit()
+            await db.execute(
+                delete(RefreshToken).where(RefreshToken.user_id == user.id)
+            )
+            await db.commit()
             return True
         except Exception:
-            db.rollback()
+            await db.rollback()
             return False
 
-    async def update_user_profile(self, user: User, update_data: dict, db: Session) -> User:
+    async def update_user_profile(self, user: User, update_data: dict, db: AsyncSession) -> User:
         """Update user profile (username, full_name)"""
         try:
             # Check if username is being updated and if it's unique
@@ -398,16 +439,16 @@ class AuthService:
             if 'full_name' in update_data:
                 user.full_name = update_data['full_name']
             
-            db.commit()
-            db.refresh(user)
+            await db.commit()
+            await db.refresh(user)
             return user
         except HTTPException:
             raise
         except Exception as e:
-            db.rollback()
+            await db.rollback()
             raise HTTPException(status_code=500, detail=f"Lỗi cập nhật profile: {str(e)}")
 
-    async def upload_user_avatar(self, user: User, image: UploadFile, db: Session) -> User:
+    async def upload_user_avatar(self, user: User, image: UploadFile, db: AsyncSession) -> User:
         """Upload avatar for user"""
         from src.storage import S3StorageService
         
@@ -431,10 +472,10 @@ class AuthService:
             
             # Update user with new avatar URL
             user.avatar_url = url
-            db.commit()
-            db.refresh(user)
+            await db.commit()
+            await db.refresh(user)
             
             return user
         except Exception as e:
-            db.rollback()
+            await db.rollback()
             raise HTTPException(status_code=500, detail=f"Lỗi upload avatar: {str(e)}")

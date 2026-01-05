@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Path
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 from src.database import get_db
 from src.dictionary.service import DictionaryService
@@ -20,7 +20,7 @@ async def search_words(
     query: str = Query(..., min_length=1, max_length=100, description="Từ khóa tìm kiếm"),
     limit: Optional[int] = Query(10, ge=1, le=50, description="Số lượng kết quả tối đa"),
     service: DictionaryService = Depends(get_dictionary_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Tìm kiếm từ vựng trong từ điển Anh-Việt (chỉ tìm trong expression)
@@ -42,7 +42,7 @@ async def search_words(
 async def get_word_by_id(
     word_id: int = Path(..., description="ID của từ vựng"),
     service: DictionaryService = Depends(get_dictionary_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Lấy thông tin từ vựng theo ID
@@ -60,7 +60,7 @@ async def get_word_by_id(
 async def get_word_by_expression(
     expression: str = Query(..., description="Từ vựng cần tìm"),
     service: DictionaryService = Depends(get_dictionary_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Lấy thông tin từ vựng theo từ chính xác
@@ -78,7 +78,7 @@ async def get_word_by_expression(
 async def find_single_word_with_suffixes(
     word: str = Query(..., min_length=1, max_length=50, description="Từ vựng cần tìm (hỗ trợ suffixes)"),
     service: DictionaryService = Depends(get_dictionary_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Tìm 1 từ duy nhất với hỗ trợ suffixes (stemming)
@@ -104,7 +104,7 @@ async def find_single_word_with_suffixes(
 async def get_random_words(
     limit: int = Query(10, ge=1, le=50, description="Số lượng từ ngẫu nhiên"),
     service: DictionaryService = Depends(get_dictionary_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Lấy danh sách từ vựng ngẫu nhiên
@@ -119,43 +119,57 @@ async def get_random_words(
 
 
 @router.get("/stats")
-async def get_dictionary_stats(db: Session = Depends(get_db)):
+async def get_dictionary_stats(db: AsyncSession = Depends(get_db)):
     """
     Lấy thống kê chi tiết từ điển
     """
     try:
-        from sqlalchemy import func, text
+        from sqlalchemy import func, select, text
         from src.dictionary.models import Dictionary
         
         # Basic stats
-        total_words = db.query(func.count(Dictionary.id)).scalar()
+        count_result = await db.execute(select(func.count(Dictionary.id)))
+        total_words = count_result.scalar() or 0
         
         # Average definition length
-        avg_def_length = db.query(func.avg(func.length(Dictionary.definitions))).scalar()
+        avg_result = await db.execute(select(func.avg(func.length(Dictionary.definitions))))
+        avg_def_length = avg_result.scalar()
         
         # Longest definition
-        longest_def = db.query(
-            Dictionary.expression, 
-            func.length(Dictionary.definitions).label('def_length')
-        ).order_by(func.length(Dictionary.definitions).desc()).first()
+        longest_result = await db.execute(
+            select(
+                Dictionary.expression, 
+                func.length(Dictionary.definitions).label('def_length')
+            ).order_by(func.length(Dictionary.definitions).desc()).limit(1)
+        )
+        longest_def = longest_result.first()
         
         # Shortest definition
-        shortest_def = db.query(
-            Dictionary.expression, 
-            func.length(Dictionary.definitions).label('def_length')
-        ).order_by(func.length(Dictionary.definitions).asc()).first()
+        shortest_result = await db.execute(
+            select(
+                Dictionary.expression, 
+                func.length(Dictionary.definitions).label('def_length')
+            ).order_by(func.length(Dictionary.definitions).asc()).limit(1)
+        )
+        shortest_def = shortest_result.first()
         
         # Words starting with each letter
-        letter_stats = db.query(
-            func.upper(func.left(Dictionary.expression, 1)).label('letter'),
-            func.count(Dictionary.id).label('count')
-        ).group_by(func.upper(func.left(Dictionary.expression, 1))).order_by('letter').all()
+        letter_result = await db.execute(
+            select(
+                func.upper(func.left(Dictionary.expression, 1)).label('letter'),
+                func.count(Dictionary.id).label('count')
+            ).group_by(func.upper(func.left(Dictionary.expression, 1))).order_by('letter')
+        )
+        letter_stats = letter_result.all()
         
         # Most common word lengths
-        word_length_stats = db.query(
-            func.length(Dictionary.expression).label('word_length'),
-            func.count(Dictionary.id).label('count')
-        ).group_by(func.length(Dictionary.expression)).order_by('word_length').limit(10).all()
+        word_length_result = await db.execute(
+            select(
+                func.length(Dictionary.expression).label('word_length'),
+                func.count(Dictionary.id).label('count')
+            ).group_by(func.length(Dictionary.expression)).order_by('word_length').limit(10)
+        )
+        word_length_stats = word_length_result.all()
         
         return {
             "overview": {

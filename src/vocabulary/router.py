@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Path, status
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
 
 from src.database import get_db
@@ -29,11 +29,11 @@ async def create_vocabulary_set(
     set_data: VocabularySetCreate,
     current_user: User = Depends(get_current_active_user),
     service: VocabularyService = Depends(get_vocabulary_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Tạo bộ từ vựng mới"""
     try:
-        return service.create_vocabulary_set(current_user.id, set_data, db)
+        return await service.create_vocabulary_set(current_user.id, set_data, db)
     except Exception as e:
         raise HTTPException(
             status_code=500,
@@ -47,12 +47,12 @@ async def get_vocabulary_sets(
     size: int = Query(10, ge=1, le=50, description="Kích thước trang"),
     current_user: User = Depends(get_current_active_user),
     service: VocabularyService = Depends(get_vocabulary_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Lấy danh sách bộ từ vựng của người dùng"""
     try:
         pagination = PaginationParams(page=page, size=size)
-        return service.get_vocabulary_sets(current_user.id, db, pagination)
+        return await service.get_vocabulary_sets(current_user.id, db, pagination)
     except Exception as e:
         raise HTTPException(
             status_code=500,
@@ -65,11 +65,11 @@ async def get_vocabulary_set(
     set_id: int = Path(..., description="ID bộ từ vựng"),
     current_user: User = Depends(get_current_active_user),
     service: VocabularyService = Depends(get_vocabulary_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Lấy chi tiết bộ từ vựng"""
     try:
-        return service.get_vocabulary_set_by_id(current_user.id, set_id, db)
+        return await service.get_vocabulary_set_by_id(current_user.id, set_id, db)
     except VocabularySetNotFoundException as e:
         raise e
     except Exception as e:
@@ -85,11 +85,11 @@ async def update_vocabulary_set(
     set_data: VocabularySetUpdate = None,
     current_user: User = Depends(get_current_active_user),
     service: VocabularyService = Depends(get_vocabulary_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Cập nhật bộ từ vựng"""
     try:
-        return service.update_vocabulary_set(current_user.id, set_id, set_data, db)
+        return await service.update_vocabulary_set(current_user.id, set_id, set_data, db)
     except VocabularySetNotFoundException as e:
         raise e
     except Exception as e:
@@ -104,11 +104,11 @@ async def delete_vocabulary_set(
     set_id: int = Path(..., description="ID bộ từ vựng"),
     current_user: User = Depends(get_current_active_user),
     service: VocabularyService = Depends(get_vocabulary_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Xóa bộ từ vựng"""
     try:
-        success = service.delete_vocabulary_set(current_user.id, set_id, db)
+        success = await service.delete_vocabulary_set(current_user.id, set_id, db)
         if not success:
             raise HTTPException(
                 status_code=404,
@@ -129,7 +129,7 @@ async def add_vocabulary_item(
     item_data: VocabularyItemCreate,
     current_user: User = Depends(get_current_active_user),
     service: VocabularyService = Depends(get_vocabulary_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Thêm từ vựng vào bộ từ vựng
@@ -139,7 +139,7 @@ async def add_vocabulary_item(
     - **use_default_set**: Thêm vào bộ từ vựng mặc định của user (nếu chưa có sẽ tự động tạo)
     """
     try:
-        return service.add_vocabulary_item(current_user.id, item_data, db)
+        return await service.add_vocabulary_item(current_user.id, item_data, db)
     except (VocabularySetNotFoundException, DictionaryWordNotFoundException, VocabularyItemAlreadyExistsException) as e:
         raise e
     except Exception as e:
@@ -156,12 +156,12 @@ async def get_vocabulary_items(
     size: int = Query(10, ge=1, le=50, description="Kích thước trang"),
     current_user: User = Depends(get_current_active_user),
     service: VocabularyService = Depends(get_vocabulary_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Lấy danh sách từ vựng trong bộ"""
     try:
         pagination = PaginationParams(page=page, size=size)
-        return service.get_vocabulary_items(current_user.id, set_id, db, pagination)
+        return await service.get_vocabulary_items(current_user.id, set_id, db, pagination)
     except Exception as e:
         raise HTTPException(
             status_code=500,
@@ -174,11 +174,11 @@ async def remove_vocabulary_item(
     item_id: int = Path(..., description="ID từ vựng"),
     current_user: User = Depends(get_current_active_user),
     service: VocabularyService = Depends(get_vocabulary_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Xóa từ vựng khỏi bộ"""
     try:
-        success = service.remove_vocabulary_item(current_user.id, item_id, db)
+        success = await service.remove_vocabulary_item(current_user.id, item_id, db)
         if not success:
             raise HTTPException(
                 status_code=404,
@@ -199,11 +199,11 @@ async def create_flashcard_session(
     session_data: StudySessionCreate,
     current_user: User = Depends(get_current_active_user),
     service: VocabularyService = Depends(get_vocabulary_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Tạo phiên học Flashcard"""
     try:
-        return service.create_flashcard_session(current_user.id, session_data, db)
+        return await service.create_flashcard_session(current_user.id, session_data, db)
     except (VocabularySetNotFoundException, InsufficientVocabularyException) as e:
         raise e
     except Exception as e:
@@ -218,11 +218,11 @@ async def create_multiple_choice_session(
     session_data: StudySessionCreate,
     current_user: User = Depends(get_current_active_user),
     service: VocabularyService = Depends(get_vocabulary_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Tạo phiên học Multiple Choice"""
     try:
-        return service.create_multiple_choice_session(current_user.id, session_data, db)
+        return await service.create_multiple_choice_session(current_user.id, session_data, db)
     except (VocabularySetNotFoundException, InsufficientVocabularyException) as e:
         raise e
     except Exception as e:

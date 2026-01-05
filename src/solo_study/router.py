@@ -1,6 +1,6 @@
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import get_db
 from src.pagination import PaginationParams, PaginatedResponse, paginate
@@ -26,7 +26,7 @@ router = APIRouter(prefix="/sounds", tags=["Sounds"])
 async def create_sound(
     sound_data: SoundCreate,
     service: SoundService = Depends(get_sound_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Tạo âm thanh mới
@@ -34,7 +34,7 @@ async def create_sound(
     - **Lưu ý**: sound_file_url, file_size, duration sẽ được set khi upload file
     """
     try:
-        return service.create_sound(sound_data, db)
+        return await service.create_sound(sound_data, db)
     except SoundValidationException as e:
         raise sound_validation_exception(str(e))
     except Exception as e:
@@ -45,7 +45,7 @@ async def create_sound(
 async def get_sounds(
     pagination: PaginationParams = Depends(),
     service: SoundService = Depends(get_sound_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Lấy danh sách âm thanh với phân trang
@@ -53,7 +53,7 @@ async def get_sounds(
     - **size**: Số bản ghi mỗi trang (mặc định: 10, tối đa: 100)
     """
     try:
-        return service.get_sounds(db, pagination)
+        return await service.get_sounds(db, pagination)
     except SoundValidationException as e:
         raise sound_validation_exception(str(e))
     except Exception as e:
@@ -64,14 +64,14 @@ async def get_sounds(
 async def get_sound(
     sound_id: int,
     service: SoundService = Depends(get_sound_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Lấy thông tin âm thanh theo ID
     - **sound_id**: ID của âm thanh
     """
     try:
-        return service.get_sound_by_id(sound_id, db)
+        return await service.get_sound_by_id(sound_id, db)
     except SoundNotFoundException as e:
         raise sound_not_found_exception(sound_id)
     except Exception as e:
@@ -83,7 +83,7 @@ async def update_sound(
     sound_id: int,
     sound_data: SoundUpdate,
     service: SoundService = Depends(get_sound_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Cập nhật tên âm thanh
@@ -92,7 +92,7 @@ async def update_sound(
     - **Lưu ý**: file_size và duration sẽ được cập nhật tự động khi upload file
     """
     try:
-        return service.update_sound(sound_id, sound_data, db)
+        return await service.update_sound(sound_id, sound_data, db)
     except SoundNotFoundException as e:
         raise sound_not_found_exception(sound_id)
     except SoundValidationException as e:
@@ -105,14 +105,14 @@ async def update_sound(
 async def delete_sound(
     sound_id: int,
     service: SoundService = Depends(get_sound_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Xóa âm thanh (soft delete)
     - **sound_id**: ID của âm thanh
     """
     try:
-        success = service.delete_sound(sound_id, db)
+        success = await service.delete_sound(sound_id, db)
         if success:
             return {"message": f"Đã xóa âm thanh với ID {sound_id}"}
         else:
@@ -130,7 +130,7 @@ async def upload_sound_file(
     sound_id: int,
     sound_file: UploadFile = File(..., description="File âm thanh (audio/*)"),
     service: SoundService = Depends(get_sound_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Upload file âm thanh lên AWS S3
@@ -138,7 +138,7 @@ async def upload_sound_file(
     - **sound_file**: File âm thanh (phải là audio/*)
     """
     try:
-        return service.upload_sound_file(sound_id, sound_file, db)
+        return await service.upload_sound_file(sound_id, sound_file, db)
     except SoundNotFoundException as e:
         raise sound_not_found_exception(sound_id)
     except SoundUploadException as e:

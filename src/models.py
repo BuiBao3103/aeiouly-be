@@ -43,3 +43,4 @@ from src.solo_study.models import (
     SessionGoal, UserFavoriteVideo, Sound
 )
 from src.speaking.models import SpeakingSession, SpeakingChatMessage
+from src.learning_paths.models import LearningPath, DailyLessonPlan, UserLessonProgress

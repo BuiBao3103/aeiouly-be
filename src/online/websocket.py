@@ -1,5 +1,5 @@
 from fastapi import WebSocket, WebSocketDisconnect
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import get_db
 from src.auth.dependencies import resolve_user_from_websocket
@@ -48,29 +48,29 @@ async def websocket_endpoint(websocket: WebSocket):
     ws.onclose = (event) => console.log('Disconnected:', event.code, event.reason);
     ```
     """
-    db = next(get_db())
-    try:
-        user = resolve_user_from_websocket(websocket, db)
-        
-        if not user:
-            await websocket.close(code=1008, reason="Unauthorized")
-            return
-
-        # Get connection manager
-        manager = get_connection_manager()
-        
-        # Connect user (accepts connection and adds to connections)
-        await manager.connect(websocket, user.id, db)
-
+    async for db in get_db():
         try:
-            # Keep connection alive and listen for messages
-            while True:
-                await websocket.receive_text()
-        except WebSocketDisconnect:
-            await manager.disconnect(websocket, db)
-        except Exception:
-            await manager.disconnect(websocket, db)
-            raise
-    finally:
-        db.close()
+            user = await resolve_user_from_websocket(websocket, db)
+            
+            if not user:
+                await websocket.close(code=1008, reason="Unauthorized")
+                return
+
+            # Get connection manager
+            manager = get_connection_manager()
+            
+            # Connect user (accepts connection and adds to connections)
+            await manager.connect(websocket, user.id, db)
+
+            try:
+                # Keep connection alive and listen for messages
+                while True:
+                    await websocket.receive_text()
+            except WebSocketDisconnect:
+                await manager.disconnect(websocket, db)
+            except Exception:
+                await manager.disconnect(websocket, db)
+                raise
+        finally:
+            await db.close()
 

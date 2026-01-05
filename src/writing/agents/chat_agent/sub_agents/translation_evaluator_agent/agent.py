@@ -6,11 +6,12 @@ from typing import Optional
 from google.adk.agents import LlmAgent
 from google.adk.agents.callback_context import CallbackContext
 from google.genai import types
-
+from sqlalchemy.ext.asyncio import AsyncSession
+import asyncio
 from src.writing.agents.schemas import TranslationEvaluationResponse
 
 
-def _move_to_next_sentence(state: dict) -> None:
+async def _move_to_next_sentence(state: dict) -> None:
     """Move to the next sentence in the writing session."""
     # Import here to avoid circular dependency
     from src.writing.service import WritingService
@@ -25,8 +26,9 @@ def _move_to_next_sentence(state: dict) -> None:
         state["current_vietnamese_sentence"] = "Tất cả các câu đã được dịch xong. Phiên học hoàn thành!"
         
         if session_id:
-            WritingService.persist_skip_progress_to_db(
-                session_id, total_sentences, total_sentences)
+            writing_service = WritingService()
+            await writing_service.persist_skip_progress_to_db(
+                session_id, total_sentences)
     else:
         # Move to next sentence
         next_index = current_sentence_index + 1
@@ -40,11 +42,12 @@ def _move_to_next_sentence(state: dict) -> None:
                 state["current_vietnamese_sentence"] = sentences_list[next_index]
 
         if session_id:
-            WritingService.persist_skip_progress_to_db(
-                session_id, next_index, total_sentences)
+            writing_service = WritingService()
+            await writing_service.persist_skip_progress_to_db(
+                 session_id, next_index)
 
 
-def after_translation_evaluator_callback(callback_context: CallbackContext) -> Optional[types.Content]:
+async def after_translation_evaluator_callback(callback_context: CallbackContext) -> Optional[types.Content]:
     """
     Callback that automatically saves evaluation to evaluation_history in state
     and moves to next sentence if translation is correct.
@@ -81,10 +84,11 @@ def after_translation_evaluator_callback(callback_context: CallbackContext) -> O
                 }
             )
             state["evaluation_history"] = evaluation_history
-
+            print(f"is_correct: {is_correct}")
             # Move to next sentence if translation is correct
             if is_correct:
-                _move_to_next_sentence(state)
+                print("Moving to next sentence")
+                await _move_to_next_sentence(state)
 
     return None  # Continue with normal agent processing
 

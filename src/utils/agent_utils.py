@@ -641,7 +641,7 @@ async def get_agent_state(
     return (agent_session.state or {}) if agent_session else {}
 
 
-def log_session_state(session_service, app_name: str, user_id: str, session_id: str, logger: logging.Logger = None):
+async def log_session_state(session_service, app_name: str, user_id: str, session_id: str, logger: logging.Logger = None):
     """
     Log the current session state for debugging.
     
@@ -655,24 +655,11 @@ def log_session_state(session_service, app_name: str, user_id: str, session_id: 
     log_func = logger.info if logger else print
     
     try:
-        import asyncio
-        
-        # Handle both sync and async session service
-        try:
-            session = asyncio.run(
-                session_service.get_session(
-                    app_name=app_name,
-                    user_id=user_id,
-                    session_id=session_id
-                )
-            )
-        except (TypeError, RuntimeError):
-            # If session service is synchronous
-            session = session_service.get_session(
-                app_name=app_name,
-                user_id=user_id,
-                session_id=session_id
-            )
+        session = await session_service.get_session(
+            app_name=app_name,
+            user_id=user_id,
+            session_id=session_id
+        )
         
         log_func(f"\n{'-' * 10} Session State {'-' * 10}")
         

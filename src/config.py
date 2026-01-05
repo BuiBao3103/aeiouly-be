@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     POSTGRES_DB: str = "aeiouly"
     POSTGRES_USER: str = "postgres"
     POSTGRES_PASSWORD: str = "postgres"
-    DATABASE_DIALECT: str = "postgresql+psycopg2"  # e.g., postgresql+psycopg2, sqlite
+    DATABASE_DIALECT: str = "postgresql+asyncpg"  # Async PostgreSQL driver for async operations
     
     # SMTP Configuration
     SMTP_SERVER: str = "sandbox.smtp.mailtrap.io"
@@ -126,3 +126,19 @@ def get_database_url() -> str:
     else:
         cred = ""
     return f"{dialect}://{cred}{host}:{port}/{db}"
+
+def get_sync_database_url() -> str:
+    """
+    Get synchronous database URL for DatabaseSessionService (ADK).
+    Converts async URL to sync URL if needed.
+    """
+    url = get_database_url()
+    # Convert async URL to sync URL for DatabaseSessionService
+    if url.startswith("postgresql+asyncpg://"):
+        return url.replace("postgresql+asyncpg://", "postgresql+psycopg2://", 1)
+    elif url.startswith("postgresql://"):
+        # Already sync URL, return as is
+        return url
+    else:
+        # For other dialects, try to convert to sync version
+        return url

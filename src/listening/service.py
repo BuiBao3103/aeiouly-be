@@ -3,8 +3,8 @@ Service layer for Listening module
 """
 
 from typing import List, Optional
-from sqlalchemy.orm import Session
-from sqlalchemy import desc, and_, or_
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import desc, and_, or_, select, func
 from src.constants.cefr import CEFRLevel
 from src.listening.models import ListenLesson, Sentence, ListeningSession, SessionStatus
 from src.listening.schemas import (
@@ -22,22 +22,30 @@ from src.listening.exceptions import (
     DifficultyAnalysisFailedException, SessionCreationFailedException,
     ProgressUpdateFailedException, SessionCompletionFailedException
 )
-from src.listening.listening_lesson_agent.agent import listening_lesson_agent
 from google.adk.runners import Runner
 from google.adk.sessions import DatabaseSessionService
-from src.config import get_database_url
+from src.config import get_database_url, get_sync_database_url
 import asyncio
 from datetime import datetime, timezone
 import logging
 import json
 from src.utils.agent_utils import call_agent_with_logging
+from src.listening.agents.determine_level_agent.agent import determine_level_agent
+from src.listening.agents.translation_agent.agent import translation_agent
+APP_NAME = "ListeningLesson"
 
 class ListeningService:
     def __init__(self):
-        self.session_service = DatabaseSessionService(db_url=get_database_url())
-        self.runner = Runner(
-            agent=listening_lesson_agent,
-            app_name="ListeningLesson",
+        # DatabaseSessionService needs sync URL, not async
+        self.session_service = DatabaseSessionService(db_url=get_sync_database_url())
+        self.determine_difficulty_runner = Runner(
+            agent=determine_level_agent,
+            app_name=APP_NAME,
+            session_service=self.session_service,
+        )
+        self.translate_sentences_runner = Runner(
+            agent=translation_agent,
+            app_name=APP_NAME,
             session_service=self.session_service,
         )
         self.agent_user_id = "system"
@@ -74,14 +82,25 @@ class ListeningService:
         return f"SOURCE:{source}\nMESSAGE:{message}"
 
     async def _call_listening_agent(self, session_id: str, source: str, message: str) -> str:
+        """Call the appropriate agent based on source"""
         query = self._build_agent_query(source, message)
+        
+        # Select runner based on source
+        if source == "translate_sentences":
+            runner = self.translate_sentences_runner
+            agent_name = translation_agent.name
+        else:
+            # Default to determine_difficulty_runner (for "determine_level" or unknown sources)
+            runner = self.determine_difficulty_runner
+            agent_name = determine_level_agent.name
+        
         return await call_agent_with_logging(
-            runner=self.runner,
+            runner=runner,
             user_id=self.agent_user_id,
             session_id=str(session_id),
             query=query,
             logger=self.logger,
-            agent_name="listening_lesson"
+            agent_name=agent_name
         )
 
     async def _get_state_value(self, session_id: str, key: str):
@@ -146,7 +165,7 @@ class ListeningService:
         confidences = [0.8] * len(translations)
         return translations, confidences
 
-    async def create_lesson(self, lesson_data: LessonUpload, db: Session) -> LessonResponse:
+    async def create_lesson(self, lesson_data: LessonUpload, db: AsyncSession) -> LessonResponse:
         """Create a new listening lesson with SRT parsing and translation"""
         try:
             # Parse SRT content
@@ -156,16 +175,28 @@ class ListeningService:
             if not subtitles:
                 raise InvalidSRTContentException("Không thể parse được nội dung SRT")
             
-            # Create lesson early to obtain ID for agent session (temporary level)
+            # Normalize and filter subtitles early (before creating DB record)
+            original_count = len(subtitles)
+            # Normalize subtitle text
+            for s in subtitles:
+                s.text = sanitize_subtitle_text(s.text)
+            # Filter out non-speech subtitles
+            subtitles = [s for s in subtitles if not is_non_speech_subtitle(s.text)]
+            filtered_count = len(subtitles)
+            if filtered_count != original_count:
+                self.logger.debug(f"Filtered non-speech subtitles: removed {original_count - filtered_count} items")
+            
+            # Create lesson record (use flush to get ID without committing transaction)
+            # This ensures if agent fails, rollback will remove the lesson record
             db_lesson = ListenLesson(
                 title=lesson_data.lesson_data.title,
                 youtube_url=lesson_data.lesson_data.youtube_url,
-                level=CEFRLevel.B1.value,
-                total_sentences=len(subtitles),
+                level=CEFRLevel.B1.value,  # Temporary, will be updated after agent analysis
+                total_sentences=filtered_count,  # Use filtered count
             )
             db.add(db_lesson)
-            db.commit()
-            db.refresh(db_lesson)
+            # Flush to get primary key (id) without committing the transaction yet
+            await db.flush()
 
             lesson_session_id = str(db_lesson.id)
             # Create agent session for this lesson
@@ -186,78 +217,37 @@ class ListeningService:
                 db_lesson.title,
                 lesson_data.srt_content,
             )
-            db_lesson.level = difficulty_level
-            db.commit()
             
-            # Normalize and filter subtitles
-            original_count = len(subtitles)
-            for s in subtitles:
-                s.text = sanitize_subtitle_text(s.text)
-            subtitles = [s for s in subtitles if not is_non_speech_subtitle(s.text)]
-            filtered_count = len(subtitles)
-            if filtered_count != original_count:
-                self.logger.debug(f"Filtered non-speech subtitles: removed {original_count - filtered_count} items")
-
             # Translate sentences in batches to avoid token limits
-            all_translations = []
-            all_confidences = []  # Store confidences for each sentence
-            
-            # Split sentences into batches
-            sentence_texts = [sub.text for sub in subtitles]
-            for i in range(0, len(sentence_texts), self.MAX_SENTENCES_PER_BATCH):
-                batch = sentence_texts[i:i + self.MAX_SENTENCES_PER_BATCH]
-                batch_num = i//self.MAX_SENTENCES_PER_BATCH + 1
-                self.logger.info(f"Translating batch {batch_num}: {len(batch)} sentences")
-                
-                try:
-                    # Pass difficulty level to translation
-                    batch_translations, batch_confidences = await self._translate_all_sentences(
-                        lesson_id=db_lesson.id,
-                        english_sentences=batch,
-                        difficulty_level=difficulty_level,
-                    )
-                    all_translations.extend(batch_translations)
-                    # Store confidence for each sentence in this batch
-                    all_confidences.extend(batch_confidences)
-                    self.logger.debug(f"Batch {batch_num} completed. Total translations so far: {len(all_translations)}. Confidences: {batch_confidences}")
-                except Exception as e:
-                    self.logger.warning(f"Error in batch {batch_num}: {e}")
-                    # Fallback: create placeholder translations for this batch
-                    fallback_translations = [f"[Translation for: {sentence}]" for sentence in batch]
-                    all_translations.extend(fallback_translations)
-                    # Low confidence for fallback
-                    fallback_confidences = [0.3] * len(fallback_translations)
-                    all_confidences.extend(fallback_confidences)
-                    self.logger.warning(f"Using fallback translations for batch {batch_num}")
+            all_translations, all_confidences = await self._translate_sentences_in_batches(
+                lesson_id=db_lesson.id,
+                subtitles=subtitles,
+                difficulty_level=difficulty_level,
+            )
             
             # Create sentences with translation
-            sentences = []
-            for i, subtitle in enumerate(subtitles):
-                # Get translation from batch result
-                translation = all_translations[i] if i < len(all_translations) else f"[Translation for: {subtitle.text}]"
-                
-                # Get confidence for this sentence from accumulated confidences
-                sentence_confidence = all_confidences[i] if i < len(all_confidences) else 0.8
-                
-                sentence = Sentence(
+            sentences = [
+                Sentence(
                     lesson_id=db_lesson.id,
                     index=i,
                     text=subtitle.text,
-                    translation=translation,
+                    translation=all_translations[i] if i < len(all_translations) else f"[Translation for: {subtitle.text}]",
                     start_time=subtitle.start_time,
                     end_time=subtitle.end_time,
-                    confidence=sentence_confidence
+                    confidence=all_confidences[i] if i < len(all_confidences) else 0.8,
                 )
-                sentences.append(sentence)
+                for i, subtitle in enumerate(subtitles)
+            ]
             
-            db.add_all(sentences)
-            db.commit()
-            
-            # Update lesson's updated_at timestamp
+            # Update lesson with final values and add all sentences
+            db_lesson.level = difficulty_level
+            db_lesson.total_sentences = filtered_count
             db_lesson.updated_at = datetime.now(timezone.utc)
-            # Also ensure total_sentences matches filtered list
-            db_lesson.total_sentences = len(subtitles)
-            db.commit()
+            db.add_all(sentences)
+            
+            # Single commit at the end - only if everything succeeds
+            await db.commit()
+            await db.refresh(db_lesson)
             
             return LessonResponse(
                 id=db_lesson.id,
@@ -270,8 +260,46 @@ class ListeningService:
             )
             
         except Exception as e:
-            db.rollback()
+            await db.rollback()
             raise LessonCreationFailedException(f"Lỗi khi tạo bài học: {str(e)}")
+    
+    async def _translate_sentences_in_batches(
+        self,
+        lesson_id: int,
+        subtitles: List,
+        difficulty_level: str,
+    ) -> tuple[List[str], List[float]]:
+        """Translate sentences in batches and return all translations with confidences"""
+        all_translations = []
+        all_confidences = []
+        
+        # Split sentences into batches
+        sentence_texts = [sub.text for sub in subtitles]
+        total_batches = (len(sentence_texts) + self.MAX_SENTENCES_PER_BATCH - 1) // self.MAX_SENTENCES_PER_BATCH
+        
+        for i in range(0, len(sentence_texts), self.MAX_SENTENCES_PER_BATCH):
+            batch = sentence_texts[i:i + self.MAX_SENTENCES_PER_BATCH]
+            batch_num = i // self.MAX_SENTENCES_PER_BATCH + 1
+            self.logger.info(f"Translating batch {batch_num}/{total_batches}: {len(batch)} sentences")
+            
+            try:
+                batch_translations, batch_confidences = await self._translate_all_sentences(
+                    lesson_id=lesson_id,
+                    english_sentences=batch,
+                    difficulty_level=difficulty_level,
+                )
+                all_translations.extend(batch_translations)
+                all_confidences.extend(batch_confidences)
+                self.logger.debug(f"Batch {batch_num} completed. Total translations: {len(all_translations)}")
+            except Exception as e:
+                self.logger.warning(f"Error in batch {batch_num}: {e}")
+                # Fallback: create placeholder translations for this batch
+                fallback_translations = [f"[Translation for: {sentence}]" for sentence in batch]
+                all_translations.extend(fallback_translations)
+                all_confidences.extend([0.3] * len(fallback_translations))
+                self.logger.warning(f"Using fallback translations for batch {batch_num}")
+        
+        return all_translations, all_confidences
     
     async def _determine_difficulty(self, lesson_session_id: str, title: str, srt_content: str) -> str:
         """Determine difficulty level using the listening_lesson coordinator."""
@@ -363,19 +391,19 @@ class ListeningService:
                 [0.3] * len(english_sentences),
             )
     
-    def get_lessons(self, filters: LessonFilter, pagination: PaginationParams, db: Session) -> PaginatedResponse:
+    async def get_lessons(self, filters: LessonFilter, pagination: PaginationParams, db: AsyncSession) -> PaginatedResponse:
         """Get paginated list of lessons with filters"""
-        query = db.query(ListenLesson)
+        query = select(ListenLesson)
         
         # Apply filters
         if filters.level:
-            query = query.filter(ListenLesson.level == filters.level)
+            query = query.where(ListenLesson.level == filters.level)
         
         # Tags filtering removed - tags column no longer exists
         
         if filters.search:
             search_term = f"%{filters.search}%"
-            query = query.filter(
+            query = query.where(
                 or_(
                     ListenLesson.title.ilike(search_term),
                     ListenLesson.youtube_url.ilike(search_term)
@@ -383,11 +411,25 @@ class ListeningService:
             )
         
         # Get total count
-        total = query.count()
+        count_query = select(func.count(ListenLesson.id))
+        if filters.level:
+            count_query = count_query.where(ListenLesson.level == filters.level)
+        if filters.search:
+            search_term = f"%{filters.search}%"
+            count_query = count_query.where(
+                or_(
+                    ListenLesson.title.ilike(search_term),
+                    ListenLesson.youtube_url.ilike(search_term)
+                )
+            )
+        count_result = await db.execute(count_query)
+        total = count_result.scalar() or 0
         
         # Apply pagination
         offset = (pagination.page - 1) * pagination.size
-        lessons = query.order_by(desc(ListenLesson.created_at)).offset(offset).limit(pagination.size).all()
+        query = query.order_by(desc(ListenLesson.created_at)).offset(offset).limit(pagination.size)
+        result = await db.execute(query)
+        lessons = result.scalars().all()
         
         # Convert to response
         lesson_responses = [
@@ -405,9 +447,12 @@ class ListeningService:
         
         return paginate(lesson_responses, total, pagination.page, pagination.size)
     
-    def update_lesson(self, lesson_id: int, lesson_data: LessonUpdate, db: Session) -> LessonResponse:
+    async def update_lesson(self, lesson_id: int, lesson_data: LessonUpdate, db: AsyncSession) -> LessonResponse:
         """Update a listening lesson"""
-        lesson = db.query(ListenLesson).filter(ListenLesson.id == lesson_id).first()
+        result = await db.execute(
+            select(ListenLesson).where(ListenLesson.id == lesson_id)
+        )
+        lesson = result.scalar_one_or_none()
         if not lesson:
             raise LessonNotFoundException()
         
@@ -420,8 +465,8 @@ class ListeningService:
             lesson.level = lesson_data.level
         # Tags update removed - tags column no longer exists
         
-        db.commit()
-        db.refresh(lesson)
+        await db.commit()
+        await db.refresh(lesson)
         
         return LessonResponse(
             id=lesson.id,
@@ -433,26 +478,34 @@ class ListeningService:
             updated_at=lesson.updated_at
         )
     
-    def delete_lesson(self, lesson_id: int, db: Session) -> bool:
+    async def delete_lesson(self, lesson_id: int, db: AsyncSession) -> bool:
         """Soft delete a listening lesson"""
-        lesson = db.query(ListenLesson).filter(ListenLesson.id == lesson_id).first()
+        result = await db.execute(
+            select(ListenLesson).where(ListenLesson.id == lesson_id)
+        )
+        lesson = result.scalar_one_or_none()
         if not lesson:
             raise LessonNotFoundException()
         
         # Soft delete the lesson (sets deleted_at timestamp)
         lesson.deleted_at = datetime.now(timezone.utc)
-        db.commit()
+        await db.commit()
         return True
     
-    def get_lesson_detail(self, lesson_id: int, db: Session) -> Optional[LessonDetailResponse]:
+    async def get_lesson_detail(self, lesson_id: int, db: AsyncSession) -> Optional[LessonDetailResponse]:
         """Get lesson detail with all sentences"""
-        lesson = db.query(ListenLesson).filter(ListenLesson.id == lesson_id).first()
+        result = await db.execute(
+            select(ListenLesson).where(ListenLesson.id == lesson_id)
+        )
+        lesson = result.scalar_one_or_none()
         if not lesson:
             return None
         
-        sentences = db.query(Sentence).filter(
-            Sentence.lesson_id == lesson_id
-        ).order_by(Sentence.index).all()
+        sentences_result = await db.execute(
+            select(Sentence).where(Sentence.lesson_id == lesson_id)
+            .order_by(Sentence.index)
+        )
+        sentences = sentences_result.scalars().all()
         
         sentence_responses = [
             {
@@ -478,20 +531,26 @@ class ListeningService:
             updated_at=lesson.updated_at
         )
     
-    def create_session(self, user_id: int, session_data: SessionCreate, db: Session) -> SessionResponse:
+    async def create_session(self, user_id: int, session_data: SessionCreate, db: AsyncSession) -> SessionResponse:
         """Create a new listening session or return existing active session"""
         # Check if lesson exists
-        lesson = db.query(ListenLesson).filter(ListenLesson.id == session_data.lesson_id).first()
+        result = await db.execute(
+            select(ListenLesson).where(ListenLesson.id == session_data.lesson_id)
+        )
+        lesson = result.scalar_one_or_none()
         if not lesson:
             raise ValueError("Lesson not found")
         
         # Check if user already has a session for this lesson (active or completed)
-        existing_session = db.query(ListeningSession).filter(
-            and_(
-                ListeningSession.user_id == user_id,
-                ListeningSession.lesson_id == session_data.lesson_id
+        result = await db.execute(
+            select(ListeningSession).where(
+                and_(
+                    ListeningSession.user_id == user_id,
+                    ListeningSession.lesson_id == session_data.lesson_id
+                )
             )
-        ).first()
+        )
+        existing_session = result.scalar_one_or_none()
         
         if existing_session:
             if existing_session.status == "completed":
@@ -499,8 +558,8 @@ class ListeningService:
                 existing_session.status = "active"
                 existing_session.current_sentence_index = 0
                 existing_session.attempts += 1  # Increment attempts counter
-                db.commit()
-                db.refresh(existing_session)
+                await db.commit()
+                await db.refresh(existing_session)
                 
                 return SessionResponse(
                     id=existing_session.id,
@@ -533,8 +592,8 @@ class ListeningService:
             status="active"
         )
         db.add(db_session)
-        db.commit()
-        db.refresh(db_session)
+        await db.commit()
+        await db.refresh(db_session)
         
         return SessionResponse(
             id=db_session.id,
@@ -547,20 +606,26 @@ class ListeningService:
             updated_at=db_session.updated_at
         )
     
-    def get_session(self, session_id: int, user_id: int, db: Session) -> SessionDetailResponse:
+    async def get_session(self, session_id: int, user_id: int, db: AsyncSession) -> SessionDetailResponse:
         """Get session detail with lesson info"""
-        session = db.query(ListeningSession).filter(
-            and_(
-                ListeningSession.id == session_id,
-                ListeningSession.user_id == user_id
+        result = await db.execute(
+            select(ListeningSession).where(
+                and_(
+                    ListeningSession.id == session_id,
+                    ListeningSession.user_id == user_id
+                )
             )
-        ).first()
+        )
+        session = result.scalar_one_or_none()
         
         if not session:
             raise SessionNotFoundException()
         
         # Get lesson info
-        lesson = db.query(ListenLesson).filter(ListenLesson.id == session.lesson_id).first()
+        result = await db.execute(
+            select(ListenLesson).where(ListenLesson.id == session.lesson_id)
+        )
+        lesson = result.scalar_one_or_none()
         lesson_response = LessonResponse(
             id=lesson.id,
             title=lesson.title,
@@ -574,12 +639,15 @@ class ListeningService:
         # Get current sentence
         current_sentence = None
         if session.current_sentence_index < lesson.total_sentences:
-            sentence = db.query(Sentence).filter(
-                and_(
-                    Sentence.lesson_id == session.lesson_id,
-                    Sentence.index == session.current_sentence_index
+            result = await db.execute(
+                select(Sentence).where(
+                    and_(
+                        Sentence.lesson_id == session.lesson_id,
+                        Sentence.index == session.current_sentence_index
+                    )
                 )
-            ).first()
+            )
+            sentence = result.scalar_one_or_none()
             
             if sentence:
                 current_sentence = {
@@ -605,14 +673,19 @@ class ListeningService:
             updated_at=session.updated_at
         )
     
-    def get_next_sentence(self, session_id: int, user_id: int, db: Session) -> SessionNextResponse:
+    async def get_next_sentence(self, session_id: int, user_id: int, db: AsyncSession) -> SessionNextResponse:
         """Move to next sentence and return session detail with current sentence"""
-        session = db.query(ListeningSession).filter(
-            and_(
-                ListeningSession.id == session_id,
-                ListeningSession.user_id == user_id
+        # Sử dụng joinedload nếu bạn có định nghĩa relationship trong model
+        # Ở đây ta truy vấn riêng lẻ như cũ nhưng sẽ xử lý cẩn thận hơn
+        result = await db.execute(
+            select(ListeningSession).where(
+                and_(
+                    ListeningSession.id == session_id,
+                    ListeningSession.user_id == user_id
+                )
             )
-        ).first()
+        )
+        session = result.scalar_one_or_none()
         
         if not session:
             raise SessionNotFoundException()
@@ -620,79 +693,99 @@ class ListeningService:
         if session.status == "completed":
             raise SessionAlreadyCompletedException()
         
-        # Increment current sentence index
+        # Tăng index
         session.current_sentence_index += 1
         
-        # Get lesson info
-        lesson = db.query(ListenLesson).filter(ListenLesson.id == session.lesson_id).first()
-        lesson_response = LessonResponse(
-            id=lesson.id,
-            title=lesson.title,
-            youtube_url=lesson.youtube_url,
-            level=lesson.level,
-            total_sentences=lesson.total_sentences,
-            created_at=lesson.created_at,
-            updated_at=lesson.updated_at
+        # Lấy thông tin lesson
+        lesson_result = await db.execute(
+            select(ListenLesson).where(ListenLesson.id == session.lesson_id)
         )
+        lesson = lesson_result.scalar_one_or_none()
         
-        # Check if completed (reached end of lesson)
+        # Tạo lesson_response trước khi commit để tránh expire
+        lesson_response = LessonResponse.model_validate(lesson)
+        
+        # Kiểm tra hoàn thành
+        current_sentence = None
         if session.current_sentence_index >= lesson.total_sentences:
             session.status = "completed"
-            current_sentence = None  # No more sentences
         else:
-            # Get current sentence
-            sentence = db.query(Sentence).filter(
-                and_(
-                    Sentence.lesson_id == session.lesson_id,
-                    Sentence.index == session.current_sentence_index
+            # Lấy câu hiện tại
+            sentence_result = await db.execute(
+                select(Sentence).where(
+                    and_(
+                        Sentence.lesson_id == session.lesson_id,
+                        Sentence.index == session.current_sentence_index
+                    )
                 )
-            ).first()
-            
-            current_sentence = {
-                "id": sentence.id,
-                "lesson_id": sentence.lesson_id,
-                "index": sentence.index,
-                "text": sentence.text,
-                "translation": sentence.translation,
-                "start_time": sentence.start_time,
-                "end_time": sentence.end_time,
-            } if sentence else None
-        
-        db.commit()
-        
+            )
+            sentence = sentence_result.scalar_one_or_none()
+            if sentence:
+                # Chuyển thành dict hoặc Pydantic object ngay lập tức
+                current_sentence = {
+                    "id": sentence.id,
+                    "lesson_id": sentence.lesson_id,
+                    "index": sentence.index,
+                    "text": sentence.text,
+                    "translation": sentence.translation,
+                    "start_time": sentence.start_time,
+                    "end_time": sentence.end_time,
+                }
+
+        # Lưu lại các giá trị cần thiết của session trước khi commit
+        session_id_val = session.id
+        user_id_val = session.user_id
+        lesson_id_val = session.lesson_id
+        current_idx = session.current_sentence_index
+        status_val = session.status
+        attempts_val = session.attempts
+        created_at_val = session.created_at
+
+        await db.commit()
+        # Sau commit, các object như 'session' có thể bị expire. 
+        # Ta dùng các giá trị đã lưu để tạo response.
+
         return SessionNextResponse(
-            id=session.id,
-            user_id=session.user_id,
-            lesson_id=session.lesson_id,
-            current_sentence_index=session.current_sentence_index,
-            status=session.status,
-            attempts=session.attempts,
+            id=session_id_val,
+            user_id=user_id_val,
+            lesson_id=lesson_id_val,
+            current_sentence_index=current_idx,
+            status=status_val,
+            attempts=attempts_val,
             lesson=lesson_response,
             current_sentence=current_sentence,
-            created_at=session.created_at,
-            updated_at=session.updated_at
-        )
-    
-    def get_user_sessions(self, user_id: int, pagination: PaginationParams, db: Session) -> PaginatedResponse[UserSessionResponse]:
+            created_at=created_at_val,
+            updated_at=datetime.now(timezone.utc) # Hoặc lấy từ session nếu đã refresh
+        )  
+    async def get_user_sessions(self, user_id: int, pagination: PaginationParams, db: AsyncSession) -> PaginatedResponse[UserSessionResponse]:
         """Get all active sessions for a user with pagination"""
         # Base query for user's active sessions
-        query = db.query(ListeningSession).filter(
-            and_(
-                ListeningSession.user_id == user_id,
-            )
+        base_query = select(ListeningSession).where(
+            ListeningSession.user_id == user_id
         )
         
         # Get total count
-        total = query.count()
+        count_result = await db.execute(
+            select(func.count(ListeningSession.id)).where(
+                ListeningSession.user_id == user_id
+            )
+        )
+        total = count_result.scalar() or 0
         
         # Apply pagination
         offset = (pagination.page - 1) * pagination.size
-        sessions = query.order_by(desc(ListeningSession.created_at)).offset(offset).limit(pagination.size).all()
+        result = await db.execute(
+            base_query.order_by(desc(ListeningSession.created_at)).offset(offset).limit(pagination.size)
+        )
+        sessions = result.scalars().all()
         
         user_sessions = []
         for session in sessions:
             # Get lesson info
-            lesson = db.query(ListenLesson).filter(ListenLesson.id == session.lesson_id).first()
+            lesson_result = await db.execute(
+                select(ListenLesson).where(ListenLesson.id == session.lesson_id)
+            )
+            lesson = lesson_result.scalar_one_or_none()
             lesson_response = LessonResponse(
                 id=lesson.id,
                 title=lesson.title,

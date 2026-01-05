@@ -1,6 +1,6 @@
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import get_db
 from src.pagination import PaginationParams, PaginatedResponse
@@ -26,7 +26,7 @@ async def create_user_favorite_video(
     video_data: UserFavoriteVideoCreate,
     current_user: User = Depends(get_current_active_user),
     service: UserFavoriteVideoService = Depends(get_user_favorite_video_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Thêm video YouTube vào danh sách yêu thích
@@ -34,7 +34,7 @@ async def create_user_favorite_video(
     - **Lưu ý**: Hệ thống sẽ tự động lấy thông tin video (tên, tác giả, hình ảnh) từ YouTube
     """
     try:
-        return service.create_favorite_video(video_data, current_user.id, db)
+        return await service.create_favorite_video(video_data, current_user.id, db)
     except UserFavoriteVideoAlreadyExistsException as e:
         raise user_favorite_video_already_exists_exception(str(e))
     except UserFavoriteVideoValidationException as e:
@@ -48,7 +48,7 @@ async def get_user_favorite_videos(
     pagination: PaginationParams = Depends(),
     current_user: User = Depends(get_current_active_user),
     service: UserFavoriteVideoService = Depends(get_user_favorite_video_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Lấy danh sách video yêu thích của người dùng hiện tại
@@ -56,7 +56,7 @@ async def get_user_favorite_videos(
     - **size**: Số lượng video mỗi trang (mặc định: 20)
     """
     try:
-        return service.get_favorite_videos(current_user.id, db, pagination)
+        return await service.get_favorite_videos(current_user.id, db, pagination)
     except UserFavoriteVideoValidationException as e:
         raise user_favorite_video_validation_exception(str(e))
     except Exception as e:
@@ -68,14 +68,14 @@ async def get_user_favorite_video(
     video_id: int,
     current_user: User = Depends(get_current_active_user),
     service: UserFavoriteVideoService = Depends(get_user_favorite_video_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Lấy chi tiết video yêu thích theo ID
     - **video_id**: ID của video yêu thích
     """
     try:
-        return service.get_favorite_video_by_id(video_id, current_user.id, db)
+        return await service.get_favorite_video_by_id(video_id, current_user.id, db)
     except UserFavoriteVideoNotFoundException as e:
         raise user_favorite_video_not_found_exception(video_id)
     except Exception as e:
@@ -88,7 +88,7 @@ async def update_user_favorite_video(
     video_data: UserFavoriteVideoUpdate,
     current_user: User = Depends(get_current_active_user),
     service: UserFavoriteVideoService = Depends(get_user_favorite_video_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Cập nhật thông tin video yêu thích
@@ -96,7 +96,7 @@ async def update_user_favorite_video(
     - **name**: Tên video (tùy chọn)
     """
     try:
-        return service.update_favorite_video(video_id, video_data, current_user.id, db)
+        return await service.update_favorite_video(video_id, video_data, current_user.id, db)
     except UserFavoriteVideoNotFoundException as e:
         raise user_favorite_video_not_found_exception(video_id)
     except UserFavoriteVideoValidationException as e:
@@ -110,14 +110,14 @@ async def delete_user_favorite_video(
     video_id: int,
     current_user: User = Depends(get_current_active_user),
     service: UserFavoriteVideoService = Depends(get_user_favorite_video_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Xóa video yêu thích (soft delete)
     - **video_id**: ID của video yêu thích
     """
     try:
-        success = service.delete_favorite_video(video_id, current_user.id, db)
+        success = await service.delete_favorite_video(video_id, current_user.id, db)
         if success:
             return {"message": "Xóa video yêu thích thành công"}
     except UserFavoriteVideoNotFoundException as e:

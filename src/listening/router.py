@@ -3,7 +3,7 @@ FastAPI router for Listening module
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, List
 import json
 
@@ -50,7 +50,7 @@ async def create_lesson(
     srt_file: UploadFile = File(...),
     current_user: User = Depends(get_current_active_user),
     service: ListeningService = Depends(get_listening_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Upload SRT file and create listening lesson"""
     try:
@@ -76,14 +76,14 @@ async def create_lesson(
         )
 
 @router.get("/listen-lessons", response_model=PaginatedResponse[LessonResponse])
-def get_lessons(
+async def get_lessons(
     level: Optional[str] = None,
     search: Optional[str] = None,
     page: int = 1,
     size: int = 10,
     current_user: User = Depends(get_current_active_user),
     service: ListeningService = Depends(get_listening_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Get paginated list of lessons with filters"""
     try:
@@ -94,7 +94,7 @@ def get_lessons(
         
         pagination = PaginationParams(page=page, size=size)
         
-        result = service.get_lessons(filters, pagination, db)
+        result = await service.get_lessons(filters, pagination, db)
         return result
         
     except Exception as e:
@@ -104,16 +104,16 @@ def get_lessons(
         )
 
 @router.put("/listen-lessons/{lesson_id}", response_model=LessonResponse)
-def update_lesson(
+async def update_lesson(
     lesson_id: int,
     lesson_data: LessonUpdate,
     current_user: User = Depends(get_current_active_user),
     service: ListeningService = Depends(get_listening_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Update a listening lesson"""
     try:
-        lesson = service.update_lesson(lesson_id, lesson_data, db)
+        lesson = await service.update_lesson(lesson_id, lesson_data, db)
         return lesson
     except LessonNotFoundException as e:
         raise e
@@ -126,15 +126,15 @@ def update_lesson(
         )
 
 @router.delete("/listen-lessons/{lesson_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_lesson(
+async def delete_lesson(
     lesson_id: int,
     current_user: User = Depends(get_current_active_user),
     service: ListeningService = Depends(get_listening_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Delete a listening lesson"""
     try:
-        success = service.delete_lesson(lesson_id, db)
+        success = await service.delete_lesson(lesson_id, db)
         if not success:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -149,14 +149,14 @@ def delete_lesson(
         )
 
 @router.get("/listen-lessons/{lesson_id}", response_model=LessonDetailResponse)
-def get_lesson_detail(
+async def get_lesson_detail(
     lesson_id: int,
     current_user: User = Depends(get_current_active_user),
     service: ListeningService = Depends(get_listening_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Get lesson detail with all sentences"""
-    lesson = service.get_lesson_detail(lesson_id, db)
+    lesson = await service.get_lesson_detail(lesson_id, db)
     if not lesson:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -166,15 +166,15 @@ def get_lesson_detail(
 
 # Session endpoints (renamed to /listening-sessions)
 @router.post("/listening-sessions", response_model=SessionResponse, status_code=status.HTTP_201_CREATED)
-def create_session(
+async def create_session(
     session_data: SessionCreate,
     current_user: User = Depends(get_current_active_user),
     service: ListeningService = Depends(get_listening_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Create a new listening session"""
     try:
-        session = service.create_session(current_user.id, session_data, db)
+        session = await service.create_session(current_user.id, session_data, db)
         return session
     except Exception as e:
         raise HTTPException(
@@ -183,14 +183,14 @@ def create_session(
         )
 
 @router.get("/listening-sessions/{session_id}", response_model=SessionDetailResponse)
-def get_session(
+async def get_session(
     session_id: int,
     current_user: User = Depends(get_current_active_user),
     service: ListeningService = Depends(get_listening_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Get session detail with current sentence"""
-    session = service.get_session(session_id, current_user.id, db)
+    session = await service.get_session(session_id, current_user.id, db)
     if not session:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -199,15 +199,15 @@ def get_session(
     return session
 
 @router.post("/listening-sessions/{session_id}/next", response_model=SessionNextResponse)
-def get_next_sentence(
+async def get_next_sentence(
     session_id: int,
     current_user: User = Depends(get_current_active_user),
     service: ListeningService = Depends(get_listening_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Move to next sentence and return session detail with current sentence"""
     try:
-        session_detail = service.get_next_sentence(session_id, current_user.id, db)
+        session_detail = await service.get_next_sentence(session_id, current_user.id, db)
         return session_detail
     except SessionNotFoundException as e:
         raise e
@@ -220,17 +220,17 @@ def get_next_sentence(
         )
 
 @router.get("/listening-sessions", response_model=PaginatedResponse[UserSessionResponse])
-def get_user_sessions(
+async def get_user_sessions(
     page: int = 1,
     size: int = 10,
     current_user: User = Depends(get_current_active_user),
     service: ListeningService = Depends(get_listening_service),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     """Get all active sessions for the current user with pagination"""
     try:
         pagination = PaginationParams(page=page, size=size)
-        sessions = service.get_user_sessions(current_user.id, pagination, db)
+        sessions = await service.get_user_sessions(current_user.id, pagination, db)
         return sessions
     except Exception as e:
         raise HTTPException(
