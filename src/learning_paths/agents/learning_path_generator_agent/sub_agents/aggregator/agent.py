@@ -72,10 +72,10 @@ def after_aggregator_callback(callback_context: CallbackContext) -> types.Conten
 
     # Lấy lesson pools trực tiếp từ state (danh sách Pydantic objects)
     lesson_pools = {
-        "reading": state.get("reading_output", []),
-        "writing": state.get("writing_output", []),
-        "speaking": state.get("speaking_output", []),
-        "listening": state.get("listening_output", [])
+        "reading": getattr(state.get("reading_output"), "lessons", []),
+        "writing": getattr(state.get("writing_output"), "lessons", []),
+        "speaking": getattr(state.get("speaking_output"), "lessons", []),
+        "listening": getattr(state.get("listening_output"), "lessons", [])
     }
 
     logger.info(f"Pool sizes: {', '.join(f'{k}={len(v)}' for k, v in lesson_pools.items())}")

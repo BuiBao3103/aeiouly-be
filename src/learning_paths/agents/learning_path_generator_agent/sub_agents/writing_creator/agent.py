@@ -1,5 +1,5 @@
 from google.adk.agents import LlmAgent
-from src.learning_paths.schemas import LessonParamsWriting
+from src.learning_paths.schemas import WritingLessons
 from google.adk.agents.callback_context import CallbackContext
 from typing import List
 def after_writing_creator_callback(callback_context: CallbackContext) -> None:
@@ -56,7 +56,7 @@ writing_creator_agent = LlmAgent(
 
       CRITICAL: All 5 params fields are mandatory. Never omit any field.
       """,
-    output_schema=List[LessonParamsWriting],
+    output_schema=WritingLessons,
     output_key="writing_output",
     disallow_transfer_to_parent=True,
     disallow_transfer_to_peers=True,

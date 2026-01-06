@@ -1,6 +1,6 @@
 from google.adk.agents import LlmAgent
 from google.adk.tools.tool_context import ToolContext
-from src.learning_paths.schemas import LessonParamsListening
+from src.learning_paths.schemas import ListeningLessons
 from typing import List, Dict, Any, List
 from google.adk.agents.callback_context import CallbackContext
 
@@ -66,7 +66,7 @@ listening_creator_agent = LlmAgent(
 
         CRITICAL: Never omit lesson_id field.
         """,
-    output_schema=List[LessonParamsListening],
+    output_schema=ListeningLessons,
     output_key="listening_output",
     disallow_transfer_to_parent=True,
     disallow_transfer_to_peers=True,

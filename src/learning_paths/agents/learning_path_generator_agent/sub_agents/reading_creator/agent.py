@@ -1,5 +1,5 @@
 from google.adk.agents import LlmAgent
-from src.learning_paths.schemas import LessonParamsReading
+from src.learning_paths.schemas import ReadingLessons
 from google.adk.agents.callback_context import CallbackContext
 from typing import List
 
@@ -59,7 +59,7 @@ reading_creator_agent = LlmAgent(
 
       CRITICAL: All 6 params fields are mandatory. Never omit any field.
       """,
-    output_schema=List[LessonParamsReading],
+    output_schema=ReadingLessons,
     output_key="reading_output",
     disallow_transfer_to_parent=True,
     disallow_transfer_to_peers=True,

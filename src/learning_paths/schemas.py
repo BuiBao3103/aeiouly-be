@@ -57,6 +57,26 @@ class LessonParamsListening(LessonParams):
     lesson_id: Optional[int] = Field(None, description="Lesson ID for listening")
 
 
+class ReadingLessons(BaseModel):
+    lessons: List[LessonParamsReading]
+
+class WritingLessons(BaseModel):
+    lessons: List[LessonParamsWriting]
+
+class SpeakingLessons(BaseModel):
+    lessons: List[LessonParamsSpeaking]
+
+class ListeningLessons(BaseModel):
+    lessons: List[LessonParamsListening]
+
+class DailyPlanItem(BaseModel):
+    day_number: int
+    title: str
+    lessons: List[Union[LessonParamsReading, LessonParamsWriting, LessonParamsSpeaking, LessonParamsListening]]
+
+class LearningPathGenerationResult(BaseModel):
+    daily_plans: List[DailyPlanItem]
+
 class LessonWithProgressResponse(BaseModel):
     id: Optional[int] = None  # ID của UserLessonProgress
     lesson_index: int

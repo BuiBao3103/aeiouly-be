@@ -12,7 +12,7 @@ from src.utils.agent_utils import call_agent_with_logging, build_agent_query, ge
 from src.learning_paths.models import LearningPath, DailyLessonPlan, UserLessonProgress
 from src.learning_paths.schemas import (
     LearningPathForm, LearningPathResponse, DailyLessonPlanResponse,
-    UserLessonProgressResponse, LearningPathGenerationResult,
+    UserLessonProgressResponse,LearningPathGenerationResult,
     LessonWithProgressResponse, LessonParams
 )
 from src.learning_paths.exceptions import (
