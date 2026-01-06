@@ -26,7 +26,6 @@ speaking_creator_agent = LlmAgent(
 
       REQUIRED OUTPUT STRUCTURE:
       Each lesson MUST contain ALL these fields:
-      - lesson_type: "speaking" (fixed value)
       - title: Clear scenario name
       - scenario: string (realistic conversation context)
       - level: string (MUST be one of: "A1", "A2", "B1", "B2", "C1", "C2")

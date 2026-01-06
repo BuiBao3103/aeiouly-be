@@ -24,8 +24,7 @@ writing_creator_agent = LlmAgent(
 
       REQUIRED OUTPUT STRUCTURE:
       Each lesson MUST contain ALL these fields:
-      - params: Object with ALL 5 REQUIRED fields:
-        - lesson_type: "writing" (fixed value)
+      - params: Object with ALL 4 REQUIRED fields:
         - title: Clear, engaging title
         - topic: string (writing topic/task)
         - level: string (MUST be one of: "A1", "A2", "B1", "B2", "C1", "C2")

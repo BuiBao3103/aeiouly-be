@@ -26,7 +26,6 @@ reading_creator_agent = LlmAgent(
 
       REQUIRED OUTPUT STRUCTURE:
       Each lesson MUST contain ALL these fields:
-      - lesson_type: "reading" (fixed value)
       - title: Engaging, concise title
       - topic: string (lesson topic)
       - level: string (MUST be one of: "A1", "A2", "B1", "B2", "C1", "C2")

@@ -757,6 +757,43 @@ class ListeningService:
             created_at=created_at_val,
             updated_at=datetime.now(timezone.utc) # Hoặc lấy từ session nếu đã refresh
         )  
+        
+
+    async def get_lessons_by_level_with_fallback(self, level: str) -> List[ListenLesson]:
+        """
+        Tìm kiếm bài học theo level, nếu không có thì giảm dần level xuống.
+        Sử dụng AsyncSessionLocal riêng biệt để chạy độc lập.
+        """
+        from src.database import AsyncSessionLocal
+        
+        cefr_order = ["A1", "A2", "B1", "B2", "C1", "C2"]
+        try:
+            current_idx = cefr_order.index(level)
+        except ValueError:
+            current_idx = cefr_order.index("B1")
+
+        async with AsyncSessionLocal() as db:
+            for i in range(current_idx, -1, -1):
+                target_level = cefr_order[i]
+                result = await db.execute(
+                    select(ListenLesson).where(
+                        and_(
+                            ListenLesson.level == target_level,
+                            ListenLesson.deleted_at.is_(None)
+                        )
+                    )
+                )
+                lessons = result.scalars().all()
+                if lessons:
+                    self.logger.info(f"Found {len(lessons)} lessons at fallback level {target_level}")
+                    return list(lessons)
+
+            self.logger.warning(f"No lessons found from {level} down to A1. Fetching any available lessons.")
+            result = await db.execute(
+                select(ListenLesson).where(ListenLesson.deleted_at.is_(None)).limit(10)
+            )
+            return list[ListenLesson](result.scalars().all())
+        
     async def get_user_sessions(self, user_id: int, pagination: PaginationParams, db: AsyncSession) -> PaginatedResponse[UserSessionResponse]:
         """Get all active sessions for a user with pagination"""
         # Base query for user's active sessions
