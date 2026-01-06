@@ -61,7 +61,7 @@ def validate_and_adjust_lesson_counts(
 
 
 def after_aggregator_callback(callback_context: CallbackContext) -> types.Content | None:
-    """Callback xử lý mapping từ matrix sang lessons với schema mới"""
+    """Callback xử lý mapping từ matrix sang lessons, hỗ trợ quay vòng bài học"""
     state = callback_context.state
     allocation_matrix = state.get("allocation_matrix")
 
@@ -70,17 +70,29 @@ def after_aggregator_callback(callback_context: CallbackContext) -> types.Conten
         state[FINAL_LEARNING_PATH_STATE_KEY] = None
         return None
 
-    # Lấy lesson pools trực tiếp từ state (danh sách Pydantic objects)
+    # Hàm trợ giúp để lấy danh sách bài học an toàn từ state
+    # (Hỗ trợ cả khi Agent trả về dict hoặc Pydantic object)
+    def get_lessons_from_pool(key: str) -> list:
+        output = state.get(key)
+        if not output:
+            return []
+        # Nếu là dict (như trong log state bạn gửi)
+        if isinstance(output, dict):
+            return output.get("lessons", [])
+        # Nếu là Pydantic object (do ADK tự động parse)
+        return getattr(output, "lessons", [])
+
+    # 1. Lấy lesson pools từ các Agent Creator trước đó
     lesson_pools = {
-        "reading": getattr(state.get("reading_output"), "lessons", []),
-        "writing": getattr(state.get("writing_output"), "lessons", []),
-        "speaking": getattr(state.get("speaking_output"), "lessons", []),
-        "listening": getattr(state.get("listening_output"), "lessons", [])
+        "reading": get_lessons_from_pool("reading_output"),
+        "writing": get_lessons_from_pool("writing_output"),
+        "speaking": get_lessons_from_pool("speaking_output"),
+        "listening": get_lessons_from_pool("listening_output")
     }
 
     logger.info(f"Pool sizes: {', '.join(f'{k}={len(v)}' for k, v in lesson_pools.items())}")
 
-    # Validate & adjust
+    # 2. Validate và điều chỉnh số lượng (nếu cần)
     adjusted_counts, adjusted_days, warning = validate_and_adjust_lesson_counts(
         state.get("lesson_counts", {}),
         lesson_pools,
@@ -95,56 +107,58 @@ def after_aggregator_callback(callback_context: CallbackContext) -> types.Conten
     state["adjusted_days"] = adjusted_days
     state["adjusted_lesson_counts"] = adjusted_counts
 
-    # Map lessons
+    # 3. Phân bổ bài học vào từng ngày theo Matrix
     daily_plans = []
     try:
-        # Truy cập thuộc tính của LearningPathMatrix object
-        allocations = getattr(allocation_matrix, "daily_allocations", [])
+        # Lấy danh sách phân bổ (hỗ trợ cả dict và object)
+        allocations = allocation_matrix.get("daily_allocations", []) if isinstance(allocation_matrix, dict) else getattr(allocation_matrix, "daily_allocations", [])
         
         for alloc in allocations:
             lessons = []
-            # Truy cập thuộc tính của LessonAllocation object
-            for ref in getattr(alloc, "lesson_indices", []):
-                # Truy cập thuộc tính của LessonRef object
-                l_type = getattr(ref, "lesson_type", "")
+            # Lấy các chỉ số bài học trong ngày (LessonRef)
+            lesson_indices = alloc.get("lesson_indices", []) if isinstance(alloc, dict) else getattr(alloc, "lesson_indices", [])
+            
+            for ref in lesson_indices:
+                l_type = ref.get("lesson_type") if isinstance(ref, dict) else getattr(ref, "lesson_type", "")
                 pool = lesson_pools.get(l_type, [])
                 
                 if not pool:
                     continue
                 
-                # Quay vòng lấy bài học nếu index vượt quá kích thước pool
-                idx = getattr(ref, "index", 0)
+                # Quay vòng lấy bài học nếu index vượt quá kích thước pool (Modulo logic)
+                idx = ref.get("index", 0) if isinstance(ref, dict) else getattr(ref, "index", 0)
                 lesson_obj = pool[idx % len(pool)]
                 lessons.append(lesson_obj)
             
             if lessons:
-                day_num = getattr(alloc, "day_number")
+                day_num = alloc.get("day_number") if isinstance(alloc, dict) else getattr(alloc, "day_number")
                 daily_plans.append({
                     "day_number": day_num,
                     "title": f"Ngày {day_num}",
                     "lessons": lessons
                 })
 
+        # 4. Lưu kết quả cuối cùng vào state
         if daily_plans:
             state[FINAL_LEARNING_PATH_STATE_KEY] = {"daily_plans": daily_plans}
-            logger.info(f"Mapped {len(daily_plans)} days")
+            logger.info(f"Mapped {len(daily_plans)} days successfully")
         else:
+            logger.error("No lessons could be mapped to daily plans")
             state[FINAL_LEARNING_PATH_STATE_KEY] = None
             
     except Exception as e:
-        logger.error(f"Mapping error: {e}", exc_info=True)
+        logger.error(f"Mapping error in aggregator callback: {e}", exc_info=True)
         state[FINAL_LEARNING_PATH_STATE_KEY] = None
 
-    # Cập nhật trạng thái tiến độ cho UI
+    # 5. Cập nhật trạng thái tiến độ cho UI
     message = state.get("status_message", "")
-    percent = 100 # Aggregator là bước cuối cùng, set 100%
+    percent = 100
     message += "\nĐã phân bổ lộ trình hoàn tất."
 
     state["status_percent"] = percent
     state["status_message"] = message
 
     return None
-
 aggregator_agent = LlmAgent(
     name="aggregator_agent",
     model="gemini-2.5-flash",

@@ -52,7 +52,6 @@ speaking_creator_agent = LlmAgent(
       EXAMPLE OUTPUT:
       {{
         "title": "Phỏng vấn xin việc công ty công nghệ",
-        "lesson_type": "speaking",
         "scenario": "Phỏng vấn vị trí kỹ sư phần mềm",
         "level": "B1",
         "my_character": "Ứng viên",

@@ -12,7 +12,7 @@ from src.utils.agent_utils import call_agent_with_logging, build_agent_query, ge
 from src.learning_paths.models import LearningPath, DailyLessonPlan, UserLessonProgress
 from src.learning_paths.schemas import (
     LearningPathForm, LearningPathResponse, DailyLessonPlanResponse,
-    UserLessonProgressResponse,LearningPathGenerationResult,
+    UserLessonProgressResponse, LearningPathGenerationResult,
     LessonWithProgressResponse, LessonParams
 )
 from src.learning_paths.exceptions import (
@@ -116,7 +116,7 @@ class LearningPathService:
             return LearningPathResponse.model_validate(lp_data)
 
         except LearningPathAlreadyExistsException:
-            raise 
+            raise
         except Exception as e:
             await db.rollback()
             logger.error(f"Error initializing learning path: {e}")
@@ -222,7 +222,6 @@ class LearningPathService:
 
         await db.commit()
 
-
         await db.refresh(db_p)
         return UserLessonProgressResponse.model_validate(db_p)
 
@@ -258,15 +257,15 @@ class LearningPathService:
                 DailyLessonPlan.day_number == current_plan.day_number + 1
             ))
             next_plan = next_plan_res.scalar_one_or_none()
-            
+
             if next_plan:
                 next_plan.status = "in_progress"
-            
+
             await db.commit()
 
         await db.refresh(db_p)
         return UserLessonProgressResponse.model_validate(db_p)
-    
+
     async def get_daily_lesson_plans(
         self,
         learning_path_id: int,
@@ -276,7 +275,6 @@ class LearningPathService:
         """
         Lấy danh sách các ngày học kèm theo tiến độ chi tiết của từng bài học.
         """
-        # 1. Lấy tất cả các ngày trong lộ trình
         result = await db.execute(
             select(DailyLessonPlan).where(
                 DailyLessonPlan.learning_path_id == learning_path_id
@@ -286,7 +284,6 @@ class LearningPathService:
 
         response = []
         for p in plans:
-            # 2. Lấy tất cả tiến độ (UserLessonProgress) của user cho ngày này
             progress_res = await db.execute(
                 select(UserLessonProgress).where(
                     UserLessonProgress.daily_lesson_plan_id == p.id,
@@ -297,19 +294,16 @@ class LearningPathService:
 
             lessons = []
             for prog in progress_list:
-                # 3. Parse LessonParams từ metadata lưu trong DB
-                lesson_params = LessonParams.model_validate(prog.metadata_)
 
                 lessons.append(LessonWithProgressResponse(
                     id=prog.id,
                     lesson_index=prog.lesson_index,
-                    config=lesson_params,
-                    title=prog.title,  # Tiêu đề bài học lưu trong bảng UserLessonProgress
+                    config=prog.metadata_,
+                    title=prog.title,
                     status=prog.status,
                     session_id=prog.session_id
                 ))
 
-            # 4. Tạo response cho từng ngày (lưu ý: schema DailyLessonPlanResponse không còn trường title)
             response.append(DailyLessonPlanResponse(
                 id=p.id,
                 day_number=p.day_number,
@@ -391,7 +385,6 @@ class LearningPathService:
 
         return status_info
 
-
     async def delete_current_learning_path(self, user_id: int, db: AsyncSession):
         """
         Xóa vĩnh viễn lộ trình học tập hiện tại của người dùng.
@@ -406,16 +399,17 @@ class LearningPathService:
             .limit(1)
         )
         lp = result.scalar_one_or_none()
-        
+
         if not lp:
-            raise LearningPathNotFoundException("Bạn không có lộ trình nào để xóa.")
+            raise LearningPathNotFoundException(
+                "Bạn không có lộ trình nào để xóa.")
 
         # 2. Hard Delete: Xóa trực tiếp khỏi database
         # Nhờ cấu trúc 'cascade' trong model, các DailyPlan và Progress liên quan sẽ bị xóa theo
         await db.delete(lp)
-        
+
         # 3. Commit để thực thi
         await db.commit()
-        
+
         logger.info(f"HARD DELETED learning path {lp.id} for user {user_id}")
         return {"message": "Đã xóa vĩnh viễn lộ trình học tập thành công."}

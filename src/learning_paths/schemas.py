@@ -1,10 +1,9 @@
 from enum import Enum
-from turtle import title
-from typing import List, Optional, Dict, Any, Union
+from typing import List, Optional, Dict, Any, Union, Annotated, Literal
+from pydantic import Tag
 from pydantic import BaseModel, Field, ConfigDict
 from datetime import datetime
 from src.constants.cefr import CEFRLevel
-
 
 
 class EnglishGoal(str, Enum):
@@ -29,60 +28,87 @@ class LearningPathForm(BaseModel):
 
 
 class LessonParams(BaseModel):
-    lesson_type: str = Field(..., description="Type of the lesson")
     title: str = Field(..., description="Title of the lesson")
-    level: Optional[str] = Field(None, description="Level of the lesson")
+    level: str = Field(...,
+                       description="Level of the lesson (A1, A2, B1, B2, C1, C2)")
+
 
 class LessonParamsReading(LessonParams):
-    topic: Optional[str] = Field(None, description="Topic of the lesson for reading")
-    genre: Optional[str] = Field(None, description="Genre of the lesson for reading")
-    word_count: Optional[int] = Field(None,
-                                      description="Word count of the lesson for reading")
+    lesson_type: Literal["reading"] = "reading"
+    topic: str = Field(..., description="Topic of the lesson for reading")
+    genre: str = Field(..., description="Genre of the lesson for reading")
+    word_count: int = Field(...,
+                            description="Word count of the lesson for reading")
+
 
 class LessonParamsWriting(LessonParams):
-    topic: Optional[str] = Field(None, description="Topic of the lesson for writing")
-    total_sentences: Optional[int] = Field(None,
-                                           description="Total sentences of the lesson for writing")
+    lesson_type: Literal["writing"] = "writing"
+    topic: str = Field(..., description="Topic of the lesson for writing")
+    total_sentences: int = Field(...,
+                                 description="Total sentences of the lesson for writing")
+
 
 class LessonParamsSpeaking(LessonParams):
-    scenario: Optional[str] = Field(None, description="Scenario of the lesson for speaking")
-    my_character: Optional[str] = Field(None,
-                                        description="My character of the lesson for speaking")
-    ai_character: Optional[str] = Field(None,
-                                        description="AI character of the lesson for speaking")
-    ai_gender: Optional[str] = Field(None,
-                                     description="AI gender of the lesson for speaking")
+    lesson_type: Literal["speaking"] = "speaking"
+    scenario: str = Field(...,
+                          description="Scenario of the lesson for speaking")
+    my_character: str = Field(...,
+                              description="My character of the lesson for speaking")
+    ai_character: str = Field(...,
+                              description="AI character of the lesson for speaking")
+    ai_gender: str = Field(...,
+                           description="AI gender of the lesson for speaking (male/female)")
+
 
 class LessonParamsListening(LessonParams):
-    lesson_id: Optional[int] = Field(None, description="Lesson ID for listening")
+    lesson_type: Literal["listening"] = "listening"
+    # lesson_id là bắt buộc để hệ thống biết cần load bài nghe nào từ DB
+    lesson_id: int = Field(..., description="Lesson ID for listening")
 
 
 class ReadingLessons(BaseModel):
     lessons: List[LessonParamsReading]
 
+
 class WritingLessons(BaseModel):
     lessons: List[LessonParamsWriting]
+
 
 class SpeakingLessons(BaseModel):
     lessons: List[LessonParamsSpeaking]
 
+
 class ListeningLessons(BaseModel):
     lessons: List[LessonParamsListening]
+
+
+AnyLessonParams = Annotated[
+    Union[
+        LessonParamsReading,
+        LessonParamsWriting,
+        LessonParamsSpeaking,
+        LessonParamsListening,
+    ],
+    Field(discriminator="lesson_type")
+]
+
 
 class DailyPlanItem(BaseModel):
     day_number: int
     title: str
-    lessons: List[Union[LessonParamsReading, LessonParamsWriting, LessonParamsSpeaking, LessonParamsListening]]
+    lessons: List[AnyLessonParams]
+
 
 class LearningPathGenerationResult(BaseModel):
     daily_plans: List[DailyPlanItem]
 
+
 class LessonWithProgressResponse(BaseModel):
-    id: Optional[int] = None  # ID của UserLessonProgress
+    id: Optional[int] = None
     lesson_index: int
-    config: Union[LessonParamsReading, LessonParamsWriting, LessonParamsSpeaking, LessonParamsListening]
+    config: AnyLessonParams
     title: str
-    status: str  # 'start', 'in_progress', 'done'
+    status: str
     session_id: Optional[int] = None
 
 
@@ -105,7 +131,6 @@ class UserLessonProgressResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-
 class LearningPathResponse(BaseModel):
     id: int
     user_id: int
@@ -118,4 +143,5 @@ class LearningPathResponse(BaseModel):
 
 
 class LessonStartRequest(BaseModel):
-    session_id: Optional[int] = Field(None, description="ID của phiên học từ dịch vụ kỹ năng (Reading/Speaking...)")
+    session_id: Optional[int] = Field(
+        None, description="ID của phiên học từ dịch vụ kỹ năng (Reading/Speaking...)")

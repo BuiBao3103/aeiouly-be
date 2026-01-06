@@ -57,11 +57,10 @@ listening_creator_agent = LlmAgent(
 
         EXAMPLE OUTPUT:
         {{
-        "title": "Nghe hiểu về công nghệ AI",
-        "lesson_type": "listening",
-        "description": "Luyện nghe đoạn hội thoại về ứng dụng AI trong cuộc sống",
-        "goal": "Nắm được từ vựng và ý chính về công nghệ",
-        "params": {{"lesson_id": 42}}
+            "title": "Nghe hiểu về công nghệ AI",
+            "description": "Luyện nghe đoạn hội thoại về ứng dụng AI trong cuộc sống",
+            "goal": "Nắm được từ vựng và ý chính về công nghệ",
+            "params": {{"lesson_id": 42}}
         }}
 
         CRITICAL: Never omit lesson_id field.

@@ -47,7 +47,6 @@ writing_creator_agent = LlmAgent(
 
       EXAMPLE OUTPUT:
       {{
-        "lesson_type": "writing",
         "title": "Viết email xin việc chuyên nghiệp",
         "topic": "Email xin việc vị trí kỹ sư phần mềm",
         "level": "B2",

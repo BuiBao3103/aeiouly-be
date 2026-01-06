@@ -49,7 +49,6 @@ reading_creator_agent = LlmAgent(
 
       EXAMPLE OUTPUT:
       {{
-        "lesson_type": "reading",
         "title": "Xu hướng công nghệ AI năm 2024",
         "topic": "Công nghệ AI",
         "level": "B1",
