@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import and_, select, func
 
 from src.users.models import User, UserRole
-from src.users.schemas import UserCreate, UserUpdate, UserResponse, UserResetPassword
+from src.users.schemas import UserCreate, UserUpdate, UserResponse, UserResetPassword, UserFilterParams
 from src.users.exceptions import (
     UserNotFoundException,
     UserAlreadyExistsException,
@@ -94,20 +94,38 @@ class UsersService:
             await db.rollback()
             raise UserValidationException(f"Lỗi khi tạo user: {str(e)}")
 
-    async def get_users(self, db: AsyncSession, pagination: PaginationParams) -> PaginatedResponse[UserResponse]:
-        """Get all users with pagination"""
+    async def get_users(self, db: AsyncSession, pagination: PaginationParams, filters: UserFilterParams) -> PaginatedResponse[UserResponse]:
+        """Get all users with pagination and filters"""
         try:
-            # Get total count
+            # Build base query conditions
+            conditions = [User.deleted_at.is_(None)]
+            
+            # Add role filter
+            if filters.role is not None:
+                conditions.append(User.role == filters.role)
+            
+            # Add is_active filter
+            if filters.is_active is not None:
+                conditions.append(User.is_active == filters.is_active)
+            
+            # Add search query for email or username
+            if filters.query:
+                search_pattern = f"%{filters.query}%"
+                conditions.append(
+                    (User.email.ilike(search_pattern)) | (User.username.ilike(search_pattern))
+                )
+            
+            # Get total count with filters
             count_result = await db.execute(
-                select(func.count(User.id)).where(User.deleted_at.is_(None))
+                select(func.count(User.id)).where(and_(*conditions))
             )
             total = count_result.scalar() or 0
 
-            # Get paginated results
+            # Get paginated results with filters
             offset = (pagination.page - 1) * pagination.size
             result = await db.execute(
                 select(User).where(
-                    User.deleted_at.is_(None)
+                    and_(*conditions)
                 ).offset(offset).limit(pagination.size)
             )
             users = result.scalars().all()

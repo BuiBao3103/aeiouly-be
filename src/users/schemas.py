@@ -46,6 +46,13 @@ class UserResetPassword(CustomModel):
     new_password: str = Field(..., min_length=6, description="Mật khẩu mới")
 
 
+class UserFilterParams(CustomModel):
+    """Schema for filtering users in get_users endpoint"""
+    role: Optional[UserRole] = Field(None, description="Lọc theo vai trò")
+    is_active: Optional[bool] = Field(None, description="Lọc theo trạng thái hoạt động")
+    query: Optional[str] = Field(None, description="Tìm kiếm theo email hoặc username")
+
+
 class UserResponse(CustomModel):
     id: int
     email: str
