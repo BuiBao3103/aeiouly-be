@@ -845,3 +845,22 @@ class ListeningService:
             ))
         
         return paginate(user_sessions, total, pagination.page, pagination.size)
+
+    async def delete_session(self, session_id: int, user_id: int, db: AsyncSession) -> bool:
+        """Soft delete a listening session"""
+        result = await db.execute(
+            select(ListeningSession).where(
+                and_(
+                    ListeningSession.id == session_id,
+                    ListeningSession.user_id == user_id
+                )
+            )
+        )
+        session = result.scalar_one_or_none()
+        if not session:
+            return False
+        
+        from datetime import datetime, timezone
+        session.deleted_at = datetime.now(timezone.utc)
+        await db.commit()
+        return True
