@@ -31,21 +31,21 @@ class LearningPathForm(BaseModel):
 class LessonParams(BaseModel):
     lesson_type: str = Field(..., description="Type of the lesson")
     title: str = Field(..., description="Title of the lesson")
-    topic: Optional[str] = Field(None, description="Topic of the lesson")
     level: Optional[str] = Field(None, description="Level of the lesson")
-    genre: Optional[str] = Field(None, description="Genre of the lesson")
-    word_count: Optional[int] = Field(None,
-                                      description="Word count of the lesson")
+    topic: Optional[str] = Field(None, description="Topic of the lesson for reading/writing")
     total_sentences: Optional[int] = Field(None,
-                                           description="Total sentences of the lesson")
-    scenario: Optional[str] = Field(None, description="Scenario of the lesson")
+                                           description="Total sentences of the lesson for writing")
+    genre: Optional[str] = Field(None, description="Genre of the lesson for reading")
+    word_count: Optional[int] = Field(None,
+                                      description="Word count of the lesson for reading")
+    scenario: Optional[str] = Field(None, description="Scenario of the lesson for speaking")
     my_character: Optional[str] = Field(None,
-                                        description="My character of the lesson")
+                                        description="My character of the lesson for speaking")
     ai_character: Optional[str] = Field(None,
-                                        description="AI character of the lesson")
+                                        description="AI character of the lesson for speaking")
     ai_gender: Optional[str] = Field(None,
-                                     description="AI gender of the lesson")
-    lesson_id: Optional[int] = Field(None, description="Lesson ID")
+                                     description="AI gender of the lesson for speaking")
+    lesson_id: Optional[int] = Field(None, description="Lesson ID for listening")
 
 
 class LessonsResult(BaseModel):
