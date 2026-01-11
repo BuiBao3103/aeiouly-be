@@ -38,6 +38,7 @@ def create_generator_instruction() -> str:
     - Sử dụng từ vựng và ngữ pháp phù hợp với level
     - Để đếm từ, hệ thống sẽ tách các từ bằng khoảng trắng. Các dấu câu sẽ không được tính là một từ.
     - Tránh các ký tự đặc biệt hoặc định dạng phức tạp có thể ảnh hưởng đến việc đếm từ.
+    - Adapt sentence complexity, vocabulary focus, and error-prone structures based on user_evaluation_history
     
     """
     

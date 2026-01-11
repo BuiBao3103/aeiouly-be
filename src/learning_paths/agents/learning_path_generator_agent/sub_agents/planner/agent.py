@@ -26,19 +26,19 @@ def after_planner_callback(callback_context: CallbackContext) -> None:
 
     return None
 
-
 planner_agent = LlmAgent(
     name="planner_agent",
     model="gemini-2.5-flash-lite",
     description="Allocates lesson counts per skill based on user priorities and profile.",
     instruction="""
     You are an expert educational planner. 
-    Your goal is to allocate the provided `{total_lessons}` total count across Reading, Writing, Speaking, and Listening skills.
+    Your goal is to allocate the provided `{total_lessons}` total count ONLY to the skills specified in `{skills}`.
     
     RULES:
     1. The sum of (reading_count + writing_count + speaking_count + listening_count) MUST exactly equal `{total_lessons}`.
-    2. Prioritize skills listed in `{skills}` (assign them higher counts).
-    3. Ensure the distribution allows for variety throughout the learning path duration.
+    2. EXCLUSIVE ALLOCATION: Assign lesson counts ONLY to the skills explicitly listed in `{skills}`. 
+       - Any skill NOT listed in `{skills}` MUST be assigned a count of 0.
+    3. Distribute the lessons reasonably among the selected skills based on the user's profile.
 
     USER PROFILE FOR PERSONALIZATION:
     - Current English Level: {level}

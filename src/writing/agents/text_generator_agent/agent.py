@@ -77,6 +77,7 @@ text_generator_agent = LlmAgent(
     - Vary sentence structures; use proper punctuation
     - Do NOT greet, instruct, or describe your process
     - Do NOT include English text
+    - Adapt sentence complexity, vocabulary focus, and error-prone structures based on user_evaluation_history
 
     {CEFR_DEFINITIONS}
 
