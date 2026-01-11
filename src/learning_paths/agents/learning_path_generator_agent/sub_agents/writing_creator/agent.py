@@ -1,7 +1,7 @@
 from google.adk.agents import LlmAgent
-from src.learning_paths.schemas import LessonsResult
+from src.learning_paths.schemas import WritingLessons
 from google.adk.agents.callback_context import CallbackContext
-
+from typing import List
 def after_writing_creator_callback(callback_context: CallbackContext) -> None:
 
     state = callback_context.state
@@ -24,8 +24,7 @@ writing_creator_agent = LlmAgent(
 
       REQUIRED OUTPUT STRUCTURE:
       Each lesson MUST contain ALL these fields:
-      - params: Object with ALL 5 REQUIRED fields:
-        - lesson_type: "writing" (fixed value)
+      - params: Object with ALL 4 REQUIRED fields:
         - title: Clear, engaging title
         - topic: string (writing topic/task)
         - level: string (MUST be one of: "A1", "A2", "B1", "B2", "C1", "C2")
@@ -47,7 +46,6 @@ writing_creator_agent = LlmAgent(
 
       EXAMPLE OUTPUT:
       {{
-        "lesson_type": "writing",
         "title": "Viết email xin việc chuyên nghiệp",
         "topic": "Email xin việc vị trí kỹ sư phần mềm",
         "level": "B2",
@@ -56,7 +54,7 @@ writing_creator_agent = LlmAgent(
 
       CRITICAL: All 5 params fields are mandatory. Never omit any field.
       """,
-    output_schema=LessonsResult,
+    output_schema=WritingLessons,
     output_key="writing_output",
     disallow_transfer_to_parent=True,
     disallow_transfer_to_peers=True,

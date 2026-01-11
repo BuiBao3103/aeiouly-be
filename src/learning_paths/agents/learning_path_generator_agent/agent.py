@@ -10,8 +10,8 @@ from google.adk.agents.callback_context import CallbackContext
 # Phase 2: Parallel content generation for each skill
 parallel_creators = ParallelAgent(
     name="content_generation_step",
-    sub_agents=[reading_creator_agent, writing_creator_agent, speaking_creator_agent]
-    # sub_agents=[reading_creator_agent, writing_creator_agent, speaking_creator_agent, listening_creator_agent]
+    # sub_agents=[reading_creator_agent, writing_creator_agent, speaking_creator_agent]
+    sub_agents=[reading_creator_agent, writing_creator_agent, speaking_creator_agent, listening_creator_agent]
 )
 
 # Main pipeline: Sequential flow of planning -> parallel creation -> aggregation

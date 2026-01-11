@@ -50,6 +50,7 @@ intro_message_agent = LlmAgent(
     3. Respond ONLY in English as {{ai_character}} with tone matching gender {{ai_gender}}.
     4. Match vocabulary and grammar to CEFR level {{level}} (simpler for A1-A2).
     5. Sound natural, not robotic. Stay in character. Do NOT mention system or AI tutor.
+    6. Adapt sentence complexity, vocabulary focus, and error-prone structures based on user_evaluation_history
 
     OUTPUT FORMAT:
     Return ONLY a JSON object:

@@ -1,8 +1,8 @@
 from google.adk.agents import LlmAgent
-from src.learning_paths.schemas import LessonsResult
+from src.learning_paths.schemas import SpeakingLessons
 
 from google.adk.agents.callback_context import CallbackContext
-
+from typing import List
 def after_speaking_creator_callback(callback_context: CallbackContext) -> None:
 
     state = callback_context.state
@@ -26,7 +26,6 @@ speaking_creator_agent = LlmAgent(
 
       REQUIRED OUTPUT STRUCTURE:
       Each lesson MUST contain ALL these fields:
-      - lesson_type: "speaking" (fixed value)
       - title: Clear scenario name
       - scenario: string (realistic conversation context)
       - level: string (MUST be one of: "A1", "A2", "B1", "B2", "C1", "C2")
@@ -52,7 +51,6 @@ speaking_creator_agent = LlmAgent(
       EXAMPLE OUTPUT:
       {{
         "title": "Phỏng vấn xin việc công ty công nghệ",
-        "lesson_type": "speaking",
         "scenario": "Phỏng vấn vị trí kỹ sư phần mềm",
         "level": "B1",
         "my_character": "Ứng viên",
@@ -62,7 +60,7 @@ speaking_creator_agent = LlmAgent(
 
       CRITICAL: All 7 params fields are mandatory. Never omit any field.
       """,
-    output_schema=LessonsResult,
+    output_schema=SpeakingLessons,
     output_key="speaking_output",
     disallow_transfer_to_parent=True,
     disallow_transfer_to_peers=True,

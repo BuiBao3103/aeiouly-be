@@ -1,14 +1,14 @@
 from google.adk.agents import LlmAgent
 from google.adk.tools.tool_context import ToolContext
-from src.learning_paths.schemas import LessonsResult
-from typing import List, Dict, Any
+from src.learning_paths.schemas import ListeningLessons
+from typing import List, Dict, Any, List
 from google.adk.agents.callback_context import CallbackContext
+from src.listening.service import ListeningService
 
-
-def search_listening_lessons_tool(topic: str, level: str, count: int, tool_context: ToolContext) -> List[Dict[str, Any]]:
-    """Search for listening lessons from database"""
-    return [{"lesson_id": 1, "title": f"Listening lesson about {topic}", "description": "Practice listening skills.", "goal": "Improve comprehension."}]
-
+async def search_listening_lessons_tool(level: str, tool_context: ToolContext) -> List[Dict[str, Any]]:
+    service = ListeningService()
+    lessons = await service.get_lessons_by_level_with_fallback(level)
+    return [{"lesson_id": l.id, "title": l.title, "level": l.level} for l in lessons]
 
 def after_listening_creator_callback(callback_context: CallbackContext) -> None:
 
@@ -28,24 +28,9 @@ listening_creator_agent = LlmAgent(
     name="listening_creator",
     model="gemini-2.5-flash",
     tools=[search_listening_lessons_tool],
-    description="Generates personalized listening lesson configurations by searching lesson database and matching with user profile.",
+    description="Curates personalized listening lessons from the database.",
     instruction="""
-        You are a listening lesson designer. Generate {lesson_counts.listening_count} listening lessons in Vietnamese.
-
-        REQUIRED OUTPUT STRUCTURE:
-        Each lesson MUST contain ALL these fields:
-        - lesson_type: "listening" (fixed value)
-        - title: Engaging lesson title
-        - description: Brief lesson summary
-        - goal: Specific listening skill target
-        - params: Object with REQUIRED field:
-        - lesson_id: integer (unique identifier from database)
-
-        TASK:
-        1. Use search_listening_lessons_tool to find relevant lessons
-        2. Match lessons to user profile below
-        3. Ensure lesson_id is present for each lesson
-        4. Write all content in Vietnamese
+        You are an expert listening lesson curator. Your primary goal is to provide exactly {lesson_counts.listening_count} listening lessons.
 
         USER PROFILE:
         - Level: {level}
@@ -55,18 +40,29 @@ listening_creator_agent = LlmAgent(
         - Profession: {profession}
         - Age Range: {ageRange}
 
-        EXAMPLE OUTPUT:
-        {{
-        "title": "Nghe hiểu về công nghệ AI",
-        "lesson_type": "listening",
-        "description": "Luyện nghe đoạn hội thoại về ứng dụng AI trong cuộc sống",
-        "goal": "Nắm được từ vựng và ý chính về công nghệ",
-        "params": {{"lesson_id": 42}}
-        }}
+        WORKFLOW:
+        1. CALL `search_listening_lessons_tool` with level="{level}".
+        2. FROM the returned list, SELECT lessons that best match the USER PROFILE above.
 
-        CRITICAL: Never omit lesson_id field.
+        STRICT CONSTRAINTS:
+        - QUANTITY: You MUST return exactly {lesson_counts.listening_count} lessons. This is mandatory.
+        - FALLBACK STRATEGY: If the tool returns fewer than {lesson_counts.listening_count} unique lessons:
+            a) Include all unique lessons provided by the tool.
+            b) REPEAT lessons from the same list until you reach the total count of {lesson_counts.listening_count}.
+        - SELECTION PRIORITY:
+            1. Total count of {lesson_counts.listening_count}.
+            2. Relevance to Interests ({interests}) and Profession ({profession}).
+            3. Closeness to Level ({level}).
+
+        OUTPUT STRUCTURE:
+        Return a JSON object with a "lessons" key. Each item must have:
+        - title: String (from tool)
+        - level: String (from tool)
+        - lesson_id: Integer (from tool)
+
+        CRITICAL: Never omit the lesson_id field. Always ensure exactly {lesson_counts.listening_count} items in the output list.
         """,
-    output_schema=LessonsResult,
+    output_schema=ListeningLessons,
     output_key="listening_output",
     disallow_transfer_to_parent=True,
     disallow_transfer_to_peers=True,

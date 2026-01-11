@@ -238,3 +238,25 @@ async def get_user_sessions(
             detail=f"Lỗi khi lấy danh sách phiên học: {str(e)}"
         )
 
+@router.delete("/listening-sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_session(
+    session_id: int,
+    current_user: User = Depends(get_current_active_user),
+    service: ListeningService = Depends(get_listening_service),
+    db: AsyncSession = Depends(get_db)
+):
+    """Delete a listening session"""
+    try:
+        success = await service.delete_session(session_id, current_user.id, db)
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Không tìm thấy phiên luyện nghe để xóa"
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Lỗi khi xóa phiên học: {str(e)}"
+        )

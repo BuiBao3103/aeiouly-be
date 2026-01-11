@@ -1,4 +1,5 @@
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.orm import Session
 from sqlalchemy import MetaData, event
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import with_loader_criteria
@@ -56,7 +57,7 @@ Base = declarative_base(metadata=metadata)
 try:
     from src.orm_mixins import SoftDeleteMixin
 
-    @event.listens_for(AsyncSession, "do_orm_execute")
+    @event.listens_for(Session, "do_orm_execute")
     def _add_soft_delete_filter(execute_state):
         # Only apply to ORM SELECT statements
         if not execute_state.is_select:

@@ -1,6 +1,7 @@
 from google.adk.agents import LlmAgent
-from src.learning_paths.schemas import LessonsResult
+from src.learning_paths.schemas import ReadingLessons
 from google.adk.agents.callback_context import CallbackContext
+from typing import List
 
 
 def after_reading_creator_callback(callback_context: CallbackContext) -> None:
@@ -25,7 +26,6 @@ reading_creator_agent = LlmAgent(
 
       REQUIRED OUTPUT STRUCTURE:
       Each lesson MUST contain ALL these fields:
-      - lesson_type: "reading" (fixed value)
       - title: Engaging, concise title
       - topic: string (lesson topic)
       - level: string (MUST be one of: "A1", "A2", "B1", "B2", "C1", "C2")
@@ -48,7 +48,6 @@ reading_creator_agent = LlmAgent(
 
       EXAMPLE OUTPUT:
       {{
-        "lesson_type": "reading",
         "title": "Xu hướng công nghệ AI năm 2024",
         "topic": "Công nghệ AI",
         "level": "B1",
@@ -58,7 +57,7 @@ reading_creator_agent = LlmAgent(
 
       CRITICAL: All 6 params fields are mandatory. Never omit any field.
       """,
-    output_schema=LessonsResult,
+    output_schema=ReadingLessons,
     output_key="reading_output",
     disallow_transfer_to_parent=True,
     disallow_transfer_to_peers=True,

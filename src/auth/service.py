@@ -119,6 +119,8 @@ class AuthService:
         user = result.scalar_one_or_none()
         if not user:
             return None
+        if user.is_active is False:
+            raise InvalidCredentialsException("Tài khoản đã bị khóa")
         if not self.verify_password(password, user.hashed_password):
             return None
         return user
