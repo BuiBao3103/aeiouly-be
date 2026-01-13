@@ -12,6 +12,7 @@ class Token(CustomModel):
     refresh_token: str
     token_type: str = "bearer"
     expires_in: int
+    code: Optional[str] = None
 
 
 class GoogleLoginRequest(CustomModel):

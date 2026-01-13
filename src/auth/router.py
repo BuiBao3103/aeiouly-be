@@ -4,13 +4,13 @@ Router for Auth module with DI pattern
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Response, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.auth.schemas import (
-    UserCreate, 
-    UserResponse, 
+    UserCreate,
+    UserResponse,
     UserUpdate,
     UserUpdateResponse,
-    Token, 
+    Token,
     GoogleLoginRequest,
-    PasswordResetRequest, 
+    PasswordResetRequest,
     PasswordResetConfirm,
     PasswordChange,
     LoginRequest,
@@ -18,7 +18,7 @@ from src.auth.schemas import (
 )
 from src.auth.service import AuthService
 from src.auth.dependencies import (
-    get_current_user, 
+    get_current_user,
     get_current_active_user,
     get_refresh_token_from_cookie
 )
@@ -29,14 +29,18 @@ from src.auth.dependencies import validate_token_optional
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
+
 @router.post("/register", response_model=UserResponse)
 async def register(
-    user_data: UserCreate, 
+    user_data: UserCreate,
     service: AuthService = Depends(AuthService),
     db: AsyncSession = Depends(get_db)
 ):
     """Register a new user"""
-    return await service.register_user(user_data, db)
+    user = await service.register_user(user_data, db)
+    user.code = "REGISTER_SUCCESSFULLY"
+    return user
+
 
 @router.post("/login", response_model=Token)
 async def login(
@@ -47,11 +51,11 @@ async def login(
 ):
     """Login user and return access token with cookies"""
     token_data = await service.login(
-        login_data.username, 
-        login_data.password, 
+        login_data.username,
+        login_data.password,
         db
     )
-    
+
     # Set cookies
     response.set_cookie(
         key=settings.ACCESS_TOKEN_COOKIE_NAME,
@@ -63,7 +67,7 @@ async def login(
         domain=settings.COOKIE_DOMAIN,
         path="/"  # Important: set path so cookies are sent for all paths
     )
-    
+
     response.set_cookie(
         key=settings.REFRESH_TOKEN_COOKIE_NAME,
         value=token_data.refresh_token,
@@ -74,7 +78,8 @@ async def login(
         domain=settings.COOKIE_DOMAIN,
         path="/"  # Important: set path so cookies are sent for all paths
     )
-    
+
+    token_data.code = "LOGIN_SUCCESSFULLY"
     return token_data
 
 
@@ -110,7 +115,9 @@ async def login_with_google(
         path="/"
     )
 
+    token_data.code = "GOOGLE_LOGIN_SUCCESSFULLY"
     return token_data
+
 
 @router.post("/refresh", response_model=Token, responses={
     401: {"model": AuthErrorResponse}
@@ -126,11 +133,14 @@ async def refresh_token(
     if not refresh_token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Refresh token not found"
+            detail={
+                "message": "Refresh token not found",
+                "code": "REFRESH_TOKEN_NOT_FOUND"
+            }
         )
-    
+
     token_data = await service.refresh_access_token(refresh_token, db)
-    
+
     # Set new cookies
     response.set_cookie(
         key=settings.ACCESS_TOKEN_COOKIE_NAME,
@@ -142,7 +152,7 @@ async def refresh_token(
         domain=settings.COOKIE_DOMAIN,
         path="/"
     )
-    
+
     response.set_cookie(
         key=settings.REFRESH_TOKEN_COOKIE_NAME,
         value=token_data.refresh_token,
@@ -153,8 +163,10 @@ async def refresh_token(
         domain=settings.COOKIE_DOMAIN,
         path="/"
     )
-    
+
+    token_data.code = "REFRESH_SUCCESSFULLY"
     return token_data
+
 
 @router.post("/logout")
 async def logout(
@@ -167,7 +179,7 @@ async def logout(
     refresh_token = await get_refresh_token_from_cookie(request)
     if refresh_token:
         await service.logout(refresh_token, db)
-    
+
     # Clear cookies (must match attributes used when setting)
     cookie_kwargs = {
         "domain": settings.COOKIE_DOMAIN,
@@ -178,8 +190,9 @@ async def logout(
     }
     response.delete_cookie(settings.ACCESS_TOKEN_COOKIE_NAME, **cookie_kwargs)
     response.delete_cookie(settings.REFRESH_TOKEN_COOKIE_NAME, **cookie_kwargs)
-    
-    return {"message": "Đăng xuất thành công"}
+
+    return {"code": "LOGOUT_SUCCESS"}
+
 
 @router.post("/request-password-reset")
 async def request_password_reset(
@@ -189,7 +202,8 @@ async def request_password_reset(
 ):
     """Request password reset via email"""
     await service.request_password_reset(reset_request.email, db)
-    return {"message": "Nếu tài khoản tồn tại, email đặt lại mật khẩu đã được gửi"}
+    return {"code": "PASSWORD_RESET_REQUEST_SUCCESS"}
+
 
 @router.post("/reset-password")
 async def reset_password(
@@ -199,37 +213,46 @@ async def reset_password(
 ):
     """Confirm password reset with token"""
     await service.reset_password(reset_data, db)
-    return {"message": "Mật khẩu đã được đặt lại thành công"}
+    return {"code": "PASSWORD_RESET_SUCCESS"}
+
 
 @router.post("/change-password")
 async def change_password(
     password_data: PasswordChange,
-    current_user = Depends(get_current_active_user),
+    current_user=Depends(get_current_active_user),
     service: AuthService = Depends(AuthService),
     db: AsyncSession = Depends(get_db)
 ):
     """Change password for authenticated user"""
     await service.change_password(current_user, password_data.current_password, password_data.new_password, db)
-    return {"message": "Đổi mật khẩu thành công"}
+    return {"code": "PASSWORD_CHANGE_SUCCESS"}
+
 
 @router.get("/me", response_model=UserResponse)
 async def get_current_user_info(
-    current_user = Depends(get_current_active_user)
+    current_user=Depends(get_current_active_user)
 ):
     """Get current user information"""
     return current_user
 
+
 @router.delete("/account")
 async def delete_account(
     response: Response,
-    current_user = Depends(get_current_active_user),
+    current_user=Depends(get_current_active_user),
     service: AuthService = Depends(AuthService),
     db: AsyncSession = Depends(get_db)
 ):
     """Soft delete: set is_active=False, revoke refresh tokens, clear cookies"""
     ok = await service.deactivate_user(current_user, db)
     if not ok:
-        raise HTTPException(status_code=500, detail="Không thể vô hiệu hóa tài khoản")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": "Không thể vô hiệu hóa tài khoản",
+                "code": "ACCOUNT_DELETE_FAILED"
+            }
+        )
 
     # Clear cookies (must use same attributes as when setting them)
     cookie_kwargs = {
@@ -241,7 +264,7 @@ async def delete_account(
     }
     response.delete_cookie(settings.ACCESS_TOKEN_COOKIE_NAME, **cookie_kwargs)
     response.delete_cookie(settings.REFRESH_TOKEN_COOKIE_NAME, **cookie_kwargs)
-    return {"message": "Tài khoản đã được vô hiệu hóa"}
+    return {"code": "ACCOUNT_DELETE_SUCCESS"}
 
 
 @router.put("/me", response_model=UserUpdateResponse)
@@ -255,27 +278,42 @@ async def update_user_profile(
     try:
         # Convert Pydantic model to dict, excluding None values
         update_dict = update_data.model_dump(exclude_unset=True)
-        
+
         if not update_dict:
-            raise HTTPException(status_code=400, detail="Không có dữ liệu để cập nhật")
-        
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message": "Không có dữ liệu để cập nhật",
+                    "code": "NO_DATA_TO_UPDATE"
+                }
+            )
+
         updated_user = await service.update_user_profile(current_user, update_dict, db)
-        
-        return UserUpdateResponse(
-            id=updated_user.id,
-            email=updated_user.email,
-            username=updated_user.username,
-            full_name=updated_user.full_name,
-            role=updated_user.role,
-            is_active=updated_user.is_active,
-            avatar_url=updated_user.avatar_url,
-            created_at=updated_user.created_at,
-            updated_at=updated_user.updated_at
-        )
+
+        return {
+            "user": UserUpdateResponse(
+                id=updated_user.id,
+                email=updated_user.email,
+                username=updated_user.username,
+                full_name=updated_user.full_name,
+                role=updated_user.role,
+                is_active=updated_user.is_active,
+                avatar_url=updated_user.avatar_url,
+                created_at=updated_user.created_at,
+                updated_at=updated_user.updated_at,
+            ),
+            "code": "PROFILE_UPDATE_SUCCESSFULLY"
+        }
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Lỗi cập nhật profile: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": f"Lỗi cập nhật profile: {str(e)}",
+                "code": "PROFILE_UPDATE_FAILED"
+            }
+        )
 
 
 @router.post("/me/avatar", response_model=UserUpdateResponse)
@@ -288,7 +326,7 @@ async def upload_user_avatar(
     """Upload avatar for current user"""
     try:
         updated_user = await service.upload_user_avatar(current_user, image, db)
-        
+
         return UserUpdateResponse(
             id=updated_user.id,
             email=updated_user.email,
@@ -298,9 +336,16 @@ async def upload_user_avatar(
             is_active=updated_user.is_active,
             avatar_url=updated_user.avatar_url,
             created_at=updated_user.created_at,
-            updated_at=updated_user.updated_at
+            updated_at=updated_user.updated_at,
+            code="AVATAR_UPLOAD_SUCCESSFULLY"
         )
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Lỗi upload avatar: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": f"Lỗi upload avatar: {str(e)}",
+                "code": "AVATAR_UPLOAD_FAILED"
+            }
+        )
