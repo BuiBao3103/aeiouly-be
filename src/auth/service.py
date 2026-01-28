@@ -130,7 +130,7 @@ class AuthService:
         user = await self.authenticate_user(username, password, db)
         if not user:
             raise InvalidCredentialsException(
-                "Tên đăng nhập hoặc mật khẩu không đúng")
+                "Tên đăng nhập hoặc mật khẩu không đúng", "INVALID_USERNAME_OR_PASSWORD")
 
         # Create access token
         access_token_expires = timedelta(
@@ -260,7 +260,8 @@ class AuthService:
             await db.refresh(user)
 
         # Issue tokens
-        access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token_expires = timedelta(
+            minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
         access_token = self.create_access_token(
             data={"sub": str(user.id), "username": user.username},
             expires_delta=access_token_expires,
@@ -270,7 +271,8 @@ class AuthService:
         db_refresh_token = RefreshToken(
             token=refresh_token,
             user_id=user.id,
-            expires_at=datetime.now(ZoneInfo("UTC")) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+            expires_at=datetime.now(
+                ZoneInfo("UTC")) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
         )
         db.add(db_refresh_token)
         await db.commit()
@@ -328,7 +330,8 @@ class AuthService:
         """Reset user password using reset token"""
         # Find reset token
         result = await db.execute(
-            select(PasswordResetToken).where(PasswordResetToken.token == reset_data.token)
+            select(PasswordResetToken).where(
+                PasswordResetToken.token == reset_data.token)
         )
         reset_token_obj = result.scalar_one_or_none()
         if not reset_token_obj:
@@ -432,15 +435,15 @@ class AuthService:
                 existing_user = await self.get_user_by_username(update_data['username'], db)
                 if existing_user:
                     raise HTTPException(
-                        status_code=400, 
+                        status_code=400,
                         detail="Username đã được sử dụng"
                     )
                 user.username = update_data['username']
-            
+
             # Update full_name if provided
             if 'full_name' in update_data:
                 user.full_name = update_data['full_name']
-            
+
             await db.commit()
             await db.refresh(user)
             return user
@@ -448,36 +451,39 @@ class AuthService:
             raise
         except Exception as e:
             await db.rollback()
-            raise HTTPException(status_code=500, detail=f"Lỗi cập nhật profile: {str(e)}")
+            raise HTTPException(
+                status_code=500, detail=f"Lỗi cập nhật profile: {str(e)}")
 
     async def upload_user_avatar(self, user: User, image: UploadFile, db: AsyncSession) -> User:
         """Upload avatar for user"""
         from src.storage import S3StorageService
-        
+
         # Validate content-type
         if not image.content_type or not image.content_type.startswith("image/"):
-            raise HTTPException(status_code=400, detail="File phải là hình ảnh")
-        
+            raise HTTPException(
+                status_code=400, detail="File phải là hình ảnh")
+
         try:
             storage_service = S3StorageService()
-            
+
             # Delete old avatar if exists and it's not the default avatar
             if user.avatar_url and user.avatar_url != settings.DEFAULT_AVATAR_URL:
                 storage_service.delete_file(user.avatar_url)
-            
+
             # Upload new avatar to S3
             url = storage_service.upload_fileobj(
-                image.file, 
-                image.content_type, 
+                image.file,
+                image.content_type,
                 key_prefix="avatars/"
             )
-            
+
             # Update user with new avatar URL
             user.avatar_url = url
             await db.commit()
             await db.refresh(user)
-            
+
             return user
         except Exception as e:
             await db.rollback()
-            raise HTTPException(status_code=500, detail=f"Lỗi upload avatar: {str(e)}")
+            raise HTTPException(
+                status_code=500, detail=f"Lỗi upload avatar: {str(e)}")
