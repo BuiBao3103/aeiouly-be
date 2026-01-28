@@ -10,9 +10,10 @@ class BaseResponse(BaseModel, Generic[T]):
     code: str = Field(..., description="Mã định danh kết quả của yêu cầu")
     data: T = Field(..., description="Dữ liệu trả về của yêu cầu")
     success: bool = Field(..., description="Trạng thái thành công của yêu cầu")
+    status : int = Field(..., description="Mã trạng thái HTTP của phản hồi")
 
 
-def create_response(data: T, message: str = "Thành công", code: str = "SUCCESS") -> BaseResponse[T]:
+def create_response(data: T, message: str = "Thành công", code: str = "SUCCESS", status: int = 200) -> BaseResponse[T]:
     """
     Tạo một phản hồi cơ bản
     """
@@ -20,11 +21,12 @@ def create_response(data: T, message: str = "Thành công", code: str = "SUCCESS
         message=message,
         code=code,
         data=data,
-        success=True
+        success=True,
+        status=status
     )
 
 
-def create_error_response(message: str, code: str) -> BaseResponse[None]:
+def create_error_response(message: str, code: str, status: int = 400) -> BaseResponse[None]:
     """
     Tạo một phản hồi lỗi cơ bản
     """
@@ -32,11 +34,12 @@ def create_error_response(message: str, code: str) -> BaseResponse[None]:
         message=message,
         code=code,
         data=None,
-        success=False
+        success=False,
+        status=status
     )
 
 
-def create_empty_response(message: str = "Không có dữ liệu", code: str = "NO_DATA") -> BaseResponse[None]:
+def create_empty_response(message: str = "Không có dữ liệu", code: str = "NO_DATA", status: int = 204) -> BaseResponse[None]:
     """
     Tạo một phản hồi trống cơ bản
     """
@@ -44,11 +47,12 @@ def create_empty_response(message: str = "Không có dữ liệu", code: str = "
         message=message,
         code=code,
         data=None,
-        success=True
+        success=True,
+        status=status
     )
 
 
-def create_custom_response(data: T, message: str, code: str, success: bool) -> BaseResponse[T]:
+def create_custom_response(data: T, message: str, code: str, success: bool, status: int) -> BaseResponse[T]:
     """
     Tạo một phản hồi tùy chỉnh cơ bản
     """
@@ -56,5 +60,6 @@ def create_custom_response(data: T, message: str, code: str, success: bool) -> B
         message=message,
         code=code,
         data=data,
-        success=success
+        success=success,
+        status=status
     )

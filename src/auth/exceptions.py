@@ -25,12 +25,12 @@ class UserAlreadyExistsException(AuthException):
         )
 
 class InvalidCredentialsException(AuthException):
-    def __init__(self,detail: str = "Thông tin đăng nhập không hợp lệ"):
+    def __init__(self,detail: str = "Thông tin đăng nhập không hợp lệ",code: str = "INVALID_CREDENTIALS"):
         super().__init__(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={
                 "message": detail,
-                "code": "INVALID_CREDENTIALS"
+                "code": code
             }
         )
 
